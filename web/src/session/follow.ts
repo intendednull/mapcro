@@ -85,6 +85,20 @@ export function whereTo(theirs: RecordId | null | undefined, mine: RecordId | un
   return ok === undefined ? { kind: "ask", tab: row } : ok ? { kind: "go", tab: row.id } : { kind: "no-access", tab: row };
 }
 
+/**
+ * What a follow knows of the boards this page may open, once the strip has heard about one (§6.3).
+ * A refusal is known at once. A yes isn't trusted: the strip asks as the page opens, and a grant
+ * withdrawn after that would land the follower on a dead tab, so a follow still asks before it
+ * goes. A yes only clears a refusal heard before (the tab opens again: undo put it back).
+ */
+export function stripHeard(known: ReadonlyMap<string, boolean>, key: string, ok: boolean): ReadonlyMap<string, boolean> {
+  if (!ok) return known.get(key) === false ? known : new Map(known).set(key, false);
+  if (known.get(key) !== false) return known;
+  const next = new Map(known);
+  next.delete(key);
+  return next;
+}
+
 /** The session's presenters this page could follow onto another tab: followed, seated, on a
  * tab that isn't `mine`, and not the one already followed. */
 export function farPresenters(peers: PeerPresence[], me: number | undefined, iFollow: number | undefined, mine: RecordId | undefined) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { rejection, statusView } from "../src/board/status";
+import { asksName, rejection, statusView } from "../src/board/status";
 
 const live = { kind: "live", role: "owner" } as const;
 describe("save status", () => {
@@ -27,5 +27,27 @@ describe("save status", () => {
     expect(v.kind).toBe("rejected");
     expect(v.text).toBe("Board full");
     expect(statusView({ kind: "saved" }, live, false, "ServerFull").text).toBe("Server full");
+  });
+});
+
+describe("the join card (sessions.md §8)", () => {
+  const refused = { kind: "closed", reason: "unauthorized" } as const;
+  const revoked = { kind: "closed", reason: "revoked" } as const;
+  const outdated = { kind: "closed", reason: "outdated" } as const;
+  it("a board alone asks while it connects, and not once it's refused", () => {
+    expect(asksName(false, { kind: "connecting", attempt: 0 }, false)).toBe(true);
+    expect(asksName(false, live, false)).toBe(true);
+    expect(asksName(false, refused, false)).toBe(false);
+    expect(asksName(false, revoked, false)).toBe(false);
+  });
+  it("a session's tab asks even when its board refuses: the name is the session's", () => {
+    expect(asksName(false, refused, true)).toBe(true);
+    expect(asksName(false, revoked, true)).toBe(true);
+    expect(asksName(false, live, true)).toBe(true);
+  });
+  it("an outdated build offers the update alone, and someone who gave a name isn't asked", () => {
+    expect(asksName(false, outdated, true)).toBe(false);
+    expect(asksName(false, outdated, false)).toBe(false);
+    for (const c of [live, refused, outdated]) for (const session of [true, false]) expect(asksName(true, c, session)).toBe(false);
   });
 });

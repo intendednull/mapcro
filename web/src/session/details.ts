@@ -5,7 +5,8 @@
 // never opens a board's room. The open tab's board says its own (its match, tier and job), so
 // it costs no request. A tab is asked about again once it is left here (its match may have
 // changed), while its job is under way, and every `REASK_MS` while someone in the session is on
-// it (only the people on a board change its match).
+// it (only the people on a board change its match). A tab the server doesn't answer is asked less
+// and less often (`quietFor`), until an answer says the server is back.
 
 import { createSignal } from "solid-js";
 import { type JobState, busy } from "../player/api";
@@ -30,6 +31,13 @@ export interface TabDetails {
 
 /** How often a tab in view that someone is on is asked about again. */
 export const REASK_MS = 10_000;
+
+/** The longest a tab with no answer waits to be asked again. */
+export const QUIET_MAX_MS = 60_000;
+
+/** How long a tab waits after `misses` asks in a row with no answer: one is a blip, asked again
+ * at the next tick; then 10 s, doubling up to `QUIET_MAX_MS`. */
+export const quietFor = (misses: number) => (misses < 2 ? 0 : Math.min(QUIET_MAX_MS, 5_000 * 2 ** (misses - 1)));
 
 export const TEAM_LABEL: Record<Team, string> = { amber: "Amber", sapphire: "Sapphire" };
 
@@ -82,7 +90,8 @@ export interface DetailsSource {
 /**
  * The strip's details, by tab key (a board and the grant it opens through). `seen` asks for a
  * tab's once; `again` asks again for those in view that want it (a job under way, no answer);
- * `left` forgets one, to be asked again; `shown` takes the open tab's from its board.
+ * `left` forgets one, to be asked again; `shown` takes the open tab's from its board; `wake` ends
+ * the waits of tabs that had no answer.
  */
 export function createTabDetails(src: DetailsSource, clock: () => number = Date.now) {
   const [all, setAll] = createSignal<ReadonlyMap<string, TabDetails>>(new Map());
@@ -97,6 +106,22 @@ export function createTabDetails(src: DetailsSource, clock: () => number = Date.
     const d = all().get(key);
     // Only onto the same match's details: a newer answer about another match replaced them.
     if (d?.kind === "ready" && d.match === match) put(key, { ...d, ...more });
+  };
+  /** A job's answer. The open tab's board says its own job: an answer from before it opened
+   * here is older than that. */
+  const jobSaid = (key: string, match: string, job: JobState | undefined) => {
+    if (!all().get(key)?.own) patch(key, match, { job });
+  };
+  /** The tabs the server gave no answer for: how many asks in a row, and when to ask next. */
+  const quiet = new Map<string, { misses: number; until: number }>();
+  const unheard = (key: string, askedAt: number) => {
+    const misses = (quiet.get(key)?.misses ?? 0) + 1;
+    quiet.set(key, { misses, until: askedAt + quietFor(misses) });
+  };
+  /** An answer. From a tab that had none, the server is back: no tab waits any longer. A tab that
+   * always answered says nothing of the others, one failing alone keeps its wait. */
+  const heard = (key: string) => {
+    if (quiet.delete(key)) quiet.clear();
   };
   const asking = new Set<string>();
   /** When each tab's matches were last asked for. */
@@ -113,13 +138,16 @@ export function createTabDetails(src: DetailsSource, clock: () => number = Date.
     try {
       const had = all().get(key);
       if (!had) put(key, { kind: "loading" });
-      askedAt.set(key, clock());
+      const at = clock();
+      askedAt.set(key, at);
       const m = await src.matches(key);
       if (m === undefined) {
         // No answer: not known; asked again while in view.
+        unheard(key, at);
         if (all().get(key)?.kind === "loading") put(key, undefined);
         return;
       }
+      heard(key);
       src.opened?.(key, m !== "refused");
       if (m === "refused") return void put(key, { kind: "refused" });
       const match = m[0] === undefined ? undefined : String(m[0]);
@@ -132,8 +160,7 @@ export function createTabDetails(src: DetailsSource, clock: () => number = Date.
       const duration = src.held?.(key, match);
       if (duration !== undefined) patch(key, match, { duration });
       preview(key, match);
-      const job = await src.job(key, match);
-      patch(key, match, { job });
+      jobSaid(key, match, await src.job(key, match));
     } finally {
       asking.delete(key);
       if (redo.delete(key)) void load(key);
@@ -144,8 +171,12 @@ export function createTabDetails(src: DetailsSource, clock: () => number = Date.
     if (asking.has(key)) return;
     asking.add(key);
     try {
+      const at = clock();
       const j = await src.job(key, match);
-      if (j) patch(key, match, { job: j });
+      if (j) {
+        heard(key);
+        jobSaid(key, match, j);
+      } else unheard(key, at);
     } finally {
       asking.delete(key);
       // A load asked for meanwhile (the tab was left) runs now.
@@ -165,6 +196,8 @@ export function createTabDetails(src: DetailsSource, clock: () => number = Date.
         const d = all().get(key);
         // The open tab's board says its own (`shown`): nothing to ask.
         if (d?.own) continue;
+        // No answer lately: it waits its turn.
+        if (clock() < (quiet.get(key)?.until ?? -Infinity)) continue;
         if (occupied.has(key) && d?.kind !== "loading" && clock() - (askedAt.get(key) ?? -Infinity) >= REASK_MS) void load(key);
         else if (!wantsAgain(d)) continue;
         else if (d?.kind === "ready") {
@@ -172,6 +205,9 @@ export function createTabDetails(src: DetailsSource, clock: () => number = Date.
         } else void load(key);
       }
     },
+    /** The server is back (the session's own connection is live): the tabs that had no answer
+     * are asked at the next tick, whatever they were waiting for. */
+    wake: () => quiet.clear(),
     /** Its board was left here: what it shows may have changed, so it's asked about again. */
     left(key: string) {
       const d = all().get(key);
