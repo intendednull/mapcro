@@ -52,6 +52,7 @@ the code for when it does.
 
 | Check | Result |
 |---|---|
+| (The whole-suite runs below are at `12cdb3c`; `e3b86b7` and `6645298` came after, checked by `tsc`, `shown.test.ts` and the last row) | |
 | Quick e2e first (dom pins, vision, lanes, names, scene-hero, heroes-live, stats) | 31 passed, 1 skipped; the pins unchanged |
 | `just web-test` | 0: 79 files, 850 passed, 1 skipped; `tsc` clean; tree unchanged after `just ts` |
 | `just e2e --workers 2` | 514 passed, 16 skipped, 1 failed: `caddy-timeline.spec.ts` (a cached timeline's ETag through Caddy; nothing here touches it); it passed alone at the tip (`job2.sh`). The two `✘` of `frozen-write-guard` are its `test.fail()` |
@@ -93,8 +94,8 @@ holding the reference replay's cached timeline and the local packs; `/tmp/msp4-q
 
 1. **Health arcs on a scene's tokens: not drawn.** A scene saved from the replay holds each
    hero's health, and Player draws it as an arc under Health. Phase 4 ships decided changes only,
-   so the token keeps the arc Player's; `scene-builds.spec.ts` now pins that. Drawing it is one
-   line in `playerHero`'s scene twin; say if it should.
+   so the token keeps the arc Player's; `scene-builds.spec.ts` now pins that. Drawing it is a
+   small change in `Tokens.tsx` (the arc reading `HeroState.health` under Health); say if it should.
 2. **A scene's own name (`more.name`) wins on the token** (D2's order, as `fromScene` reads it).
    Nothing writes it yet; the scene's top bar still ignores it (TD-120, step 4).
 3. The e2e mutant left missed (`alive` from the sample, above): accepted, or a fixture with a
