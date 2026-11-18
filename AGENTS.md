@@ -28,8 +28,10 @@ shared: run heavy jobs alone and keep the load low.
 
 - **Worktrees:** each agent works in its own worktree and branch off `main`
   (`mapcro.worktrees/<name>`). The lead merges, gates and deploys.
-- **Privacy:** never write player names or account ids anywhere: docs, commits, logs, probe
-  output. Never list Steam directories or `/`. Open only the extractor's allow-listed game files.
+- **Privacy:** never write account ids anywhere: docs, commits, logs, probe output. Keep player
+  names out of anything committed (docs, commits, fixtures); in local logs, probe output and agent
+  transcripts they're fine. Never list Steam directories or `/`. Open only the extractor's
+  allow-listed game files.
 - **Game art is never committed:** not packs, extracted images, or screenshots and mocks that
   show them.
 - **Data:** standard 6v6 replays only (`game_mode == 1`). Match 122134063 is Street Brawl and
