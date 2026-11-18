@@ -30,7 +30,7 @@
 .pl-step { font-size: 17px; }
 /* The current speed: a tag on Play's foot, on the centre line, so no speed moves a key. */
 .pl-speed { position: absolute; left: 50%; bottom: -6px; z-index: 1; transform: translateX(-50%); pointer-events: none; }
-.pl-speed-now { display: block; height: 16px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--brass-dim); background: var(--bg-deep); color: var(--text); font: 700 11px / 14px var(--ui); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pl-speed-now { display: block; height: 18px; padding: 0 6px; box-sizing: border-box; border-radius: 999px; border: 1px solid var(--brass-dim); background: var(--bg-deep); color: var(--text); font: 700 12px / 16px var(--ui); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pl-speed-list { display: none; }
 
 /* ---- The timeline: --p is the played share (Player.tsx), --trk the track's thickness ---- */
@@ -81,6 +81,10 @@
    holds its full height while a match loads, so the tools and the map don't jump when the timeline
    arrives after the summary. */
 .board-app .stage > .dock > .pl-bar { min-height: 133px; align-content: start; }
+/* The source opens from the bar's top edge, over the map: the lane, the keys and a notice stay in use. */
+.board-app .dock > .pl-bar > .pl-source { position: static; }
+.board-app .dock > .pl-bar .pl-source .pl-head { left: 12px; }
+.board-app .dock > .pl-bar:has(> .pl-transport) .pl-source .pl-head { left: 20px; }
 .board-app .dock > .pl-bar:has(> .pl-transport) {
   display: grid; align-items: center; column-gap: 12px; row-gap: 0; padding: 10px 20px 12px;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -168,6 +172,7 @@
   /* The word stays for a screen reader. */
   .board-app .dock .pl-source-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .board-app .dock .pl-bar .pl-source > summary { padding: 0 10px; }
+  .board-app .dock > .pl-bar:has(> .pl-transport) .pl-source .pl-head { left: min(12px, 2cqi); }
 }
 
 /* ---- Touch: the phone and tablet shell ----
@@ -193,7 +198,7 @@
 .phone-player .pl-skip .pl-skip-arc { width: 34px; height: 34px; }
 .phone-player .pl-skip-n { font-size: 12px; }
 .phone-player .pl-keys .pl-step { width: 44px; min-width: 44px; height: 44px; border: 1px solid var(--line); background: var(--raised); font-size: 18px; }
-.phone-player .pl-speed-list { grid-area: before; justify-self: start; width: auto; height: 44px; min-width: 56px; padding: 0 10px; border-radius: 999px; font-weight: 700; background: var(--raised); }
+.phone-player .pl-speed-list { grid-area: before; justify-self: start; height: 44px; width: 60px; min-width: 0; padding: 0 2px 0 8px; border-radius: 999px; font-weight: 700; background: var(--raised); }
 .phone-player .pl-transport > .pl-tail { grid-area: scrub; justify-self: start; width: var(--clock-w); min-width: 0; margin: 0; }
 /* The clock takes what's left: one line where it fits, else the time over the length. */
 .phone-player .pl-tail .match-clock { flex: 0 1 auto; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: .25em; font-size: 14px; font-weight: 700; line-height: 16px; }
@@ -209,6 +214,7 @@
 .phone-player .pl-bar:has(.p-rail) .pl-transport > .pl-scrub { margin-left: 0; }
 .phone-player .pl-bar:has(.p-rail) :is(.pl-step, .pl-speed, .pl-speed-list, .pl-skip, .pl-tail) { display: none; }
 
+@media (max-width: 340px) { .phone-player .pl-bar { column-gap: 4px; } }
 @media (orientation: portrait) and (max-width: 480px) {
   .phone-player .pl-keys :is(.pl-step, .pl-speed) { display: none; }
   .phone-player .pl-bar:not(:has(.p-rail)) .pl-speed-list { display: block; }

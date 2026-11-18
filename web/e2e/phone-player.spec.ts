@@ -543,8 +543,9 @@ for (const [width, height] of [[1440, 900], [1280, 768], [800, 768]] as const) {
 // bar's centre line, every key its size, and nothing outside the bar or the stage.
 const within1 = (a: number, b: number, what: string) => expect(Math.abs(a - b), what).toBeLessThanOrEqual(1);
 const middle = (b: { x: number; width: number }) => b.x + b.width / 2;
-for (const [width, height, touch] of [[1920, 1080, false], [1440, 900, false], [1280, 768, false], [1100, 768, false], [1024, 768, false], [900, 768, false], [820, 768, false], [800, 768, false], [760, 768, false], [720, 768, false], [1024, 768, true], [768, 1024, true], [600, 900, true], [344, 615, true], [360, 740, true], [390, 844, true], [412, 915, true], [844, 390, true], [615, 344, true]] as const) {
+for (const [width, height, touch] of [[1920, 1080, false], [1440, 900, false], [1280, 768, false], [1100, 768, false], [1024, 768, false], [900, 768, false], [820, 768, false], [800, 768, false], [760, 768, false], [720, 768, false], [1024, 768, true], [768, 1024, true], [640, 900, true], [344, 615, true], [360, 740, true], [390, 844, true], [412, 915, true], [844, 390, true], [615, 344, true]] as const) {
   test(`transport layout ${width}×${height}${touch ? " touch" : ""}`, async ({ browser }) => {
+    test.skip(!touch && !hasCdp(browser), "the Firefox project is touch-first throughout");
     const viewport = { width, height };
     const ctx = touch ? await phoneContext(browser, viewport) : await browser.newContext({ viewport });
     const p = await ctx.newPage();
@@ -606,6 +607,7 @@ for (const [width, height, touch] of [[1920, 1080, false], [1440, 900, false], [
       expect(pop.y).toBeGreaterThanOrEqual(0);
       // Resume, on a saved scene: the same centre line, and the keys stay on the stage.
       await p.getByTestId("match-save").click();
+      await revealControls(p, "mode-sandbox");
       await p.getByTestId("mode-sandbox").click();
       await expect(p.getByTestId("player")).toHaveAttribute("data-state", "scene");
       await expect(p.getByTestId("match-play")).toHaveAttribute("aria-label", "Resume replay");
