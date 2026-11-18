@@ -9,6 +9,17 @@
 
 export const LONG_PRESS_MS = 500;
 export const LONG_PRESS_PX = 10;
+/** How far from the finger's centre a hold still finds a thing: half a 44 px touch target. A
+ *  phone's numbered pin is far smaller than a fingertip. */
+export const LONG_PRESS_REACH = 22;
+
+/** Where to look for what a finger holds, nearest first: its centre, then rings out to the reach. */
+export function reachPoints(x: number, y: number): Array<{ x: number; y: number }> {
+  const out = [{ x, y }];
+  for (const r of [8, 16, LONG_PRESS_REACH])
+    for (let i = 0; i < 12; i++) out.push({ x: x + r * Math.cos((i * Math.PI) / 6), y: y + r * Math.sin((i * Math.PI) / 6) });
+  return out;
+}
 
 /**
  * Watch a touch press: `fire` runs if the finger stays within `LONG_PRESS_PX` of where it went

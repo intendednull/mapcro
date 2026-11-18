@@ -1,5 +1,5 @@
-// A placed thing's menu on touch (TD-107): a long press (a finger held still, longPress.ts) on a
-// comment, an arrow or a stroke opens the menu a right click opens, in Select, for editors. A
+// A placed thing's menu on touch (TD-107): a long press (a finger held still, longPress.ts) on or
+// just beside a comment, an arrow or a stroke opens the menu a right click opens, in Select, for editors. A
 // drag, a pan or a pinch opens nothing, and a tap does what it did. The phone's numbered pins
 // have no side; the desktop layout on a touch screen has them. Each "opens nothing" row ends
 // with a long press that opens the menu, so it can't pass on a board with no long press at all.
@@ -302,6 +302,38 @@ test("a pan onto a pin, and a pinch with a finger held on it, open no menu", asy
   await longPress(f, await centre(pin));
   await expect(menu(t)).toBeVisible();
   await f.lift(1);
+});
+
+test("a hold beside a small pin finds it; a hold on a hero beside it, or on empty map, opens nothing", async ({ browser }) => {
+  const url = await newBoardUrl(server, "touch reach");
+  const a = await joinNew(browser, url, "Coach");
+  // A comment just beside a hero that stands on the map.
+  const slot = await a.locator(".mapbox .tok[data-slot]").first().getAttribute("data-slot");
+  const tok = await centre(a.locator(`.mapbox .tok[data-slot="${slot}"]`));
+  await a.keyboard.press("s");
+  await a.mouse.click(tok.x + 34, tok.y);
+  await a.getByTestId("comment-input").fill("Smoke the bridge");
+  await a.keyboard.press("Enter");
+  await a.keyboard.press("q");
+  await expect(a.locator(".mapbox [data-callout]")).toHaveCount(1);
+  const t = await touchEditor(browser, url, SMALL);
+  const f = await fingers(browser, t);
+  // On the hero: its own press, no menu, though the pin is within reach.
+  await longPress(f, await centre(t.locator(`.p-map .tok[data-slot="${slot}"]`)));
+  await expect(menu(t)).toHaveCount(0);
+  await f.lift(1);
+  // Far from anything placed: nothing.
+  const pin = await centre(t.locator(".p-map [data-callout]"));
+  const box = (await t.getByTestId("map").boundingBox())!;
+  await longPress(f, { x: box.x + box.width / 2, y: pin.y > box.y + box.height / 2 ? box.y + 30 : box.y + box.height - 30 });
+  await expect(menu(t)).toHaveCount(0);
+  await f.lift(1);
+  // Beside the pin, on the side away from the hero: its menu.
+  const side = pin.x >= (await centre(t.locator(`.p-map .tok[data-slot="${slot}"]`))).x ? 14 : -14;
+  await longPress(f, { x: pin.x + side, y: pin.y });
+  await expect(menu(t)).toBeVisible();
+  await f.lift(1);
+  await expect(menu(t)).toHaveAttribute("aria-label", "Comment");
 });
 
 test("on a touch screen's desktop layout, a tap opens a comment and a long press sets its side, for everyone", async ({ browser }) => {

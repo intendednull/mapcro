@@ -18,7 +18,7 @@
 import { For, Index, Show, createEffect, createMemo, createSignal, createUniqueId, onCleanup, onMount, untrack, type Signal } from "solid-js";
 import { capture } from "../ui/capture";
 import { touchGestures } from "./touchGestures";
-import { longPress } from "./longPress";
+import { longPress, reachPoints } from "./longPress";
 import { PALETTE, colorOf, inkOn } from "../core/device";
 import type { Arrow } from "../gen/Arrow";
 import type { Callout } from "../gen/Callout";
@@ -568,17 +568,28 @@ export function Layers(p: {
     return <ContextMenu at={m.at} label={m.kind === "Callout" ? "Comment" : m.kind === "Arrow" ? "Arrow" : "Drawing"} testid="placed-menu" items={items} onClose={() => setMenu(undefined)} />;
   };
 
-  // A finger held still on a placed thing (Select): the gesture it started (a drag, a tap that
-  // opens a comment) ends uncommitted, as a pinch ends it, and the menu opens there.
+  // A finger held still on or beside a placed thing (Select): the gesture it started (a drag, a
+  // tap that opens a comment) ends uncommitted, as a pinch ends it, and the menu opens there. Only
+  // what is on top at each point counts, so nothing is found through a hero or a sheet.
   let holding: (() => void) | undefined;
   onCleanup(() => holding?.());
-  const hold = (e: PointerEvent, placed: { kind: Placed; id: RecordId }) => {
+  const placedNear = (svg: SVGSVGElement, x: number, y: number) => {
+    for (const q of reachPoints(x, y)) {
+      const el = document.elementFromPoint(q.x, q.y);
+      const placed = el && svg.contains(el) ? placedAt(el) : undefined;
+      if (placed) return placed;
+    }
+    return undefined;
+  };
+  const hold = (e: PointerEvent) => {
     holding?.();
     const at = { x: e.clientX, y: e.clientY };
     holding = longPress(e, () => {
       holding = undefined;
       const svg = p.svg();
-      if (!svg || p.tool !== "select" || !editor() || !placedRecord(placed)) return;
+      if (!svg || p.tool !== "select" || !editor()) return;
+      const placed = placedNear(svg, at.x, at.y);
+      if (!placed) return;
       svg.dispatchEvent(new PointerEvent("pointercancel", { pointerId: e.pointerId, pointerType: "touch", bubbles: true, clientX: at.x, clientY: at.y }));
       setMenu({ ...placed, at });
     });
@@ -587,10 +598,8 @@ export function Layers(p: {
   const down = (e: PointerEvent) => {
     const svg = p.svg();
     if (!svg) return;
-    if (e.pointerType === "touch" && e.button === 0 && p.tool === "select") {
-      const placed = placedAt(e.target as Element);
-      if (placed) hold(e, placed);
-    }
+    // A hero or a death skull keeps its own press, whatever lies beside it.
+    if (e.pointerType === "touch" && e.button === 0 && p.tool === "select" && !(e.target as Element).closest?.(".tok, .pl-skull")) hold(e);
     // A press anywhere but on a comment closes the open one.
     const onComment = (e.target as Element).closest?.("[data-callout]")?.getAttribute("data-callout");
     if (!onComment) p.setOpenComment(undefined);
