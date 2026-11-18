@@ -195,6 +195,7 @@ for (const viewport of [PHONE, TABLET, SMALL]) {
 
     // Back to no colour: one write, seen by the other.
     await longPress(f, await centre(pin));
+    await expect(menu(t)).toBeVisible();
     await f.lift(1);
     await expect(menu(t).getByTestId("recolour-1")).toHaveAttribute("aria-checked", "true");
     await menu(t).getByTestId("recolour-none").tap();
@@ -205,6 +206,7 @@ for (const viewport of [PHONE, TABLET, SMALL]) {
     const arrowHit = t.locator(`.p-map [data-arrow="${arrow}"] .hit`);
     const was = await a.locator(`.mapbox [data-arrow="${arrow}"] .hit`).getAttribute("d");
     await longPress(f, await centre(arrowHit));
+    await expect(menu(t)).toBeVisible();
     await f.lift(1);
     await expect(menu(t)).toHaveAttribute("aria-label", "Arrow");
     await menu(t).getByTestId("recolour-4").tap();
@@ -213,6 +215,7 @@ for (const viewport of [PHONE, TABLET, SMALL]) {
 
     // The stroke: a drawing's ink always has a colour, so no No colour.
     await longPress(f, await centre(t.locator(`.p-map [data-stroke="${stroke}"] .hit`)));
+    await expect(menu(t)).toBeVisible();
     await f.lift(1);
     await expect(menu(t)).toHaveAttribute("aria-label", "Drawing");
     await expect(menu(t).getByTestId("recolour-none")).toHaveCount(0);
@@ -366,6 +369,36 @@ test("a hold beside a small pin finds it; a hold on a hero beside it, or on empt
   await expect(menu(t)).toHaveCount(0);
   await f.lift(1);
   await expect(menu(t)).toHaveCount(0);
+});
+
+test("a long press in the comment being typed keeps the editor and its text, and opens no menu", async ({ browser }) => {
+  const url = await newBoardUrl(server, "touch typing");
+  const a = await joinNew(browser, url, "Coach");
+  await placeAll(a);
+  const t = await touchEditor(browser, url, { width: 1440, height: 900 });
+  const f = await fingers(browser, t);
+  const co = t.locator(".mapbox [data-callout]");
+  await co.locator("text").first().dblclick();
+  const input = t.getByTestId("comment-input");
+  await expect(input).toBeVisible();
+
+  // Held in the field: still typing, whatever lies beside the finger.
+  await longPress(f, await centre(input));
+  await f.lift(1);
+  await sleep(200);
+  await expect(menu(t)).toHaveCount(0);
+  await expect(input).toBeVisible();
+  await expect(input).toHaveValue("Smoke the bridge");
+
+  // Emptied and held (to paste, say): the comment isn't deleted.
+  await input.fill("");
+  await longPress(f, await centre(input));
+  await f.lift(1);
+  await sleep(200);
+  await expect(menu(t)).toHaveCount(0);
+  await expect(input).toBeVisible();
+  await t.keyboard.press("Escape");
+  await expect.poll(() => ids(a, "data-callout").then((c) => c.length)).toBe(1);
 });
 
 test("on a touch screen's desktop layout, a tap opens a comment and a long press sets its side, for everyone", async ({ browser }) => {

@@ -585,7 +585,9 @@ export function Layers(p: {
     holding = longPress(e, () => {
       holding = undefined;
       const svg = p.svg();
-      if (!svg || p.tool !== "select" || !editor()) return;
+      // Not while a comment is being typed: the menu would take the focus, and the blur commits
+      // the text (an empty field deletes the comment).
+      if (!svg || p.tool !== "select" || !editor() || editing()) return;
       const placed = placedNear(svg, at.x, at.y);
       if (!placed) return;
       svg.dispatchEvent(new PointerEvent("pointercancel", { pointerId: e.pointerId, pointerType: "touch", bubbles: true, clientX: at.x, clientY: at.y }));
@@ -597,8 +599,9 @@ export function Layers(p: {
   const down = (e: PointerEvent) => {
     const svg = p.svg();
     if (!svg) return;
-    // A hero or a death skull keeps its own press, whatever lies beside it.
-    if (e.pointerType === "touch" && e.button === 0 && p.tool === "select" && !(e.target as Element).closest?.(".tok, .pl-skull")) hold(e);
+    // A hero, a death skull, a wave's handle and the comment being typed keep their own press,
+    // whatever lies beside them.
+    if (e.pointerType === "touch" && e.button === 0 && p.tool === "select" && !(e.target as Element).closest?.(".tok, .pl-skull, .wave-hit, .co.editing")) hold(e);
     // A press anywhere but on a comment closes the open one.
     const onComment = (e.target as Element).closest?.("[data-callout]")?.getAttribute("data-callout");
     if (!onComment) p.setOpenComment(undefined);
