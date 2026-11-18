@@ -14,6 +14,7 @@
 
 /* ---- The keys ---- */
 .pl-keys { position: relative; display: flex; align-items: center; justify-content: center; }
+.pl-keys .btn { padding: 0; flex: none; }
 .pl-ico { width: 22px; height: 22px; fill: currentColor; flex: none; }
 .pl-play { justify-content: center; padding: 0; border-radius: 50%; background: var(--brass); border-color: var(--brass); color: #1b1408; }
 .pl-play:hover { background: color-mix(in srgb, var(--brass) 85%, #fff); }

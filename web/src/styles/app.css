@@ -12,7 +12,8 @@
 
 .app { position: relative; }
 .board-app .main { grid-template-columns: 1fr 318px; }
-.board-app .stage { overflow: hidden; }
+/* Clip, not hidden: a hidden box still scrolls to a focused control, sideways under the panels (TD-121). */
+.board-app .stage { overflow: clip; }
 
 /* The map takes the largest square the stage allows. */
 .board-app .mapbox {
@@ -652,8 +653,6 @@ svg[data-tool="select"] .pl-skull[data-recap] { pointer-events: auto; cursor: po
   .board-app .dock .toolbar .tb .k { display: none; }
 }
 .p-map-wrap > .map-controls { position: relative; top: auto; bottom: auto; left: auto; right: auto; flex-wrap: wrap; margin: 0 0 8px; }
-@media (max-width: 800px) {
-}
 
 
 .pl-ev { flex-wrap: wrap; }
