@@ -182,6 +182,13 @@ export function canRetake(scene: Pick<SceneRow["scene"], "source">, state: More 
  * and two people retaking at once write the same. Chunked by bytes: more than one transaction,
  * and so more than one undo step, when the builds are large.
  *
+ * The one write that isn't a `SetIf`: in a scene that holds its own heroes, a record given a
+ * build is also given the hero it belongs to, in the same transaction. A pick another editor
+ * sent at the same moment isn't visible here, and a `SetIf` can only test the key it writes, so
+ * nothing can make the build's rows wait on the record's `hero`. Writing the two together keeps
+ * them together: whichever of the pick and the Retake the server takes last decides the slot,
+ * whole (TD-119).
+ *
  * `state`: the scene's `SceneState`, if it has one. `heroes`: the scene's hero records.
  */
 export function retakeOps(
@@ -200,6 +207,7 @@ export function retakeOps(
   const slots = new Map(roster.map((s) => [s.id, s]));
   const absent = (id: RecordId, key: string, value: MoreValue): Op => ({ SetIf: { id, expect: { More: { key, value: null } }, value: { More: { key, value } } } });
   const groups: Op[][] = [];
+  const own = captured(state?.more).heroes;
   for (const h of heroes) {
     const s = slots.get(h.state.slot);
     const p = s && players.get(slotKey(s.slot.team, s.slot.slot));
@@ -208,7 +216,8 @@ export function retakeOps(
     // A slot given another hero in a scene that holds its heroes: the match's build is not
     // that hero's, and stays out.
     if (typeof have.hero === "number" && have.hero !== p.hero_id) continue;
-    const ops = Object.entries(captureBuild(heroBuildAt(tl, p, second, tier))).filter(([key]) => have[key] === undefined).map(([key, value]) => absent(h.id, key, value));
+    const ops = Object.entries(captureBuild(heroBuildAt(tl, p, second, tier))).filter(([key]) => have[key] === undefined && !(own && key === "hero")).map(([key, value]) => absent(h.id, key, value));
+    if (own && (ops.length || have.hero === undefined)) ops.unshift({ Set: { id: h.id, value: { More: { key: "hero", value: p.hero_id } } } });
     if (ops.length) groups.push(ops);
   }
   // The scene's state last, so a scene never says it holds builds that haven't been written.
