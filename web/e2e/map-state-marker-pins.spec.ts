@@ -11,6 +11,7 @@ import { type Page, expect, test } from "./fixtures";
 import { joinNew, revealControls, viewLink } from "./helpers";
 import { outline } from "./outline";
 import { ROOT, Server, TIMELINE_FORMAT, newBoardUrl } from "./server";
+import { heroPack } from "./synthetic";
 
 const ID = "129000177";
 const N = 120;
@@ -28,6 +29,7 @@ const PATRON = "patron:amber:lane0:1";
 const SHOP = "shop:amber:lane1:1";
 const queue = mkdtempSync(join(tmpdir(), "mapcro-e2e-marker-pins-"));
 let upstream: ReturnType<typeof createServer>;
+let upstreamPort = 0;
 let server: Server;
 
 test.beforeAll(async () => {
@@ -36,8 +38,8 @@ test.beforeAll(async () => {
     res.end("{}");
   });
   await new Promise<void>((ok) => upstream.listen(0, "127.0.0.1", ok));
-  const port = (upstream.address() as { port: number }).port;
-  server = new Server(undefined, { MATCH_API_BASE: `http://127.0.0.1:${port}`, REPLAY_DIR: queue, REPLAY_PER_CLIENT_PER_HOUR: "20" });
+  upstreamPort = (upstream.address() as { port: number }).port;
+  server = new Server(undefined, { MATCH_API_BASE: `http://127.0.0.1:${upstreamPort}`, REPLAY_DIR: queue, REPLAY_PER_CLIENT_PER_HOUR: "20" });
   await server.start();
 });
 test.afterAll(() => {
@@ -106,15 +108,15 @@ function timeline() {
   };
 }
 
-async function openMatch(p: Page) {
+async function openMatch(p: Page, dir = queue) {
   await p.getByTestId("mode-player").click();
   await revealControls(p, "match-id");
   await p.getByTestId("match-id").fill(ID);
   await p.getByTestId("match-load").click();
   await p.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]) });
   let job = "";
-  await expect.poll(() => (job = readdirSync(join(queue, "inbox")).find((f) => f.startsWith(`${ID}-`) && f.endsWith(".dem")) ?? "")).not.toBe("");
-  writeFileSync(join(queue, "outbox", job.replace(/\.dem$/, ".json")), JSON.stringify(timeline()));
+  await expect.poll(() => (job = readdirSync(join(dir, "inbox")).find((f) => f.startsWith(`${ID}-`) && f.endsWith(".dem")) ?? "")).not.toBe("");
+  writeFileSync(join(dir, "outbox", job.replace(/\.dem$/, ".json")), JSON.stringify(timeline()));
   await expect(p.getByTestId("match-tier")).toHaveText("Full replay");
 }
 
@@ -206,10 +208,10 @@ test("a portrait's focus goes where the viewer's frame draws the hero", async ({
   await expect(p.getByTestId("match-clock")).toContainText("0:55 /");
   const focus = () => p.locator('.tb-player[data-slot="Sapphire-2"] [data-testid=focus-hero]').click();
   const pings = p.locator(".mapbox .ping");
-  // Out of the King's sight, no last-seen spot shown: nowhere to go.
+  // Out of the King's sight, no last-seen spot shown: nowhere to go (a ping would show by now).
   await view(p, "amber", false);
   await focus();
-  await p.waitForTimeout(300);
+  await p.waitForTimeout(900);
   await expect(pings).toHaveCount(0);
   await p.keyboard.press("Escape");
   // Its ghost: pinged where the King last saw it.
@@ -219,6 +221,20 @@ test("a portrait's focus goes where the viewer's frame draws the hero", async ({
   const ghost = await p.locator('.mapbox .tok[data-slot="Sapphire-2"]').boundingBox();
   const ping = await pings.boundingBox();
   expect(Math.hypot(ping!.x + ping!.width / 2 - (ghost!.x + ghost!.width / 2), ping!.y + ping!.height / 2 - (ghost!.y + ghost!.height / 2))).toBeLessThan(ghost!.width);
+});
+
+test("a skull shows its hero's portrait", async ({ browser }) => {
+  const dir = mkdtempSync(join(tmpdir(), "mapcro-e2e-marker-pins-pack-"));
+  const packed = new Server(heroPack(14), { MATCH_API_BASE: `http://127.0.0.1:${upstreamPort}`, REPLAY_DIR: dir, REPLAY_PER_CLIENT_PER_HOUR: "20" });
+  await packed.start();
+  try {
+    const p = await joinNew(browser, await newBoardUrl(packed, "Skull portrait"), "Coach");
+    await openMatch(p, dir);
+    await scrubTo(p, 61);
+    await expect(p.locator("[data-testid=death-skull] .pl-fallen-portrait")).toHaveCount(1);
+  } finally {
+    packed.stop();
+  }
 });
 
 type Rec = [string, Record<string, Record<string, unknown>>];
@@ -248,6 +264,29 @@ async function seed(file: unknown): Promise<string> {
   const { board, owner_token } = (await r.json()) as { board: string; owner_token: string };
   return `${server.url}/b/${board}#${owner_token}`;
 }
+
+test("a scene's portrait focuses its hero, dead or alive", async ({ browser }) => {
+  const f = boardFile();
+  const roster = f.records.filter((r) => r[1].RosterSlot)[2]![1].RosterSlot! as { team: string; slot: number };
+  const p = await joinNew(browser, await seed(f), "Coach");
+  await p.getByTestId("scene-card").nth(1).click();
+  await expect(p.getByTestId("tb-clock")).toHaveText("0:55");
+  await expect(p.locator(`.tb-player.dead[data-slot="${roster.team}-${roster.slot}"]`)).toHaveCount(1);
+  await p.locator(`.tb-player[data-slot="${roster.team}-${roster.slot}"] [data-testid=focus-hero]`).click();
+  await expect(p.locator(".mapbox .ping")).toHaveCount(1);
+});
+
+test("a saved scene's portrait menu knows the hero the scene holds, whatever the roster has", async ({ browser }) => {
+  const p = await joinNew(browser, await newBoardUrl(server, "Scene heroes"), "Coach");
+  await openMatch(p);
+  await scrubTo(p, 55);
+  await expect(p.getByTestId("match-clock")).toContainText("0:55 /");
+  await p.getByTestId("match-save").click();
+  await expect(p.locator(".pl-topbar")).toHaveCount(0);
+  await p.locator('.tb-player[data-slot="Amber-1"]').click({ button: "right" });
+  await expect(p.getByTestId("hero-menu-hero")).toHaveText("Change hero…");
+  await expect(p.getByTestId("hero-menu-focus")).toHaveCount(0);
+});
 
 test("a scene's markers and bar: its stored statuses, for an editor and a viewer", async ({ browser }) => {
   const url = await seed(boardFile());
@@ -291,10 +330,14 @@ test("a scene's bar names a slot as its token does: typed, the open match's, and
 
 test("a scene's own name is a typed name: the bar and the token say it, with Names on or off (TD-120)", async ({ browser }) => {
   const f = boardFile();
-  const own = f.records.find((r) => r[0] === hex(0xb05))![1].PlayerState! as { slot: string; more?: unknown };
-  own.more = { name: "Own name" };
-  const roster = f.records.find((r) => r[0] === own.slot)![1].RosterSlot! as { team: string; slot: number };
-  const slot = `${roster.team}-${roster.slot}`;
+  // One slot with no typed name, and one whose own name wins over the typed one.
+  const label = (i: number) => {
+    const own = f.records.find((r) => r[0] === hex(0xb00 + i))![1].PlayerState! as { slot: string; more?: unknown };
+    own.more = { name: "Own name" };
+    const roster = f.records.find((r) => r[0] === own.slot)![1].RosterSlot! as { team: string; slot: number };
+    return `${roster.team}-${roster.slot}`;
+  };
+  const slots = [label(5), label(3)];
   const p = await joinNew(browser, await seed(f), "Coach");
   await openMatch(p);
   const open = async () => {
@@ -302,9 +345,11 @@ test("a scene's own name is a typed name: the bar and the token say it, with Nam
     await expect(p.getByTestId("tb-clock")).toHaveText("0:55");
   };
   const said = async () => {
-    await expect(p.locator(`.tb-player[data-slot="${slot}"]`)).toHaveAttribute("title", /^Own name/);
-    await expect(p.locator(`.tb-player[data-slot="${slot}"] [data-testid=tb-name]`)).toHaveText("Own name");
-    await expect(p.locator(`.mapbox .tok[data-slot="${slot}"]`)).toHaveAttribute("aria-label", /^Own name/);
+    for (const slot of slots) {
+      await expect(p.locator(`.tb-player[data-slot="${slot}"]`)).toHaveAttribute("title", /^Own name/);
+      await expect(p.locator(`.tb-player[data-slot="${slot}"] [data-testid=tb-name]`)).toHaveText("Own name");
+      await expect(p.locator(`.mapbox .tok[data-slot="${slot}"]`)).toHaveAttribute("aria-label", /^Own name/);
+    }
   };
   await open();
   await said();
