@@ -330,8 +330,16 @@ test("a hold beside a small pin finds it; a hold on a hero beside it, or on empt
   const f = await fingers(browser, t);
   const pin = await centre(t.locator(".p-map [data-callout]"));
   const hero = await centre(t.locator(`.p-map .tok[data-slot="${slot}"]`));
-  // Beside the pin, on the side away from the hero: its menu.
-  await longPress(f, { x: pin.x + (pin.x >= hero.x ? 14 : -14), y: pin.y });
+  // Beside the pin, off it, where no hero or hero's label is on top: its menu.
+  const beside = await t.evaluate((pin) => {
+    for (const [dx, dy] of [[0, -14], [0, 14], [14, 0], [-14, 0]]) {
+      const e = document.elementFromPoint(pin.x + dx!, pin.y + dy!);
+      if (e?.closest(".mm-overlay.map") && !e.closest("[data-callout], .tok")) return { x: pin.x + dx!, y: pin.y + dy! };
+    }
+    return undefined;
+  }, pin);
+  expect(beside).toBeTruthy();
+  await longPress(f, beside!);
   await expect(menu(t)).toBeVisible();
   await f.lift(1);
   await expect(menu(t)).toHaveAttribute("aria-label", "Comment");
