@@ -37,12 +37,16 @@ export function liveInk(points: Array<{ x: number; y: number }>, color: number, 
 /** What a placed thing's menu is for (feedback #59, #60). */
 export type Placed = "Callout" | "Arrow" | "Stroke";
 
-/** Recolour a placed thing to palette colour `i`: one write; none if it has that colour. */
-export function recolourOps(kind: Placed, id: RecordId, now: number | null | undefined, i: number): Op[] {
-  if (now === i) return [];
+/**
+ * Recolour a placed thing to palette colour `i`: one write; none if it has that colour. `null`
+ * is no colour, as before colours: a comment's own colour, an arrow's team's. A stroke always
+ * has one (its ink), so it has no "no colour".
+ */
+export function recolourOps(kind: Placed, id: RecordId, now: number | null | undefined, i: number | null): Op[] {
+  if ((now ?? null) === i) return [];
   if (kind === "Callout") return [{ Set: { id, value: { CalloutColor: i } } }];
   if (kind === "Arrow") return [{ Set: { id, value: { ArrowColor: i } } }];
-  return [{ Set: { id, value: { StrokeColor: i } } }];
+  return i === null ? [] : [{ Set: { id, value: { StrokeColor: i } } }];
 }
 
 /** Move a comment to `side` of its spot: one write; none if it is there (no side is `Above`). */
