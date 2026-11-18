@@ -3,6 +3,19 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Deployed 9e07b5f: map-state phase 4, markers and bars (2026-11-18, lead 9eb2516b)
+
+- **Prod `web` runs 9e07b5f** (infra fce2540). Store unchanged (v14, floor 12). Phase 4's renderer
+  is done: tokens, markers and both top bars read `mapState()`, and `matchPreview` is gone.
+- **Review (Opus medium):** no blocker. TD-142 is new (a scene's own name can't be renamed; only a
+  hand-edited file reaches it). The 32 pins and the behaviour rows were run on main's code: 7 of 7.
+- **Gate:** 533 e2e, VM, reader-check. Firefox passed with one flaky row (TD-133's stall, before
+  any gesture). The walkthrough on prod is line for line the merged tree's; 0 page errors, 0 5xx.
+- **Running next:** TD-119 (`td-119-retake`) and TD-118 (`td-118-strip`).
+- **Waiting:** TD-117 (turn on a session tab's Open in app once desktop 0.2.4, published
+  2026-11-17, has been out a while); the operator's Player direction (`player-alt-blend` and the
+  other candidates, nothing merged); phase 5 (remaining rows), to confirm with the operator.
+
 ## Deployed 48cc8ad: TD-107, the long press on touch (2026-11-18, lead 9eb2516b)
 
 - **Prod `web` runs 48cc8ad** (infra 2335139). Store unchanged (v14, floor 12).
