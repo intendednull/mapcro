@@ -254,6 +254,13 @@ test("each tab says its board's newest match, winner, length and tier; Load a ga
   await c.reload();
   await expect(tabs(c)).toHaveCount(6);
   await expect(c.getByTestId("join-card")).toHaveCount(0);
+  // Nor on the tab that refuses them.
+  await tab(c, 0).click();
+  await expect(c.getByTestId("no-access")).toBeVisible();
+  await c.reload();
+  await expect(tabs(c)).toHaveCount(6);
+  await expect(c.getByTestId("no-access")).toBeVisible();
+  await expect(c.getByTestId("join-card")).toHaveCount(0);
 });
 
 test("a tab whose owner link is opened elsewhere keeps its details, asked with the new credential (TD-118)", async ({ browser }) => {
@@ -279,6 +286,43 @@ test("a tab whose owner link is opened elsewhere keeps its details, asked with t
   await tab(b, 0).click();
   await expect.poll(() => mounted(b)).toBe(boardOf(m.links[0]!));
   await expect(line(b, 1)).toHaveText("Sandbox");
+});
+
+test("the open tab's owner link opened elsewhere: what its board says reaches the strip, and leaving asks with the new credential (TD-118)", async ({ browser }) => {
+  const m = await session(browser, ["Board A", "Board B"]);
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const b = await ctx.newPage();
+  await b.goto(m.url);
+  await b.locator("#join-name").fill("Student");
+  await b.keyboard.press("Enter");
+  await expect(line(b, 1)).toHaveText("Sandbox");
+  const board = boardOf(m.links[1]!);
+  const token = m.links[1]!.split("#")[1]!;
+  await tab(b, 1).click();
+  await expect.poll(() => mounted(b)).toBe(board);
+  const byOwnLink = (r: { url(): string; headers(): Record<string, string> }) => r.url().endsWith(`/api/boards/${board}/matches`) && r.headers().authorization === `Bearer ${token}`;
+  // The strip moves to the board's own link while the board stays open through its grant.
+  const own = b.waitForResponse((r) => byOwnLink(r.request()), { timeout: 20_000 });
+  const other = await ctx.newPage();
+  await other.goto(m.links[1]!);
+  await other.locator("#join-name").press("Enter");
+  await expect(other.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
+  await own;
+  await other.close();
+  await expect(line(b, 1)).toHaveText("Sandbox");
+  // A match loaded on the open board: the tab says so at once.
+  await revealControls(b, "match-id");
+  await b.getByTestId("match-id").fill(ID);
+  await b.getByTestId("match-id").press("Enter");
+  await expect(b.getByTestId("match-tier")).toHaveText("API summary");
+  await expect(line(b, 1)).toHaveText(/^Sapphire/);
+  await expect(tier(b, 1)).toHaveText("API summary");
+  // Left: asked about again, with the credential the strip reads it by.
+  const again = b.waitForRequest(byOwnLink, { timeout: 10_000 });
+  await tab(b, 0).click();
+  await expect.poll(() => mounted(b)).toBe(boardOf(m.links[0]!));
+  await again;
+  await expect(line(b, 1)).toHaveText(/^Sapphire/);
 });
 
 test("while the server is away a tab is asked less and less, and asked soon after it's back (TD-118)", async ({ browser }) => {

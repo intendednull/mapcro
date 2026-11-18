@@ -694,26 +694,34 @@ export function SessionView(p: { session: string; token: string; tab: string | u
           </div>
         }
       >
-        {(m) => (
-          <div class="session-board" data-testid="session" data-session={p.session}>
-            <Board
-              board={m.board}
-              token={m.token}
-              art={p.art}
-              session={{
-                ...inSession(),
-                ...(m.via ? { via: m.via } : {}),
-                opened: (ok) => noteOpen(openKey(m.board, m.via?.grant), ok),
-                // Left: the strip asks about it again (its match may have changed here).
-                left: (board, n) => {
-                  left(board, n);
-                  details.left(openKey(m.board, m.via?.grant));
-                },
-                shown: (x) => details.shown(openKey(m.board, m.via?.grant), x),
-              }}
-            />
-          </div>
-        )}
+        {(m) => {
+          // The strip reads a tab by the key it has now, which can move on from this mount's
+          // credential (its owner link opened elsewhere). Held here: by the time the board is
+          // left, the open tab is already the next one.
+          const row = untrack(tab);
+          const stripKey = () => (row ? keyOf(row) : openKey(m.board, m.via?.grant));
+          return (
+            <div class="session-board" data-testid="session" data-session={p.session}>
+              <Board
+                board={m.board}
+                token={m.token}
+                art={p.art}
+                session={{
+                  ...inSession(),
+                  ...(m.via ? { via: m.via } : {}),
+                  // Whether this mount's own credential opens: said of that credential.
+                  opened: (ok) => noteOpen(openKey(m.board, m.via?.grant), ok),
+                  // Left: the strip asks about it again (its match may have changed here).
+                  left: (board, n) => {
+                    left(board, n);
+                    details.left(stripKey());
+                  },
+                  shown: (x) => details.shown(stripKey(), x),
+                }}
+              />
+            </div>
+          );
+        }}
       </Show>
       <Show when={closed()}>
         <DeadLink />
