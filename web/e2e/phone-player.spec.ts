@@ -604,6 +604,17 @@ for (const [width, height, touch] of [[1920, 1080, false], [1440, 900, false], [
       expect(pop.x).toBeGreaterThanOrEqual(stage.x);
       expect(pop.x + pop.width).toBeLessThanOrEqual(stage.x + stage.width);
       expect(pop.y).toBeGreaterThanOrEqual(0);
+      // Resume, on a saved scene: the same centre line, and the keys stay on the stage.
+      await p.getByTestId("match-save").click();
+      await p.getByTestId("mode-sandbox").click();
+      await expect(p.getByTestId("player")).toHaveAttribute("data-state", "scene");
+      await expect(p.getByTestId("match-play")).toHaveAttribute("aria-label", "Resume replay");
+      within1(middle(await box("match-play")), middle(await box("player")), "Resume on the bar's centre");
+      for (const id of ["speed-down", "speed-up"]) {
+        const b = await box(id);
+        expect(b.x, id).toBeGreaterThanOrEqual(stage.x);
+        expect(b.x + b.width, id).toBeLessThanOrEqual(stage.x + stage.width);
+      }
     }
     expect(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await ctx.close();

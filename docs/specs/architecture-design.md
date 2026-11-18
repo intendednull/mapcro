@@ -1555,7 +1555,7 @@ what is built so far is below.
 to bottom: a status strip (wordmark, tier chip, the follow pill, save state), the 12-hero roster
 in two rows of six, the map, and the transport. Landscape: two panes, the map on the left as a
 square of the height over the transport; strip, roster and sheets on the right; a one-row
-transport.
+transport on a phone (two on a tablet).
 
 **A phone in landscape has no strip row** (under 500 px tall; operator, 2026-11-13, for phones
 under about 380 px tall, built for every phone turned because 390 and 430 px had the same

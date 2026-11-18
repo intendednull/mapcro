@@ -139,7 +139,7 @@
 /* The centre column between both panels (800 to 820 px windows): the clock beside the source, which
    is its match id here, and Save scene under them. */
 @container dock (width < 480px) {
-  .board-app .stage > .dock > .pl-bar { min-height: 234px; }
+  .board-app .stage > .dock > .pl-bar { min-height: 235px; }
   .board-app .dock > .pl-bar:has(> .pl-transport) {
     column-gap: 8px; padding: 10px min(12px, 2cqi) 12px;
     grid-template-areas:
@@ -158,6 +158,9 @@
   .board-app .dock .pl-keys .pl-skip { width: min(44px, 18cqi); height: min(44px, 18cqi); }
   .board-app .dock .pl-keys .pl-step { width: min(40px, 16.5cqi); min-width: 0; height: min(40px, 16.5cqi); }
   .board-app .dock .pl-keys .pl-skip .pl-skip-arc { width: 68%; height: 68%; }
+  /* Resume keeps Play's disc here: the word would push the cluster off the dock. */
+  .board-app .dock .pl-keys .pl-play.resume { width: min(56px, 23cqi); padding: 0; border-radius: 50%; }
+  .board-app .dock .pl-play.resume .pl-play-word { position: absolute; width: 1px; height: 1px; overflow: hidden; }
   .board-app .dock .pl-transport > .pl-tail { display: contents; }
   .board-app .dock .pl-transport .match-clock { grid-area: clock; justify-self: end; margin-bottom: 8px; padding: 0 8px; font-size: 16px; }
   .board-app .dock > .pl-bar:has(> .pl-transport) > .pl-source { margin-bottom: 8px; }
