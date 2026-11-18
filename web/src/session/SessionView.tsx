@@ -35,7 +35,7 @@ import { InlineEdit } from "../ui/InlineEdit";
 import { Wordmark } from "../ui/Wordmark";
 import { type AddChoice, AddMenu, refusal, takeAddOnOpen } from "./AddGame";
 import { createTabDetails, subLine, tierChip } from "./details";
-import { createSessionFollow, onTabs } from "./follow";
+import { createSessionFollow, onTabs, stripHeard } from "./follow";
 import { UndoHistory } from "./history";
 import { SESSION_SIDE, createSessionState } from "./state";
 import { type TabRow, addTabOps, credentialFor, linkDead, moveOps, neighbourOf, pickTab, removeOps, renameOps } from "./tabs";
@@ -82,10 +82,11 @@ export function SessionView(p: { session: string; token: string; tab: string | u
   // ---- the strip's details (§8): asked for only for tabs in view, with the credential each
   // opens with; the open tab's from its board. ----
   const keyOf = (t: TabRow) => openKey(t.board, credential(t).via?.grant);
-  const byKey = createMemo(() => new Map(s.tabs().map((t) => [keyOf(t), t] as const)));
+  // By the key each tab has now: a tab's credential can change while the page is open.
+  const tabOf = (key: string) => untrack(s.tabs).find((t) => keyOf(t) === key);
   const details = createTabDetails({
     matches: async (key) => {
-      const t = untrack(byKey).get(key);
+      const t = tabOf(key);
       if (!t) return undefined;
       const c = credential(t);
       const r = await fetch(`/api/boards/${t.board}/matches`, { headers: { authorization: authHeader(c.token, c.via) } }).catch(() => undefined);
@@ -93,58 +94,56 @@ export function SessionView(p: { session: string; token: string; tab: string | u
       return r && (r.status === 401 || r.status === 403 || r.status === 404) ? "refused" : undefined;
     },
     job: async (key, match) => {
-      const t = untrack(byKey).get(key);
+      const t = tabOf(key);
       if (!t) return undefined;
       const c = credential(t);
       return new PlayerApi(t.board, c.token, c.via).job(match).catch(() => undefined);
     },
     preview: (match) => previews.ask(match),
     held: (key, match) => {
-      const t = untrack(byKey).get(key);
+      const t = tabOf(key);
       return t ? timelines.candidates(t.board, match)[0]?.tl.duration_s : undefined;
     },
-    // A refusal the strip hears, a follow knows too (§6.3): it says No access without asking.
-    // A board that opens is still asked about before a follow goes there: the strip asks as the
-    // page opens, and a grant withdrawn after that would land the follower on a dead tab. So
-    // a yes only clears a refusal heard before (the tab opens again: undo put it back).
-    opened: (key, ok) =>
-      setOpenable((m) => {
-        if (!ok) return m.get(key) === false ? m : new Map(m).set(key, false);
-        if (m.get(key) !== false) return m;
-        const next = new Map(m);
-        next.delete(key);
-        return next;
-      }),
+    // A refusal the strip hears, a follow knows too (§6.3); a yes isn't trusted for a follow.
+    opened: (key, ok) => setOpenable((m) => stripHeard(m, key, ok)),
   });
-  /** The tabs in view, by key, as the strip and the Games sheet see them. */
-  const inView = new Map<Element, string>();
+  // The session's room is back, so the server is: the tabs that had no answer stop waiting.
+  createEffect(() => {
+    if (s.connection().kind === "live") details.wake();
+  });
+  /** Each watched tab's key as it is now (its credential can change: its owner link opened
+   * elsewhere), and the tabs in view, as the strip and the Games sheet see them. */
+  const keys = new Map<Element, () => string>();
+  const inView = new Set<Element>();
   const observer =
     typeof IntersectionObserver === "undefined"
       ? undefined
       : new IntersectionObserver((entries) => {
           for (const e of entries) {
-            const key = (e.target as HTMLElement).dataset.key;
+            const key = keys.get(e.target)?.();
             if (!key) continue;
             if (e.isIntersecting) {
-              inView.set(e.target, key);
+              inView.add(e.target);
               details.seen(key);
             } else inView.delete(e.target);
           }
         });
-  /** Watch a tab's element (its key in `data-key`): its details load once it's in view. */
-  const watch = (el: HTMLElement) => {
+  /** Watch a tab's element: its details load once it's in view. */
+  const watch = (el: HTMLElement, t: TabRow) => {
+    keys.set(el, () => keyOf(t));
     if (observer) observer.observe(el);
-    else if (el.dataset.key) details.seen(el.dataset.key);
+    else details.seen(keyOf(t));
     onCleanup(() => {
       observer?.unobserve(el);
       inView.delete(el);
+      keys.delete(el);
     });
   };
   // A tab someone is on may change (they load a match there): asked again now and then.
   const occupied = () => new Set(s.tabs().filter((t) => people().has(t.id)).map(keyOf));
   // Not while the page is hidden: nobody sees the strip.
   const againTimer = setInterval(() => {
-    if (!document.hidden) details.again(new Set(inView.values()), untrack(occupied));
+    if (!document.hidden) details.again(new Set([...inView].map((el) => keys.get(el)!())), untrack(occupied));
   }, 5000);
   onCleanup(() => {
     clearInterval(againTimer);
@@ -500,7 +499,7 @@ export function SessionView(p: { session: string; token: string; tab: string | u
               data-board={t.board}
               data-key={keyOf(t)}
               ref={(el) => {
-                watch(el);
+                watch(el, t);
                 // The open tab is scrolled into view (a switch by key, by a follow, by the list).
                 createEffect(() => t.id === active() && el.scrollIntoView?.({ block: "nearest", inline: "nearest" }));
               }}
@@ -603,7 +602,7 @@ export function SessionView(p: { session: string; token: string; tab: string | u
               data-testid="games-row"
               data-tab={t.id}
               data-key={keyOf(t)}
-              ref={watch}
+              ref={(el) => watch(el, t)}
             >
               <div
                 class="games-pick"
@@ -653,6 +652,7 @@ export function SessionView(p: { session: string; token: string; tab: string | u
   );
   const inSession = (): Omit<InSession, "via" | "opened" | "left" | "shown"> => ({
     id: p.session,
+    name: () => s.title(),
     history,
     joinKey: p.session,
     title,

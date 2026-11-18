@@ -225,16 +225,90 @@ test("each tab says its board's newest match, winner, length and tier; Load a ga
   expect(grant).toMatch(/^[A-Za-z0-9_-]{22}$/);
   const gone = await fetch(`${server.url}/api/sessions/${m.session}/grants/${grant}`, { method: "DELETE", headers: { authorization: `Bearer ${m.owner}` } });
   expect(gone.status).toBe(204);
-  // A late joiner opens the session on that tab, its first: its board refuses them. No name
-  // asked: the join card shows only while a board connects, and this one closes (TD-118).
+  // A late joiner opens the session on that tab, its first: its board refuses them, and the
+  // session still asks their name, once (TD-118).
   const c = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
   await c.goto(m.url);
   await expect(tabs(c)).toHaveCount(6);
+  await expect(c.getByTestId("no-access")).toBeVisible();
+  await expect(c.getByTestId("join-card")).toBeVisible();
+  await expect(c.locator("#join-h")).toHaveText("Scrim review");
+  await c.locator("#join-name").fill("Late");
+  await c.keyboard.press("Enter");
+  await expect(c.getByTestId("join-card")).toBeHidden();
+  await expect(c.getByTestId("no-access")).toBeVisible();
   const nameA = await tab(c, 0).getByTestId("tab-name").innerText();
   await expect(tab(c, 0)).toHaveClass(/unavailable/);
   await expect(tab(c, 0)).toHaveAttribute("title", `${nameA} · No access`);
   await expect(tab(c, 1)).not.toHaveClass(/unavailable/);
   await expect(tab(c, 1)).toHaveAttribute("title", nameB);
+  // The tab that admits them has their name, and doesn't ask again.
+  await tab(c, 1).click();
+  await expect.poll(() => mounted(c)).toBe(boardOf(m.links[1]!));
+  await expect(c.getByTestId("no-access")).toHaveCount(0);
+  await expect(c.getByTestId("join-card")).toHaveCount(0);
+  await expect(tab(b, 1).locator(`.game-dot[title="Late"]`)).toHaveCount(1);
+  await tab(b, 1).click();
+  await expect.poll(() => mounted(b)).toBe(boardOf(m.links[1]!));
+  await expect(b.getByTestId("people")).toContainText("Late");
+  await c.reload();
+  await expect(tabs(c)).toHaveCount(6);
+  await expect(c.getByTestId("join-card")).toHaveCount(0);
+});
+
+test("a tab whose owner link is opened elsewhere keeps its details, asked with the new credential (TD-118)", async ({ browser }) => {
+  const m = await session(browser, ["Board A", "Board B"]);
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const b = await ctx.newPage();
+  await b.goto(m.url);
+  await b.locator("#join-name").fill("Student");
+  await b.keyboard.press("Enter");
+  await expect(line(b, 1)).toHaveText("Sandbox");
+  const board = boardOf(m.links[1]!);
+  const token = m.links[1]!.split("#")[1]!;
+  // Asked again with the board's own link, once this browser holds it.
+  const own = b.waitForRequest((r) => r.url().endsWith(`/api/boards/${board}/matches`) && r.headers().authorization === `Bearer ${token}`, { timeout: 20_000 });
+  const other = await ctx.newPage();
+  await other.goto(m.links[1]!);
+  await other.locator("#join-name").press("Enter");
+  await expect(other.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
+  await own;
+  // Anything the strip hears reads the tab's key as it is now: it still says what it did.
+  await tab(b, 1).click();
+  await expect.poll(() => mounted(b)).toBe(board);
+  await tab(b, 0).click();
+  await expect.poll(() => mounted(b)).toBe(boardOf(m.links[0]!));
+  await expect(line(b, 1)).toHaveText("Sandbox");
+});
+
+test("while the server is away a tab is asked less and less, and asked soon after it's back (TD-118)", async ({ browser }) => {
+  test.setTimeout(200_000);
+  const m = await session(browser, ["Board A", "Board B"]);
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const b = await ctx.newPage();
+  const board = boardOf(m.links[1]!);
+  let asked = 0;
+  // Tab B's board gives no answer, from the page's first ask.
+  await b.route(`**/api/boards/${board}/matches`, (r) => {
+    asked++;
+    return r.abort();
+  });
+  await b.goto(m.url);
+  await b.locator("#join-name").fill("Student");
+  await b.keyboard.press("Enter");
+  await expect(tabs(b)).toHaveCount(2);
+  await expect.poll(() => asked, { timeout: 15_000 }).toBeGreaterThan(0);
+  // 80 s at one ask per 5 s tick would be 16 asks; backing off, asked at about 0, 5, 15, 35 and
+  // 75 s, the next not for a minute.
+  await b.waitForTimeout(80_000);
+  expect(asked).toBeLessThanOrEqual(6);
+  // The server is back, as the session's room hears when it reconnects: asked within a tick or
+  // so, where its wait has most of a minute to run.
+  await ctx.setOffline(true);
+  await expect(b.getByTestId("save-status")).toHaveAttribute("data-state", "offline", { timeout: 20_000 });
+  await b.unroute(`**/api/boards/${board}/matches`);
+  await ctx.setOffline(false);
+  await expect(line(b, 1)).toHaveText("Sandbox", { timeout: 25_000 });
 });
 
 test("Load a game refuses what the landing refuses, and a match without its metadata asks for the replay", async ({ browser }) => {

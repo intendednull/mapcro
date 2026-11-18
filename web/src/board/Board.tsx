@@ -64,7 +64,7 @@ import { ShareDialog } from "./ShareDialog";
 import { FeedbackButton } from "../ui/Feedback";
 import { ShareIcon } from "../ui/ShareIcon";
 import { feedbackMatchOf } from "../core/feedback";
-import { rejection, statusView } from "./status";
+import { asksName, rejection, statusView } from "./status";
 import type { Reject } from "../gen/Reject";
 import { Avatar, FollowChip, PeopleList, PresentingPill, SessionPeople } from "./Presence";
 import { type ClearKind, Toolbar } from "./Toolbar";
@@ -158,6 +158,8 @@ interface ToastAction {
 export interface InSession {
   /** The session's id: what a tab remembers of its board is kept under it (§4.2). */
   id: string;
+  /** The session's title, for a join card on a board that won't say its own. */
+  name: () => string;
   via?: Via;
   history: UndoHistory;
   /** The join card shows once per session, not once per tab. */
@@ -1821,8 +1823,8 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
         </button>
       </div>
     </Show>
-    <Show when={!joined() && state.connection().kind !== "closed"}>
-      <JoinCard title={state.title()} others={people().map((x) => x.state!.name).filter(Boolean)} initial={me()} onJoin={join} />
+    <Show when={asksName(joined(), state.connection(), !!inSession)}>
+      <JoinCard title={state.title() || (inSession?.name() ?? "")} others={people().map((x) => x.state!.name).filter(Boolean)} initial={me()} onJoin={join} />
     </Show>
     </>
   );

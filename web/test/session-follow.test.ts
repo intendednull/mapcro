@@ -14,7 +14,7 @@ import type { LinkRole } from "../src/gen/LinkRole";
 import type { PeerPresence } from "../src/gen/PeerPresence";
 import type { Presence } from "../src/gen/Presence";
 import { SESSION_KEYS, type SessionKey, VIEW_KEYS, type Values, createViewState } from "../src/player/viewstate";
-import { createSessionFollow, elsewhere, farPeer, farPresenters, onTabs, seated, whereTo } from "../src/session/follow";
+import { createSessionFollow, elsewhere, farPeer, farPresenters, onTabs, seated, stripHeard, whereTo } from "../src/session/follow";
 import type { TabRow } from "../src/session/tabs";
 import { MAX_UNSENT, loadUnsent, saveUnsent, unsentKey, withUnsent } from "../src/session/unsent";
 
@@ -24,6 +24,41 @@ const row = (tab: string, n: number): TabRow => ({ id: tab, board: `${"ABCDEFGH"
 const TABS = [row(A, 0), row(B, 1), row(C, 2)];
 const st = (more: Partial<Presence> = {}): Presence => ({ name: "x", color: 0, scene: null, floor: "surface", view: null, cursor: null, laser: [], drag: null, drag_group: [], focus: null, following: null, ...more });
 const peer = (n: number, role: LinkRole, more: Partial<Presence> = {}): PeerPresence => ({ peer: n, role, state: st(more) });
+
+describe("what a follow takes from the strip (§6.3)", () => {
+  const known = (...rows: Array<[string, boolean]>): ReadonlyMap<string, boolean> => new Map(rows);
+  it("a refusal is known at once, over a yes from a board that opened", () => {
+    expect(stripHeard(known(), "A", false).get("A")).toBe(false);
+    expect(stripHeard(known(["A", true]), "A", false).get("A")).toBe(false);
+  });
+  it("a yes isn't trusted: what wasn't known stays not known, so a follow asks before it goes", () => {
+    const after = stripHeard(known(), "A", true);
+    expect(after.has("A")).toBe(false);
+    expect(whereTo(B, A, TABS, (t) => stripHeard(known(), t.board, true).get(t.board))).toEqual({ kind: "ask", tab: TABS[1] });
+  });
+  it("a yes clears a refusal heard before, and only that board's", () => {
+    const after = stripHeard(known(["A", false], ["B", false]), "A", true);
+    expect(after.has("A")).toBe(false);
+    expect(after.get("B")).toBe(false);
+  });
+  it("a yes leaves what the board itself said when it opened", () => {
+    expect(stripHeard(known(["A", true]), "A", true).get("A")).toBe(true);
+  });
+  it("nothing new: the same map, so nothing that reads it runs again", () => {
+    const yes = known(["A", true]);
+    expect(stripHeard(yes, "A", true)).toBe(yes);
+    const none = known();
+    expect(stripHeard(none, "A", true)).toBe(none);
+    const no = known(["A", false]);
+    expect(stripHeard(no, "A", false)).toBe(no);
+  });
+  it("what it was given isn't changed", () => {
+    const was = known(["A", false]);
+    stripHeard(was, "A", true);
+    stripHeard(was, "B", false);
+    expect([...was]).toEqual([["A", false]]);
+  });
+});
 
 describe("the registry's rooms", () => {
   it("a session's room has the open tab, and a board's every other key", () => {

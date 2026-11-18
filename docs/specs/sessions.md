@@ -867,7 +867,10 @@ each board has its own scenes. Its sub-line reads "Sandbox".
   newest match's `GET …/replays/<id>`, with the credential it opens with. The open tab costs
   nothing: its board says its own match, tier, job and length. A tab is asked again once it is
   left here, while its job is under way (every 5 s), and every 10 s while someone in the session
-  is on it (only they can change its match). The rest is kept for the page's life. **No
+  is on it (only they can change its match). The rest is kept for the page's life. A tab the
+  server doesn't answer waits: asked again at the next tick after one miss, then after 10 s,
+  doubling to a minute; an answer from a tab that had none, or the session's room coming back,
+  ends every wait (TD-118). **No
   percentage**: the server's job state has no progress, and only the uploader's own page knows
   its upload's (it shows on that board's chip).
 - **A refusal the strip hears, a follow knows** (§6.3): a follower whose presenter goes to a tab
@@ -876,6 +879,9 @@ each board has its own scenes. Its sub-line reads "Sandbox".
   withdrawn after that would otherwise land the follower on a dead tab (the §9.3 rows "the
   presenter goes to a tab nobody can open" caught it). A yes only clears a refusal heard before.
   A refused tab is dimmed, its hover "<name> · No access".
+- **The name is the session's**: the join card asks once per session, also on a first tab whose
+  board refuses (behind it, "No access"; its title is then the session's), and every other tab
+  has the name from then on (TD-118).
 - **The dots**: each tab shows a dot per person on it (session presence; never one's own), in
   their colour, their name on hover, three and then "+n".
 - **"All games (n)"** shows once the tabs don't fit (the strip scrolls), and lists every tab, the

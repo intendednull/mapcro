@@ -9,7 +9,7 @@ vi.mock("solid-js", async () => await import(/* @vite-ignore */ "solid-js/dist/"
 import { createRoot } from "solid-js";
 import type { JobState } from "../src/player/api";
 import type { CardData, Preview } from "../src/player/picker";
-import { type DetailsSource, REASK_MS, type TabDetails, createTabDetails, subLine, tierChip, wantsAgain } from "../src/session/details";
+import { type DetailsSource, QUIET_MAX_MS, REASK_MS, type TabDetails, createTabDetails, quietFor, subLine, tierChip, wantsAgain } from "../src/session/details";
 
 const preview = (winner: "amber" | "sapphire" | null, duration_s = 2052): CardData => ({
   kind: "preview",
@@ -311,6 +311,180 @@ describe("when a tab's details are asked for", () => {
     d.left("A");
     await f.answer("matches A", [52001]);
     expect(f.pending()).toEqual(["job A 52001"]);
+    dispose();
+  });
+});
+
+describe("a late job answer and the open tab's own (TD-118)", () => {
+  const own = { match: "52001", tier: "replay", job: job("done"), duration: 2052 } as const;
+  it("an ask under way as the tab opens here: its job answer doesn't replace what the board says", async () => {
+    const { f, d, dispose } = make();
+    d.seen("A");
+    await f.answer("matches A", [52001]);
+    expect(f.pending()).toContain("job A 52001");
+    d.shown("A", own);
+    await f.answer("job A 52001", job("fetching"));
+    expect(d.get("A")?.job).toEqual(job("done"));
+    expect(tierChip(d.get("A"))?.text).toBe("Full replay");
+    dispose();
+  });
+  it("the same for the job alone, asked while it was under way", async () => {
+    const { f, d, dispose } = make();
+    d.seen("A");
+    await f.answer("matches A", [52001]);
+    await f.answer("job A 52001", job("fetching"));
+    d.again(["A"]);
+    expect(f.pending()).toContain("job A 52001");
+    d.shown("A", own);
+    await f.answer("job A 52001", job("parsing"));
+    expect(tierChip(d.get("A"))?.text).toBe("Full replay");
+    dispose();
+  });
+  it("the open tab still takes its preview, and a job answer counts again once it's left", async () => {
+    const { f, d, dispose } = make();
+    d.shown("A", own);
+    await f.answer("preview 52001", preview("amber"));
+    expect(subLine(d.get("A"))?.text).toBe("Amber · 34:12");
+    d.left("A");
+    await f.answer("matches A", [52001]);
+    await f.answer("job A 52001", job("parsing"));
+    expect(tierChip(d.get("A"))?.text).toBe("Parsing…");
+    dispose();
+  });
+});
+
+describe("while the server doesn't answer (TD-118)", () => {
+  /** `n` asks about `key` in a row with no answer, each once the last one's wait is over. The
+   * last one's wait has just begun. */
+  const miss = async (m: ReturnType<typeof make>, n: number, key = "A") => {
+    for (let i = 0; i < n; i++) {
+      if (i > 0) m.tick(QUIET_MAX_MS);
+      m.d.again([key]);
+      await m.f.answer(`matches ${key}`, undefined);
+    }
+  };
+  it("one miss is a blip; then 10 s, doubling, up to a minute", () => {
+    expect([0, 1, 2, 3, 4, 5, 6, 40].map(quietFor)).toEqual([0, 0, 10_000, 20_000, 40_000, 60_000, 60_000, 60_000]);
+    expect(QUIET_MAX_MS).toBe(60_000);
+  });
+  it("a tab with no answer waits longer after each ask, and is asked when its wait is over", async () => {
+    const m = make();
+    const { f, d, tick, dispose } = m;
+    await miss(m, 1);
+    // The second ask, straight after the first miss.
+    d.again(["A"]);
+    await f.answer("matches A", undefined);
+    d.again(["A"]);
+    expect(f.pending()).toEqual([]);
+    tick(9_999);
+    d.again(["A"]);
+    expect(f.pending()).toEqual([]);
+    tick(1);
+    d.again(["A"]);
+    expect(f.pending()).toEqual(["matches A"]);
+    await f.answer("matches A", undefined);
+    tick(19_999);
+    d.again(["A"]);
+    expect(f.pending()).toEqual([]);
+    tick(1);
+    d.again(["A"]);
+    expect(f.pending()).toEqual(["matches A"]);
+    dispose();
+  });
+  it("the wait is counted from when it was asked, not from when the answer gave up", async () => {
+    const m = make();
+    const { f, d, tick, dispose } = m;
+    await miss(m, 1);
+    d.again(["A"]);
+    tick(4_000); // The ask hangs for 4 s.
+    await f.answer("matches A", undefined);
+    tick(5_999);
+    d.again(["A"]);
+    expect(f.pending()).toEqual([]);
+    tick(1);
+    d.again(["A"]);
+    expect(f.pending()).toEqual(["matches A"]);
+    dispose();
+  });
+  it("a tab someone is on waits too, and so does a job under way", async () => {
+    const m = make();
+    const { f, d, tick, dispose } = m;
+    d.seen("A");
+    await f.answer("matches A", [52001]);
+    await f.answer("preview 52001", { kind: "none" });
+    await f.answer("job A 52001", job("fetching"));
+    for (let i = 0; i < 2; i++) {
+      d.again(["A"]);
+      await f.answer("job A 52001", undefined);
+    }
+    tick(9_999);
+    d.again(["A"], new Set(["A"]));
+    expect(f.pending()).toEqual([]);
+    tick(1);
+    d.again(["A"]);
+    expect(f.pending()).toEqual(["job A 52001"]);
+    // A job's answer ends the wait.
+    await f.answer("job A 52001", job("parsing"));
+    d.again(["A"]);
+    expect(f.pending()).toEqual(["job A 52001"]);
+    dispose();
+  });
+  it("a refusal is an answer: the wait is over", async () => {
+    const m = make();
+    const { f, d, tick, dispose } = m;
+    await miss(m, 4); // A wait of 40 s.
+    d.left("A");
+    await f.answer("matches A", "refused");
+    // Someone is on it: asked at the usual 10 s, not when the 40 s are over.
+    tick(REASK_MS);
+    d.again(["A"], new Set(["A"]));
+    expect(f.pending()).toEqual(["matches A"]);
+    dispose();
+  });
+  it("a tab that had no answer answering: the others are asked at once, their waits over", async () => {
+    const m = make();
+    const { f, d, tick, dispose } = m;
+    await miss(m, 3, "A");
+    tick(QUIET_MAX_MS);
+    await miss(m, 3, "B");
+    d.again(["B"]);
+    expect(f.pending()).toEqual([]);
+    d.again(["A"]);
+    await f.answer("matches A", []);
+    expect(d.get("A")).toEqual({ kind: "ready", match: undefined });
+    d.again(["B"]);
+    expect(f.pending()).toEqual(["matches B"]);
+    dispose();
+  });
+  it("a tab that always answered says nothing of one failing alone", async () => {
+    const m = make();
+    const { f, d, dispose } = m;
+    d.seen("B");
+    await f.answer("matches B", []);
+    await miss(m, 3);
+    d.left("B");
+    await f.answer("matches B", []);
+    d.again(["A"]);
+    expect(f.pending()).toEqual([]);
+    dispose();
+  });
+  it("the session's room coming back ends every wait", async () => {
+    const m = make();
+    const { f, d, dispose } = m;
+    await miss(m, 3);
+    d.again(["A"]);
+    expect(f.pending()).toEqual([]);
+    d.wake();
+    d.again(["A"]);
+    expect(f.pending()).toEqual(["matches A"]);
+    dispose();
+  });
+  it("what the person does isn't held back: a tab left is asked at once", async () => {
+    const m = make();
+    const { f, d, dispose } = m;
+    await miss(m, 3);
+    d.left("A");
+    expect(f.pending()).toEqual(["matches A"]);
     dispose();
   });
 });

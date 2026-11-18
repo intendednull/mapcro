@@ -70,3 +70,9 @@ export function statusView(s: SaveStatus, c: Connection, syncingShown: boolean, 
   if (s.kind === "syncing") return { kind: "syncing", text: "" };
   return { kind: "saved", text: "Saved" };
 }
+
+/** Whether the join card asks for a name. A board alone asks while it connects. A session's tab
+ * asks even when its board refuses: the name is the session's, and this may be the first tab
+ * this person lands on. An outdated build only offers the update. */
+export const asksName = (joined: boolean, c: Connection, inSession: boolean): boolean =>
+  !joined && (c.kind !== "closed" || (inSession && c.reason !== "outdated"));
