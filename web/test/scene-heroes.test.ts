@@ -441,6 +441,11 @@ describe("Retake and the scene's heroes", () => {
       put(h.id, "pickups", whole.pickups),
       put(h.id, "deaths", whole.deaths),
     ]);
+    // Every build row it can hold goes back, whichever it is.
+    const full = heroes[4]!;
+    full.state.more = Object.fromEntries(BUILD_KEYS.map((k) => [k, 1])) as More;
+    const sent = retakeOps(scene(4), { id: "state", more: { rows: LATER, has_heroes: true } }, heroes, roster() as never, tl, minter(), LATER).flat();
+    expect(sent.flatMap((o) => ("SetIf" in o && o.SetIf.id === full.id && "More" in o.SetIf.value ? [o.SetIf.value.More.key] : []))).toEqual([...BUILD_KEYS]);
     // Without the flag, only what it lacks, as ever.
     const plain = retakeOps(scene(4), { id: "state", more: { rows: BEFORE } }, heroes, roster() as never, tl, minter(), LATER).flat();
     expect(mine(plain)).toEqual([put(h.id, "deaths", whole.deaths)]);
