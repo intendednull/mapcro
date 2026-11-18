@@ -3,6 +3,23 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Deployed ba36854: map-state phase 4, tokens (2026-11-18 ~03:50 UTC, lead 9eb2516b)
+
+- **Prod `web` runs ba36854** (infra d07aaf9). The store is unchanged (v14, floor 12), so no
+  backup and no `reader` bump.
+- **What changed:** one `mapState()` in Board; the tokens read `HeroState` and `heroDraw` in Player
+  and in scenes. A coach sees nothing new. The operator's faded-only rule is in `heroDraw`, but a
+  scene has no per-team sight until phase 5, so only `shown.test.ts` holds it for now.
+- **Review (Opus medium):** no blocker. The journal's reason for the one surviving mutant was
+  corrected.
+- **Gate:** 516 e2e, Firefox 29, VM, reader-check byte for byte. The walkthrough passed on the
+  merged tree and on prod, with 0 page errors and 0 5xx.
+- **Player alternatives:** the page is
+  `/home/intendednull/concierge/artifacts/mapcro-player-alternatives/index.html`. The operator
+  likes Astra's Shuttle Deck and Opus's Deck and asked for a middle ground, now being designed on
+  `player-alt-blend`. **Nothing merges until the operator picks a direction**, `player-transport`
+  included.
+
 ## Resumed (2026-11-18 ~00:20 UTC, lead 9eb2516b)
 
 The operator lifted the pause (via the concierge). Astra's `player-transport` still waits on the
