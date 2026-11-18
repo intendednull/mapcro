@@ -260,7 +260,8 @@ export function createPlayerHost(board: string, token: string, via?: Via, rememb
     return n === "own" ? showNames() : n === "on";
   };
   /** The player's name in a slot when names are shown and the timeline has one: the top bar and
-   * the events read names here, the tokens through `preview` (which checks `showNames` too). */
+   * the events and a scene's tokens read names here, Player's tokens through their frame
+   * (`playerHero`, which checks `showNames` too). */
   const playerName = (team: string | null | undefined, slot: number | null | undefined): string | undefined =>
     (showNames() && tl()?.players.find((p) => p.team === team && p.slot === slot)?.name) || undefined;
   /** The events the list shows under its filters and search (absent: every event). */
