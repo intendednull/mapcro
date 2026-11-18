@@ -7,8 +7,8 @@ Phase 1 was built on branch `scene-state`; phase 2 is on `map-state-p2`. Spec: `
 
 **Outcome: built and checked; not merged, not deployed.** One release, off main 350ba0e. No store,
 schema or view-state change (`just ts` leaves the tree as it was, no new rows). The code is
-`0495d60`; the characterisation before it (`c6c94fa`, `10510d2`); the tests that came of the mutants
-after it (`9c6a317`, `96f3948`, `9ca41c9`). Checked at `706003a`; only this journal is on top.
+`0495d60` (the urn's rule shortened in `10510d2`); the characterisation is `c6c94fa` and `10510d2`; the
+tests that came of the mutants are `9c6a317`, `96f3948` and `9ca41c9`. Checked at `706003a`; only this journal is on top.
 
 **What a coach sees:** nothing new, by design. Old, saved and hand-made scenes and Player draw as
 before. The one difference needs a hand-edited board file: a scene that holds its own name for a
@@ -45,7 +45,7 @@ bar (`Player.tsx`, the transport) draws no hero or marker state, so nothing ther
 
 - `map-state-dom-pins.spec.ts`: **no pin moved.** Its `outline` helper moved to `e2e/outline.ts`.
 - New, `map-state-marker-pins.spec.ts`: 32 files, written and verified twice on main's code before
-  the change (bar, map and hovers at nine moments under each Vision, Health and Names; a scene's
+  the change (bar, map and hovers at eight moments across the Visions, Health and Names; a scene's
   stored statuses for an editor and a viewer; names on and off). All pass unchanged on the new code.
 
 **Checks** (at `706003a`; `/tmp/msp4m/final.sh`, summary `/tmp/msp4m/run/final/summary`; all through
@@ -72,8 +72,8 @@ bar (`Player.tsx`, the transport) draws no hero or marker state, so nothing ther
 **The walkthrough** (Chromium, the reference replay 129738985; this build and main's, each on its
 own server; `/tmp/msp4m/qa/walk.mjs`; counts, booleans and hashes only):
 
-- 32 views, each view's bar and map hashed: Player at 14 moments under All, 8 under a team's Vision,
-  Last seen, Health off and Names off; a saved scene, a hand-made scene, the oldest scene, and an old
+- 32 views, each view's bar and map hashed: Player at 14 moments under All, 11 under a team's Vision
+  (one with Last seen), one with Health off and one with Names off; a saved scene, a hand-made scene, the oldest scene, and an old
   saved scene with and without its match open. **The two builds' output is identical** (38 lines, no
   difference).
 - Among those views: the rift's rings in 2, the urn in 12, skulls in 9, a Rejuvenator in 2, respawn
