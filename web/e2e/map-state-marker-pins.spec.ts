@@ -211,8 +211,9 @@ test("a portrait's focus goes where the viewer's frame draws the hero", async ({
   // Out of the King's sight, no last-seen spot shown: nowhere to go (a ping would show by now).
   await view(p, "amber", false);
   await focus();
-  await p.waitForTimeout(900);
-  await expect(pings).toHaveCount(0);
+  await p.waitForTimeout(400);
+  // Asked once: a ping fades by itself, so a retry would wait it out.
+  expect(await pings.count()).toBe(0);
   await p.keyboard.press("Escape");
   // Its ghost: pinged where the King last saw it.
   await view(p, "amber", true);
