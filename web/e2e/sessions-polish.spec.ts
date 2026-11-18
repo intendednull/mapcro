@@ -311,9 +311,10 @@ test("the open tab's owner link opened elsewhere: what its board says reaches th
   await other.close();
   await expect(line(b, 1)).toHaveText("Sandbox");
   // A match loaded on the open board: the tab says so at once.
+  await b.getByTestId("mode-player").first().click();
   await revealControls(b, "match-id");
   await b.getByTestId("match-id").fill(ID);
-  await b.getByTestId("match-id").press("Enter");
+  await b.getByTestId("match-load").click();
   await expect(b.getByTestId("match-tier")).toHaveText("API summary");
   await expect(line(b, 1)).toHaveText(/^Sapphire/);
   await expect(tier(b, 1)).toHaveText("API summary");
