@@ -22,6 +22,8 @@ test.beforeAll(async () => {
 test.afterAll(() => server.stop());
 // Firefox draws these pages in software at 4.2 device px per CSS px (playwright.config.ts).
 test.beforeEach(({ browserName }) => test.slow(browserName === "firefox"));
+// A Firefox page here sometimes stops answering Playwright before its first gesture (TD-133).
+test.describe.configure({ retries: process.env.MAPCRO_E2E_FIREFOX ? 2 : 0 });
 
 type Pt = { x: number; y: number };
 const sleep = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
@@ -323,6 +325,7 @@ test("a hold beside a small pin finds it; a hold on a hero beside it, or on empt
   await a.keyboard.press("Enter");
   await a.keyboard.press("q");
   await expect(a.locator(".mapbox [data-callout]")).toHaveCount(1);
+  await a.mouse.move(5, 5);
   const t = await touchEditor(browser, url, SMALL);
   const f = await fingers(browser, t);
   const pin = await centre(t.locator(".p-map [data-callout]"));
