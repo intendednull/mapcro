@@ -271,12 +271,16 @@ So that an absent key can be told from an unknown one, `SceneState.more` holds:
   | The stored build is drawn | While the record still holds some of it | While its `hero` is the roster's hero |
   | Save from a match | Stores each slot's hero (with or without the builds) and leaves the roster alone | Sets the roster to the match's heroes |
 
-  **A pick and a Retake at the same moment (TD-119):** the server's order decides the slot,
-  whole. Retake gives a record its build and its `hero` in one transaction, and a pick clears
-  every build row, so the record ends as the later of the two left it: the picked hero with no
-  build, or the match's hero with its own. A `SetIf` tests only the key it writes, so a build
-  can't be made conditional on the record's `hero`; a Retake that lands after a pick therefore
-  takes the slot back to the match's hero, and the coach picks again.
+  **A pick and a Retake at the same moment (TD-119):** between two clients of this build, the
+  server's order decides the slot, whole. Retake sends a record's `hero` and its build in one
+  transaction, the rows it already holds included (each on its being absent, so they change
+  nothing unless a pick cleared them), and a pick clears every build row. The record ends as the
+  later of the two left it: the picked hero with no build, or the match's hero with its own. A
+  `SetIf` tests only the key it writes, so a build can't be made conditional on the record's
+  `hero`; a Retake that lands after a pick therefore takes the slot back to the match's hero,
+  and the coach picks again. This holds for the two edits themselves: an undo or redo writes a
+  record's `hero` and build rows independently, and can still leave one hero with another's
+  build (TD-145).
 
   The right-hand column is today's behaviour, kept exactly: where a stored `hero` and the
   roster's differ there, a coach picked another hero since, and that pick is never undone by

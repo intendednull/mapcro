@@ -18,7 +18,7 @@ import { clampToMap } from "../map/transform";
 import { type Timeline, clockLabel, slotKey } from "./timeline";
 import { LIMITS } from "../gen/limits";
 import type { More } from "../gen/More";
-import { WRITTEN, captureBuild, captureScene, captured, heroBuildAt, holdsHealth, moreBytes, retakeRows, writesHeroes } from "../mapstate/build";
+import { BUILD_KEYS, WRITTEN, captureBuild, captureScene, captured, heroBuildAt, holdsHealth, moreBytes, retakeRows, writesHeroes } from "../mapstate/build";
 import { savedPart } from "../mapstate/frame";
 import type { Player } from "../board/state";
 
@@ -187,7 +187,8 @@ export function canRetake(scene: Pick<SceneRow["scene"], "source">, state: More 
  * sent at the same moment isn't visible here, and a `SetIf` can only test the key it writes, so
  * nothing can make the build's rows wait on the record's `hero`. Writing the two together keeps
  * them together: whichever of the pick and the Retake the server takes last decides the slot,
- * whole (TD-119).
+ * whole (TD-119). For that the rows the record already holds go too, as read and each on its
+ * being absent: they change nothing unless that pick cleared them.
  *
  * `state`: the scene's `SceneState`, if it has one. `heroes`: the scene's hero records.
  */
@@ -217,7 +218,10 @@ export function retakeOps(
     // that hero's, and stays out.
     if (typeof have.hero === "number" && have.hero !== p.hero_id) continue;
     const ops = Object.entries(captureBuild(heroBuildAt(tl, p, second, tier))).filter(([key]) => have[key] === undefined && !(own && key === "hero")).map(([key, value]) => absent(h.id, key, value));
-    if (own && (ops.length || have.hero === undefined)) ops.unshift({ Set: { id: h.id, value: { More: { key: "hero", value: p.hero_id } } } });
+    if (own && (ops.length || have.hero === undefined)) {
+      const held = BUILD_KEYS.filter((key) => have[key] !== undefined).map((key) => absent(h.id, key, have[key]!));
+      ops.unshift({ Set: { id: h.id, value: { More: { key: "hero", value: p.hero_id } } } }, ...held);
+    }
     if (ops.length) groups.push(ops);
   }
   // The scene's state last, so a scene never says it holds builds that haven't been written.

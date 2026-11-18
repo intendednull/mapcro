@@ -18,7 +18,7 @@ import type { More } from "../src/gen/More";
 import type { Op } from "../src/gen/Op";
 import type { PlayerState as HeroRecord } from "../src/gen/PlayerState";
 import { ROWS } from "../src/gen/rows";
-import { BUILD_KEYS, WRITTEN, captureBuild, captureScene, captured, heroBuildAt, retakeRows, sceneHero, writesHeroes } from "../src/mapstate/build";
+import { BUILD_KEYS, WRITTEN, captureBuild, captureScene, captured, heroBuildAt, moreBytes, retakeRows, sceneHero, writesHeroes } from "../src/mapstate/build";
 import { holdsBuild } from "../src/mapstate/buildView";
 import { pickHeroOps } from "../src/mapstate/edit";
 import { fromScene } from "../src/mapstate/scene";
@@ -420,7 +420,44 @@ describe("Retake and the scene's heroes", () => {
     const bare = whole.map((h) => { const { hero: _, ...more } = h.state.more!; return { ...h, state: { ...h.state, more } }; });
     const told = retakeOps(scene(4), state, bare, roster() as never, tl, minter(), LATER).flat();
     expect(told.filter((o) => "Set" in o)).toEqual(bare.map((h, i) => ({ Set: { id: h.id, value: { More: { key: "hero", value: tl.players[i]!.hero_id } } } })));
-    expect(told.filter((o) => "SetIf" in o && o.SetIf.id !== "state")).toEqual([]);
+    // And the rows it holds go with its hero, for a pick that cleared them on the way.
+    const put = (id: string, key: string, value: unknown) => ({ SetIf: { id, expect: { More: { key, value: null } }, value: { More: { key, value } } } });
+    expect(told.filter((o) => "SetIf" in o && o.SetIf.id !== "state")).toEqual(bare.flatMap((h) => BUILD_KEYS.filter((k) => h.state.more[k] !== undefined).map((k) => put(h.id, k, h.state.more[k]))));
+  });
+
+  it("a record holding part of its build sends those rows too, each only where it is gone (TD-119)", () => {
+    const put = (id: string, key: string, value: unknown) => ({ SetIf: { id, expect: { More: { key, value: null } }, value: { More: { key, value } } } });
+    const heroes = heroesOf(save({ written: LATER, builds: false }).ops);
+    const whole = captureBuild(heroBuildAt(tl, tl.players[2]!, 4));
+    const h = heroes[2]!;
+    // A value of its own (not what the match says), one as captured, and the slot's name.
+    h.state.more = { hero: whole.hero!, name: "x", health: 55, pickups: whole.pickups! };
+    const mine = (ops: Op[]) => ops.filter((o) => ("Set" in o && o.Set.id === h.id) || ("SetIf" in o && o.SetIf.id === h.id));
+    const flagged = retakeOps(scene(4), { id: "state", more: { rows: LATER, has_heroes: true } }, heroes, roster() as never, tl, minter(), LATER).flat();
+    // The hero, what it holds as it holds it, then what it lacks. Never the name.
+    expect(mine(flagged)).toEqual([
+      { Set: { id: h.id, value: { More: { key: "hero", value: whole.hero } } } },
+      put(h.id, "health", 55),
+      put(h.id, "pickups", whole.pickups),
+      put(h.id, "deaths", whole.deaths),
+    ]);
+    // Without the flag, only what it lacks, as ever.
+    const plain = retakeOps(scene(4), { id: "state", more: { rows: BEFORE } }, heroes, roster() as never, tl, minter(), LATER).flat();
+    expect(mine(plain)).toEqual([put(h.id, "deaths", whole.deaths)]);
+  });
+
+  it("the rows sent back still fit the transactions: twelve records near their cap", () => {
+    const heroes = heroesOf(save({ written: LATER, builds: false }).ops);
+    for (const h of heroes) h.state.more = { hero: h.state.more!.hero!, build_order: Array.from({ length: 600 }, () => 123_456_789) };
+    expect(moreBytes(heroes[0]!.state.more!)).toBeLessThanOrEqual(LIMITS.max_more_bytes);
+    const txs = retakeOps(scene(4), { id: "state", more: { rows: LATER, has_heroes: true } }, heroes, roster() as never, tl, minter(), LATER);
+    expect(txs.length).toBeGreaterThan(1);
+    for (const tx of txs) {
+      expect(opsBytes(tx)).toBeLessThanOrEqual(LIMITS.max_tx_bytes - 1024);
+      expect(tx.length).toBeLessThanOrEqual(LIMITS.max_ops_per_tx);
+    }
+    // Every record's rows, in one transaction with its hero.
+    for (const h of heroes) expect(txs.filter((tx) => tx.some((o) => ("Set" in o && o.Set.id === h.id) || ("SetIf" in o && o.SetIf.id === h.id)))).toHaveLength(1);
   });
 
   it("leaves out a slot given another hero in the scene: the match's build is not that hero's", () => {

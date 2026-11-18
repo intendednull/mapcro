@@ -289,6 +289,67 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
     stop(s);
   });
 
+  // A scene whose record already holds part of its build: Retake has only the rest to give.
+  describe("when the record already holds part of its build", () => {
+    const sync = async (s: Saved) => {
+      expect(await settled(s.a, s.b)).toBe(true);
+      expect(await until(() => held(s.a) === held(s.b))).toBe(true);
+    };
+    /** The record holds every row of its build but the last. */
+    async function partly() {
+      const s = await saved();
+      const rows = Object.keys(s.build).filter((k) => k !== "hero");
+      const lacks = rows.at(-1)!;
+      expect(rows.length).toBeGreaterThan(1);
+      expect(s.a.edit(rows.filter((k) => k !== lacks).map((key): Op => ({ Set: { id: s.id, value: { More: { key, value: s.build[key]! } } } })))).toBe(true);
+      await sync(s);
+      return { s, lacks };
+    }
+
+    it("the pick decided first: the match's hero with its whole build, not a fragment", async () => {
+      const { s } = await partly();
+      await race(s, "pick");
+      expect(agreed(s)).toEqual(s.build);
+      stop(s);
+    });
+
+    it("the Retake decided first: the new hero with no build", async () => {
+      const { s } = await partly();
+      await race(s, "retake");
+      expect(agreed(s)).toEqual({ hero: PICKED });
+      stop(s);
+    });
+
+    it("a row someone changed while the Retake was on its way keeps their value", async () => {
+      const { s, lacks } = await partly();
+      const kept = Object.keys(s.build).find((k) => k !== "hero" && k !== lacks && typeof s.build[k] === "number")!;
+      const theirs = (s.build[kept] as number) + 1;
+      s.gb.hold();
+      for (const tx of retake(s)) expect(s.b.edit(tx)).toBe(true);
+      expect(s.a.edit([{ Set: { id: s.id, value: { More: { key: kept, value: theirs } } } }])).toBe(true);
+      expect(await settled(s.a)).toBe(true);
+      s.gb.release();
+      await sync(s);
+      expect(agreed(s)).toEqual({ ...s.build, [kept]: theirs });
+      stop(s);
+    });
+
+    it("undoing the Retake takes back only what it filled", async () => {
+      const { s, lacks } = await partly();
+      const before = hero(s.a, s.id).more;
+      const txs = retake(s);
+      for (const tx of txs) expect(s.b.edit(tx)).toBe(true);
+      await sync(s);
+      expect(hero(s.a, s.id).more?.[lacks]).toBeDefined();
+      for (let i = 0; i < txs.length; i++) {
+        s.b.undo();
+        await sync(s);
+      }
+      expect(agreed(s)).toEqual(before);
+      stop(s);
+    });
+  });
+
   // A tab open from before this build stays open across a client deploy (the build id hashes
   // the schema). Against it the slot ends no worse than it does today: the half this build
   // sent holds, and only the old client's half can still leave the old hero's build.
