@@ -20,7 +20,8 @@ test.beforeAll(async () => {
   await new Promise<void>((ok) => upstream.listen(0, "127.0.0.1", ok));
   const port = (upstream.address() as { port: number }).port;
   writeFileSync(join(queue, "feedback-token"), "synthetic-test-only", { mode: 0o600 });
-  server = new Server(pack({ cards: true, items: 12 }), { FEEDBACK_GITHUB_TOKEN_FILE: join(queue, "feedback-token"), FEEDBACK_GITHUB_API: `http://127.0.0.1:${port}`, MATCH_API_BASE: `http://127.0.0.1:${port}`, REPLAY_DIR: queue, REPLAY_PER_CLIENT_PER_HOUR: "20" });
+  // The viewport matrix creates 31 boards; leave headroom above the production cap of 30.
+  server = new Server(pack({ cards: true, items: 12 }), { CREATE_PER_HOUR: "40", FEEDBACK_GITHUB_TOKEN_FILE: join(queue, "feedback-token"), FEEDBACK_GITHUB_API: `http://127.0.0.1:${port}`, MATCH_API_BASE: `http://127.0.0.1:${port}`, REPLAY_DIR: queue, REPLAY_PER_CLIENT_PER_HOUR: "40" });
   await server.start();
 });
 test.afterAll(() => {
@@ -503,5 +504,46 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("board")).toBeVisible();
     await expect(page.locator(".phone")).toHaveCount(0);
+  });
+}
+
+// Design review (player-alt-blend): synthetic replay only. Captures, when TRANSPORT_CAPTURE is set,
+// go outside the repository.
+for (const [width, height, touch] of [[1440, 900, false], [820, 768, false], [800, 768, false], [1024, 768, true], [360, 740, true], [390, 844, true], [412, 915, true], [844, 390, true], [615, 344, true]] as const) {
+  test(`transport review ${width}×${height}`, async ({ browser }) => {
+    const viewport = { width, height };
+    const ctx = touch ? await phoneContext(browser, viewport) : await browser.newContext({ viewport });
+    const p = await ctx.newPage();
+    await p.goto(await newBoardUrl(server, "Transport"));
+    await p.locator("#join-name").fill("Coach");
+    await p.keyboard.press("Enter");
+    await open(p, String(129002000 + width));
+    await scrubTo(p, 20);
+    if (process.env.TRANSPORT_CAPTURE) await p.screenshot({ path: `/home/intendednull/concierge/artifacts/mapcro-player-alternatives/blend/${width}x${height}.png` });
+    const track = (await p.getByTestId("match-time").boundingBox())!;
+    expect(track.width).toBeGreaterThan(touch && width > height ? 130 : !touch && width <= 820 ? 200 : 250);
+    // Touch keys are 44 px or more: Play, the speed, and Back and Forward where they show.
+    if (touch) for (const id of ["match-play", width <= 480 ? "match-speed-list" : "speed-up", ...((width > height ? width >= 780 : width >= 600) ? ["match-back", "match-forward"] : [])]) {
+      const b = (await p.getByTestId(id).boundingBox())!;
+      expect(Math.min(b.width, b.height), id).toBeGreaterThanOrEqual(43.9);
+    }
+    if (!touch) {
+      // Inside the bar and inside the stage: the bar runs under the side panels' edges.
+      const bar = (await p.getByTestId("player").boundingBox())!;
+      const stage = (await p.locator(".stage").boundingBox())!;
+      for (const id of ["match-time", "match-play", "match-back", "match-forward", "match-speed", "match-clock"]) {
+        const b = (await p.getByTestId(id).boundingBox())!;
+        expect(b.x, id).toBeGreaterThanOrEqual(Math.max(bar.x, stage.x));
+        expect(b.x + b.width, id).toBeLessThanOrEqual(Math.min(bar.x + bar.width, stage.x + stage.width));
+        expect(b.y + b.height, id).toBeLessThanOrEqual(bar.y + bar.height);
+      }
+      // Desktop keys: Play 56 px, the rest 44.
+      for (const [id, min] of [["match-play", 55.9], ["match-back", 43.9], ["match-forward", 43.9], ["speed-up", 39.9], ["speed-down", 39.9]] as const) {
+        const b = (await p.getByTestId(id).boundingBox())!;
+        expect(Math.min(b.width, b.height), id).toBeGreaterThanOrEqual(min);
+      }
+    }
+    expect(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await ctx.close();
   });
 }

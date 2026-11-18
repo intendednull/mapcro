@@ -359,7 +359,7 @@ export function Player(p: {
           </div>
         </Show>
         <details ref={source} class="pl-source" classList={{ "pl-hidden": !watching() }}>
-          <summary class="btn ghost small">Match {h.matchId() || "source"} <span aria-hidden="true">▴</span></summary>
+          <summary class="btn ghost small"><span class="pl-source-word">Match </span>{h.matchId() || "source"} <span aria-hidden="true">▴</span></summary>
         <form
           class="pl-head"
           classList={{ "pl-hidden": !watching() }}
@@ -508,15 +508,20 @@ export function Player(p: {
         <Show when={(watching() || sourceHere()) && h.tl()}>
           {(m) => (
             <div class="pl-transport">
-              <button class="btn small" type="button" data-testid="match-back" aria-label="Back 10 s" title="−10 s (← 5 s, Shift+← 30 s)" onClick={() => seekReplay(transportTime() - 10)}>
-                −10
+              {/* The deck (player-alt-opus): Back, Play and Forward as one cluster, Play the big round
+                  key between two skip keys, as music and podcast players have it. The words stay
+                  in the buttons' text (the specs read them); the icons are drawn beside them. */}
+              <div class="pl-keys">
+              <button class="btn small pl-skip" type="button" data-testid="match-back" aria-label="Back 10 s" title="Back 10 s" onClick={() => seekReplay(transportTime() - 10)}>
+                <SkipIcon back /><span class="pl-skip-n">10</span>
               </button>
-              <button class="btn small pl-play" type="button" data-testid="match-play" aria-label={!watching() ? "Resume replay" : h.playback().playing ? "Pause" : "Play"} title={!watching() ? "Resume replay" : "Play / Pause (Space)"} onClick={toggleReplay}>
-                {!watching() ? "Resume" : h.playback().playing ? "Pause" : "Play"}
+              <button class={cx("btn small pl-play", !watching() && "resume")} type="button" data-testid="match-play" data-playing={String(watching() && h.playback().playing)} aria-label={!watching() ? "Resume replay" : h.playback().playing ? "Pause" : "Play"} title={!watching() ? "Resume replay" : h.playback().playing ? "Pause" : "Play"} onClick={toggleReplay}>
+                <PlayIcon playing={watching() && h.playback().playing} /><span class="pl-play-word">{!watching() ? "Resume" : h.playback().playing ? "Pause" : "Play"}</span>
               </button>
-              <button class="btn small" type="button" data-testid="match-forward" aria-label="Forward 10 s" title="+10 s (→ 5 s, Shift+→ 30 s)" onClick={() => seekReplay(transportTime() + 10)}>
-                +10
+              <button class="btn small pl-skip" type="button" data-testid="match-forward" aria-label="Forward 10 s" title="Forward 10 s" onClick={() => seekReplay(transportTime() + 10)}>
+                <SkipIcon /><span class="pl-skip-n">10</span>
               </button>
+              </div>
               {/* Speed (feedback #58): − and + step through SPEEDS, the current one between them.
                   A phone held upright (480 px or less) keeps the list, by CSS: the buttons would
                   narrow its scrubber, and under 390 px they don't fit their row at all. */}
@@ -537,7 +542,7 @@ export function Player(p: {
               </span>
               {/* The marker space above the bar scrubs too (#45): a press and drag there scrubs as
                   the bar does, a plain press on a marker still does the marker's thing. */}
-              <div class="pl-scrub" onPointerDown={(e) => { if (!(e.target as Element).closest(".match-range")) scrubFromMarks(e); }}>
+              <div class="pl-scrub" style={{ "--p": `${(Math.min(m().duration_s, Math.max(0, transportTime())) / Math.max(1, m().duration_s)) * 100}%` }} onPointerDown={(e) => { if (!(e.target as Element).closest(".match-range")) scrubFromMarks(e); }}>
                 {/* Events (#6): a hover grows the tick and shows its tag; a press jumps there, as
                     ↑ ↓ do (which is the keyboard's way: the ticks aren't in the tab order). */}
                 <div class="pl-ticks" ref={ticksRow}>
@@ -603,6 +608,27 @@ export function Player(p: {
   );
 }
 
+
+/** The deck's play key: a triangle, or two bars while playing. Drawn, so the text stays the word. */
+function PlayIcon(q: { playing: boolean }) {
+  return (
+    <svg class="pl-ico" viewBox="0 0 24 24" aria-hidden="true">
+      <Show when={q.playing} fallback={<path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.4-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" />}>
+        <rect x="6.5" y="5" width="4" height="14" rx="1" /><rect x="13.5" y="5" width="4" height="14" rx="1" />
+      </Show>
+    </svg>
+  );
+}
+
+/** A skip key's arc: anticlockwise for Back, clockwise for Forward (the 10 sits inside it). */
+function SkipIcon(q: { back?: boolean }) {
+  return (
+    <svg class="pl-ico pl-skip-arc" viewBox="0 0 24 24" aria-hidden="true" style={q.back ? undefined : { transform: "scaleX(-1)" }}>
+      <path d="M12 3.5a8.5 8.5 0 1 1-8.36 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+      <path d="M12 0.5v6l-4.5-3z" />
+    </svg>
+  );
+}
 
 function dismissDisclosure(element: () => HTMLDetailsElement | null) {
   const close = (e: Event) => {
