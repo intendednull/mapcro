@@ -6,6 +6,7 @@ import "./styles/topbar.css";
 import "./styles/board.css";
 import "./styles/app.css";
 import "./styles/tooltips.css";
+import "./styles/deck.css";
 
 suppressContextMenu();
 render(() => <App />, document.getElementById("root")!);

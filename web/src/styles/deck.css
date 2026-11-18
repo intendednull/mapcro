@@ -1,0 +1,217 @@
+/* ---- The deck, blended (player-alt-blend, a design take; not merged) ----
+   The Deck's structure with the Shuttle Deck's sizes (player-alt-astra).
+   Player's transport as a replay deck: one round Play key between two skip keys, a recessed
+   timeline lane whose track fills as the match plays and thickens under the pointer, a timecode
+   readout, and speed as one pill. Every key is a comfortable target: 44 px on the desktop (Play
+   56), 44-48 px on touch. Desktop rows follow the dock's own width (a container query), not the
+   window's: at 800 px the centre column is 250 px wide while the window is not narrow at all.
+   Loaded last (main.tsx), so it restyles the rules in app.css and board.css without editing them. */
+
+/* ---- Shared: icons, the lane's track, the keys ---- */
+.pl-ico { width: 22px; height: 22px; fill: currentColor; flex: none; }
+.pl-play-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.pl-play.resume .pl-play-word { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
+
+.pl-skip { position: relative; padding: 0; }
+.pl-skip .pl-skip-arc { width: 30px; height: 30px; }
+.pl-skip-n { position: absolute; inset: 0; display: grid; place-items: center; padding-top: 2px; font: 700 11px var(--ui); font-variant-numeric: tabular-nums; letter-spacing: -.02em; pointer-events: none; }
+
+/* The track: --p is the played share (Player.tsx), drawn up to the thumb; --trk its thickness. */
+.pl-scrub { --trk: 6px; --thumb: 16px; }
+.pl-scrub:hover, .pl-scrub:focus-within { --trk: 10px; }
+.board-app .dock .match-range, .phone-player .match-range {
+  -webkit-appearance: none; appearance: none; display: block; width: 100%; height: 24px; margin: 0; padding: 0;
+  background: transparent; cursor: pointer;
+}
+.match-range:focus-visible { outline: none; }
+.board-app .dock .match-range::-webkit-slider-runnable-track, .phone-player .match-range::-webkit-slider-runnable-track {
+  height: var(--trk); border-radius: 999px; transition: height .12s;
+  background: linear-gradient(to right, var(--accent) 0 var(--p, 0%), color-mix(in srgb, var(--text) 16%, transparent) var(--p, 0%));
+}
+.board-app .dock .match-range::-moz-range-track, .phone-player .match-range::-moz-range-track {
+  height: var(--trk); border-radius: 999px; background: color-mix(in srgb, var(--text) 16%, transparent); transition: height .12s;
+}
+.board-app .dock .match-range::-moz-range-progress, .phone-player .match-range::-moz-range-progress { height: var(--trk); border-radius: 999px; background: var(--accent); }
+.board-app .dock .match-range::-webkit-slider-thumb, .phone-player .match-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: var(--thumb); height: var(--thumb); margin-top: calc((var(--trk) - var(--thumb)) / 2);
+  border: 0; border-radius: 50%; background: var(--text);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent), 0 1px 4px #000a; transition: margin-top .12s;
+}
+.board-app .dock .match-range::-moz-range-thumb, .phone-player .match-range::-moz-range-thumb {
+  width: var(--thumb); height: var(--thumb); border: 0; border-radius: 50%; background: var(--text);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent), 0 1px 4px #000a;
+}
+.match-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--brass), 0 1px 4px #000a; }
+.match-range:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--brass), 0 1px 4px #000a; }
+
+/* ---- Desktop: the dock's bar ----
+   Two rows: the lane across the whole bar, then the keys under it (the source at the left, Back,
+   Play and Forward in the middle, the clock, speed and Save scene at the right). */
+.board-app .stage > .dock { container: dock / inline-size; }
+/* The bar holds its full height while a match loads, so the tools and the map don't jump (or sit
+   under it for a moment) when the timeline arrives after the summary. */
+.board-app .stage > .dock > .pl-bar { min-height: 133px; box-sizing: border-box; align-content: start; }
+.board-app .dock > .pl-bar:has(> .pl-transport) {
+  --deck-gap: 12px;
+  display: grid; align-items: center; column-gap: var(--deck-gap); row-gap: 0;
+  padding: 10px 20px 12px;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr) auto auto auto;
+  grid-template-areas:
+    "scene scene scene scene scene scene scene"
+    "up up up up up up up"
+    "note note note note note note note"
+    "lane lane lane lane lane lane lane"
+    "src . keys . clock speed save";
+}
+/* No row gap (the empty head rows would keep theirs): each row's items carry the space under it. */
+.board-app .dock > .pl-bar:has(> .pl-transport) > :is(.pl-scene-row, .pl-upload, .pl-notice) { margin-bottom: 8px; }
+.board-app .dock .pl-transport > .pl-scrub { margin-bottom: 10px; }
+.board-app .dock > .pl-bar > .pl-transport, .board-app .dock > .pl-bar .pl-tail { display: contents; }
+.board-app .dock > .pl-bar > .pl-scene-row { grid-area: scene; }
+.board-app .dock > .pl-bar > .pl-upload { grid-area: up; }
+.board-app .dock > .pl-bar > .pl-notice { grid-area: note; }
+.board-app .dock > .pl-bar > .pl-source { grid-area: src; min-width: 0; }
+.board-app .dock .pl-transport > .pl-keys { grid-area: keys; display: flex; align-items: center; gap: 14px; }
+.board-app .dock .pl-transport > .pl-scrub { grid-area: lane; }
+.board-app .dock .pl-transport .match-clock { grid-area: clock; }
+.board-app .dock .pl-transport > .pl-speed { grid-area: speed; }
+.board-app .dock .pl-transport [data-testid=match-save] { grid-area: save; }
+
+/* The keys: Play a 56 px brass disc, Back and Forward 44 px rounds, everything else 44 px tall. */
+.board-app .dock .pl-bar .pl-source > summary { height: 44px; max-width: 100%; box-sizing: border-box; overflow: hidden; padding: 0 14px; font-size: 13px; border-radius: 12px; color: var(--muted); }
+.board-app .dock .pl-keys .pl-skip { width: 44px; height: 44px; border-radius: 50%; border-color: var(--line); background: var(--panel); color: var(--muted); }
+.board-app .dock .pl-keys .pl-skip:hover { background: var(--raised); color: var(--text); }
+.board-app .dock .pl-keys .pl-play {
+  width: 56px; min-width: 56px; height: 56px; padding: 0; border-radius: 50%;
+  background: var(--brass); border-color: var(--brass); color: #1b1408;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brass) 14%, transparent), 0 2px 10px #0006;
+}
+.board-app .dock .pl-keys .pl-play:hover { background: color-mix(in srgb, var(--brass) 85%, #fff); }
+.board-app .dock .pl-keys .pl-play .pl-ico { width: 28px; height: 28px; }
+.board-app .dock .pl-keys .pl-play[data-playing=false]:not(.resume) .pl-ico { margin-left: 3px; }   /* a triangle's optical centre */
+.board-app .dock .pl-keys .pl-play.resume { width: auto; padding: 0 20px 0 16px; border-radius: 999px; gap: 6px; font-size: 14px; }
+
+/* The lane: a recessed band 44 px tall, the track along its foot and the events and scenes above
+   it. The markers' row is inset by the lane's padding and half the thumb, so it lines up with it. */
+.board-app .dock .pl-transport > .pl-scrub {
+  min-width: 0; height: 44px; padding: 0 10px 2px; box-sizing: border-box; align-items: flex-end;
+  border-radius: 12px; background: var(--bg-deep); border: 1px solid var(--line-soft);
+}
+.board-app .dock .pl-scrub .pl-ticks { left: 18px; right: 18px; top: 13px; height: 8px; }
+.board-app .dock .pl-scrub .pl-marks { left: 18px; right: 18px; top: 3px; }
+.board-app .dock .pl-scrub .pl-tick { height: 8px; width: 2px; border-radius: 1px; }
+.board-app .dock .pl-scrub .pl-tick:hover { height: 14px; }
+
+/* The timecode: the time large and bright, the length small and muted, in a readout's well. */
+.board-app .dock .pl-transport .match-clock {
+  display: inline-flex; align-items: baseline; justify-content: center; gap: 3px; min-width: 0; height: 44px; padding: 0 10px; box-sizing: border-box;
+  border-radius: 12px; background: var(--bg-deep); border: 1px solid var(--line-soft);
+  font: 700 17px / 42px var(--ui); font-variant-numeric: tabular-nums; color: var(--text); text-align: left;
+}
+.board-app .dock .match-clock .clock-of { font-size: 12px; font-weight: 600; color: var(--faint); }
+
+/* Speed: one 44 px pill, − and + as 40 px round keys either side of the speed. */
+.board-app .dock .pl-transport > .pl-speed { height: 44px; padding: 0 1px; box-sizing: border-box; gap: 0; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); }
+.board-app .dock .pl-speed .btn { width: 40px; min-width: 40px; height: 40px; padding: 0; border-radius: 50%; border: 0; background: transparent; color: var(--muted); font-size: 17px; }
+.board-app .dock .pl-speed .btn:not([disabled]):hover { background: var(--raised); color: var(--text); }
+.board-app .dock .pl-speed-now { min-width: 36px; font-size: 13px; font-weight: 700; }
+.board-app .dock .pl-transport [data-testid=match-save] { height: 44px; padding: 0 16px; font-size: 13px; border-radius: 12px; }
+
+/* A dock narrower than the tools' row wraps it. Unwrapped, that row overflowed the stage, which
+   then scrolled sideways on focus and carried the map and the bar under the left panel (193 px at
+   an 800 px window, on main too). */
+@container dock (width < 680px) {
+  .board-app .stage > .dock > .toolbar { flex-wrap: wrap; row-gap: 3px; }
+}
+/* Under 800 px of dock: the keys and the clock and speed, then the source and Save scene. */
+@container dock (width < 800px) {
+  .board-app .stage > .dock > .pl-bar { min-height: 187px; }
+  .board-app .dock > .pl-bar:has(> .pl-transport) {
+    --deck-gap: 10px;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      "scene scene scene scene"
+      "up up up up"
+      "note note note note"
+      "lane lane lane lane"
+      "keys . clock speed"
+      "src src . save";
+  }
+  .board-app .dock .pl-transport > :is(.pl-keys, .pl-speed), .board-app .dock .pl-transport .match-clock { margin-bottom: 10px; }
+}
+/* Under 480 px (the centre column between both panels, at 800 to 820 px windows): the keys
+   centred on a row of their own, then the clock and speed, then the source and Save scene. */
+@container dock (width < 480px) {
+  .board-app .stage > .dock > .pl-bar { min-height: 234px; }
+  .board-app .dock > .pl-bar:has(> .pl-transport) {
+    --deck-gap: 8px; padding: 10px 12px 12px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "scene scene"
+      "up up"
+      "note note"
+      "lane lane"
+      "keys keys"
+      "clock speed"
+      "src save";
+  }
+  .board-app .dock .pl-transport > .pl-scrub { margin-bottom: 8px; }
+  .board-app .dock .pl-transport > .pl-keys { justify-self: center; margin-bottom: 8px; }
+  .board-app .dock .pl-transport > .pl-speed, .board-app .dock .pl-transport .match-clock { margin-bottom: 8px; }
+  .board-app .dock .pl-transport .match-clock { justify-self: start; padding: 0 8px; font-size: 16px; }
+  /* The source is its match id here: the word stays for a screen reader. */
+  .board-app .dock .pl-source-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .board-app .dock .pl-bar .pl-source > summary { padding: 0 10px; }
+  .board-app .dock .pl-transport [data-testid=match-save] { padding: 0 12px; }
+}
+
+/* ---- Touch: the phone and tablet shell ----
+   The keys' group is no box here: Back, Play and Forward are the shell grid's own items. */
+.phone .pl-keys { display: contents; }
+/*
+   The rows keep the shell's (Play beside the lane, then speed, the clock and the tabs); the keys
+   grow: Play a 48 px brass disc, the lane's thumb 24 px on an 8 px track. On a turned phone wide
+   enough, and on tablets, Back and Forward come back beside Play at 44 px. */
+.phone-player .pl-scrub { --trk: 8px; --thumb: 24px; }
+.phone-player .match-range { height: 44px; }
+.phone-player .pl-bar { gap: 2px 8px; }
+.phone-player .pl-transport .pl-play {
+  justify-self: start; width: 48px; min-width: 48px; height: 48px; padding: 0; border-radius: 50%;
+  background: var(--brass); border-color: var(--brass); color: #1b1408;
+}
+.phone-player .pl-transport .pl-play .pl-ico { width: 26px; height: 26px; }
+.phone-player .pl-transport .pl-play[data-playing=false]:not(.resume) .pl-ico { margin-left: 2px; }
+.phone-player .pl-transport .pl-play.resume { width: auto; padding: 0 14px 0 10px; border-radius: 999px; gap: 4px; font-size: 14px; }
+.phone-player .pl-skip { width: 44px; height: 44px; border-radius: 50%; border-color: transparent; background: transparent; color: var(--muted); }
+.phone-player .pl-skip .pl-skip-arc { width: 34px; height: 34px; }
+.phone-player .pl-skip-n { font-size: 12px; }
+.phone-player .pl-speed { height: 44px; border-radius: 999px; border: 1px solid var(--line); background: var(--raised); }
+.phone-player .pl-speed .btn { height: 42px; border: 0; border-radius: 50%; background: transparent; font-size: 18px; }
+.phone-player .pl-speed-now { font-size: 14px; font-weight: 700; }
+.phone-player .pl-speed-list { height: 44px; min-width: 56px; border-radius: 999px; padding: 0 10px; font-weight: 700; background: var(--raised); }
+.phone-player .pl-tail .match-clock { font-weight: 700; }
+
+@media (orientation: portrait) and (min-width: 600px) {
+  .phone-player .pl-bar:not(:has(.p-rail)) {
+    grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+    grid-template-areas: "back play fwd scrub scrub" "speed speed speed clock tail";
+  }
+  .phone-player .pl-bar:not(:has(.p-rail)) [data-testid=match-back] { display: inline-flex; grid-area: back; }
+  .phone-player .pl-bar:not(:has(.p-rail)) [data-testid=match-forward] { display: inline-flex; grid-area: fwd; }
+}
+/* A short turned phone keeps its dock: Play is 44 there, so the row is the shell's 52 px. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .phone-player .pl-transport .pl-play { width: 44px; min-width: 44px; height: 44px; }
+}
+@media (orientation: landscape) {
+  .phone-player .pl-bar { padding-top: 4px; padding-bottom: calc(4px + env(safe-area-inset-bottom)); }
+}
+@media (orientation: landscape) and (min-width: 780px) {
+  .phone-player .pl-bar:not(:has(.p-rail)) {
+    grid-template-columns: auto auto auto auto minmax(0, 1fr) auto auto;
+    grid-template-areas: "back play fwd speed scrub clock tail";
+  }
+  .phone-player .pl-bar:not(:has(.p-rail)) [data-testid=match-back] { display: inline-flex; grid-area: back; }
+  .phone-player .pl-bar:not(:has(.p-rail)) [data-testid=match-forward] { display: inline-flex; grid-area: fwd; }
+  .phone-player .pl-bar:not(:has(.p-rail)) .pl-speed { margin-left: 4px; }
+}
