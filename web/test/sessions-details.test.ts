@@ -429,6 +429,48 @@ describe("while the server doesn't answer (TD-118)", () => {
     expect(f.pending()).toEqual(["job A 52001"]);
     dispose();
   });
+  /** A tab whose job is under way, as far as the strip has heard. */
+  const busyTab = async (m: ReturnType<typeof make>) => {
+    m.d.seen("A");
+    await m.f.answer("matches A", [52001]);
+    await m.f.answer("preview 52001", { kind: "none" });
+    await m.f.answer("job A 52001", job("fetching"));
+  };
+  it("a job's answer starts the count again: the next miss is a blip", async () => {
+    const m = make();
+    const { f, d, tick, dispose } = m;
+    await busyTab(m);
+    for (let i = 0; i < 3; i++) {
+      tick(QUIET_MAX_MS);
+      d.again(["A"]);
+      await f.answer("job A 52001", undefined);
+    }
+    tick(QUIET_MAX_MS);
+    d.again(["A"]);
+    await f.answer("job A 52001", job("parsing"));
+    d.again(["A"]);
+    await f.answer("job A 52001", undefined);
+    d.again(["A"]);
+    expect(f.pending()).toEqual(["job A 52001"]);
+    dispose();
+  });
+  it("a job's wait is counted from when it was asked too", async () => {
+    const m = make();
+    const { f, d, tick, dispose } = m;
+    await busyTab(m);
+    d.again(["A"]);
+    await f.answer("job A 52001", undefined);
+    d.again(["A"]);
+    tick(4_000); // The ask hangs for 4 s.
+    await f.answer("job A 52001", undefined);
+    tick(5_999);
+    d.again(["A"]);
+    expect(f.pending()).toEqual([]);
+    tick(1);
+    d.again(["A"]);
+    expect(f.pending()).toEqual(["job A 52001"]);
+    dispose();
+  });
   it("a refusal is an answer: the wait is over", async () => {
     const m = make();
     const { f, d, tick, dispose } = m;
