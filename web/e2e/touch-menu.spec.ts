@@ -324,12 +324,22 @@ test("a hold beside a small pin finds it; a hold on a hero beside it, or on empt
   await a.getByTestId("comment-input").fill("Smoke the bridge");
   await a.keyboard.press("Enter");
   await a.keyboard.press("q");
-  await expect(a.locator(".mapbox [data-callout]")).toHaveCount(1);
+  // And one in the open, for the hold beside a pin: a browser may give a press right beside a
+  // hero to the hero (Chromium's touch targeting), and then the hero keeps it.
+  await a.keyboard.press("s");
+  const open = await mapPoint(a, 0.5, 0.45);
+  await a.mouse.click(open.x, open.y);
+  await a.getByTestId("comment-input").fill("Hold the mid");
+  await a.keyboard.press("Enter");
+  await a.keyboard.press("q");
+  await expect(a.locator(".mapbox [data-callout]")).toHaveCount(2);
   await a.mouse.move(5, 5);
   const t = await touchEditor(browser, url, SMALL);
+  await expect(t.locator(".p-map [data-callout]")).toHaveCount(2);
   const f = await fingers(browser, t);
-  const pin = await centre(t.locator(".p-map [data-callout]"));
   const hero = await centre(t.locator(`.p-map .tok[data-slot="${slot}"]`));
+  const pins = await Promise.all((await t.locator(".p-map [data-callout]").all()).map(centre));
+  const pin = pins.reduce((x, y) => (Math.hypot(y.x - hero.x, y.y - hero.y) > Math.hypot(x.x - hero.x, x.y - hero.y) ? y : x));
   // Beside the pin, off it, where no hero or hero's label is on top: its menu.
   const beside = await t.evaluate((pin) => {
     for (const [dx, dy] of [[0, -14], [0, 14], [14, 0], [-14, 0]]) {
