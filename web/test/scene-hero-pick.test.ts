@@ -274,7 +274,7 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
     s.a.undo();
     expect(await settled(s.a, s.b)).toBe(true);
     expect(await until(() => hero(s.b, s.id).more?.hero === s.matchHero)).toBe(true);
-    // The pick never saw the build, so its undo can't bring it back (TD-145).
+    // The pick never saw the build, so its undo can't bring it back (TD-146).
     expect(agreed(s)).toEqual({ hero: s.matchHero });
     stop(s);
   });
