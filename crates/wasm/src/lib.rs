@@ -169,6 +169,39 @@ impl BoardReplica {
         self.update(&before, result.as_ref().ok().cloned().flatten(), result.err().map(|e| e.to_string()))
     }
 
+    /// The step the next `undo` would send, as `Op[]` JSON; `null` if there is none.
+    #[wasm_bindgen(js_name = nextUndo)]
+    pub fn next_undo(&self) -> Result<String, JsError> {
+        serde_json::to_string(&self.inner.next_undo()).map_err(js_err)
+    }
+
+    /// The step the next `redo` would send, as `Op[]` JSON; `null` if there is none.
+    #[wasm_bindgen(js_name = nextRedo)]
+    pub fn next_redo(&self) -> Result<String, JsError> {
+        serde_json::to_string(&self.inner.next_redo()).map_err(js_err)
+    }
+
+    /// Undo the next step as the caller re-decided it (`Op[]` JSON), keeping `carry_json`
+    /// (`Op[]`) with the redo it leaves (engine `Replica::undo_as`). Empty ops drop the step.
+    #[wasm_bindgen(js_name = undoAs)]
+    pub fn undo_as(&mut self, ops_json: &str, carry_json: &str) -> Result<String, JsError> {
+        let ops: Vec<Op> = serde_json::from_str(ops_json).map_err(js_err)?;
+        let carry: Vec<Op> = serde_json::from_str(carry_json).map_err(js_err)?;
+        let before = Held::of(self.inner.view(), &ops);
+        let result = self.inner.undo_as(ops, carry);
+        self.update(&before, result.as_ref().ok().cloned().flatten(), result.err().map(|e| e.to_string()))
+    }
+
+    /// [`undo_as`](Self::undo_as) for the next redo.
+    #[wasm_bindgen(js_name = redoAs)]
+    pub fn redo_as(&mut self, ops_json: &str, carry_json: &str) -> Result<String, JsError> {
+        let ops: Vec<Op> = serde_json::from_str(ops_json).map_err(js_err)?;
+        let carry: Vec<Op> = serde_json::from_str(carry_json).map_err(js_err)?;
+        let before = Held::of(self.inner.view(), &ops);
+        let result = self.inner.redo_as(ops, carry);
+        self.update(&before, result.as_ref().ok().cloned().flatten(), result.err().map(|e| e.to_string()))
+    }
+
     /// The socket opened and `Ready` arrived: frames to send (hello, then pending work).
     pub fn connect(&mut self) -> Result<String, JsError> {
         let frames: Vec<WireIn> = self.inner.connect().into_iter().map(|msg| WireIn::Msg { msg }).collect();

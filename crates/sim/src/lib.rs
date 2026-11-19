@@ -652,6 +652,24 @@ mod tests {
     /// (and undone: an Undoer's conditional write carries it too) with every property holding;
     /// by the server as built, none that is still `Ahead` reaches the log, so a rollback to
     /// store v10 loads every board.
+    /// TD-145: Undoers and Fillers send some steps as re-decided from their view (`undo_as`,
+    /// `redo_as`): some ops left out, some written whole with plain `Set`s, some steps dropped,
+    /// assertions carried. The runs hold every property with them, and they reach the log.
+    #[test]
+    fn steps_re_decided_from_the_view_are_logged_and_every_property_holds() {
+        let (mut whole, mut decided, mut carried) = (0, 0, 0);
+        for seed in 0..40 {
+            let (_, _, log) = run_logged(seed, &Config::default()).unwrap_or_else(|f| panic!("{f}"));
+            for tx in log.iter().filter(|t| !matches!(t.kind, mapcro_schema::TxKind::Edit)) {
+                decided += 1;
+                whole += usize::from(tx.ops.iter().any(|o| matches!(o, mapcro_schema::Op::Set { .. })));
+                carried += usize::from(tx.ops.iter().any(|o| matches!(o, mapcro_schema::Op::SetIf { expect, value, .. } if expect == value)));
+            }
+        }
+        assert!(whole > 0, "no undo or redo was written whole ({decided} logged)");
+        assert!(carried > 0, "no carried assertion was sent by a plain undo or redo");
+    }
+
     #[test]
     fn the_gated_typed_fields_are_written_when_admitted_and_never_logged_while_ahead() {
         let count = |admit: Admit| -> [usize; 3] {
