@@ -3,6 +3,22 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Deployed 9b24876: TD-118, the session strip's smaller gaps (2026-11-18, lead 9eb2516b)
+
+- **Prod `web` runs 9b24876** (infra d87eff6). Store unchanged (v14, floor 12). Client only.
+- **What a coach gets:** a late joiner whose first tab is refused is asked for a name over No
+  access, once. The open tab's chip keeps what its board says. A tab that doesn't answer is asked
+  again with a backoff of 10 s up to 60 s, ended by an answer or the session's room reconnecting.
+- **Review (Opus medium) caught a must-fix:** with a tab's owner link opened elsewhere, the open
+  board's details went to the old key and the chip stuck on Sandbox. Fixed, with a row shown to
+  fail without the fix. TD-150 to TD-153 are new.
+- **Gate, run in stages** (operator's OK: one job hit the 2-hour background limit): 536 e2e, VM,
+  reader-check. Firefox had one failure, "phone follows the presenter's replay time", a stall
+  before any gesture (TD-133); it then passed 8 of 8 on this merge. Live session check: all true,
+  0 page errors, 0 5xx.
+- **Next:** TD-119 (`td-119-retake`), then the Player blend (`player-blend-build`). The operator
+  accepted the blend's layout trade-offs. Phase 5 follows; TD-145 should be fixed before it.
+
 ## Deployed 9e07b5f: map-state phase 4, markers and bars (2026-11-18, lead 9eb2516b)
 
 - **Prod `web` runs 9e07b5f** (infra fce2540). Store unchanged (v14, floor 12). Phase 4's renderer
