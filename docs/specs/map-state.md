@@ -243,7 +243,7 @@ its life today.
 - **Duplicate also copies what is drawn on the scene** (arrows, callouts, ink, the note: #54).
   New scene doesn't: it is the play's next frame.
 - **Saving many scenes** sends one transaction per scene, chunked by bytes, not op count.
-- **Retake** writes with `SetIf` on an absent value, so it never overwrites; it may take more than
+- **Retake** writes with `SetIf` on an absent value, so it never overwrites a value (in a scene that holds its heroes it also sets each filled record's `hero`: §4.5); it may take more than
   one transaction and is then more than one undo step.
 - Tombstones still count toward the cap. "Board full" stays the answer; a copy starts fresh.
   Reclaiming them is logged as debt, not built here.
@@ -267,9 +267,20 @@ So that an absent key can be told from an unknown one, `SceneState.more` holds:
   | | A scene that says `has_heroes` | Any other scene (made by hand, or saved before the row was written) |
   |---|---|---|
   | The hero a slot draws | The record's own `hero`; the roster's where it has none | The board roster's |
-  | A pick in the scene | Sets the scene's `hero` and clears that record's build rows (`More { key, value: null }`) in one transaction: one undo step. "No hero" is not offered (the row can't say it) | Writes the roster, for every scene of the board |
+  | A pick in the scene | Sets the scene's `hero` and clears every build row of that record (`More { key, value: null }`), held locally or not, in one transaction: one undo step. "No hero" is not offered (the row can't say it) | Writes the roster, for every scene of the board |
   | The stored build is drawn | While the record still holds some of it | While its `hero` is the roster's hero |
   | Save from a match | Stores each slot's hero (with or without the builds) and leaves the roster alone | Sets the roster to the match's heroes |
+
+  **A pick and a Retake at the same moment (TD-119):** between two clients of this build, the
+  server's order decides the slot, whole. Retake sends a record's `hero` and its build in one
+  transaction, the rows it already holds included (each on its being absent, so they change
+  nothing unless a pick cleared them), and a pick clears every build row. The record ends as the
+  later of the two left it: the picked hero with no build, or the match's hero with its own. A
+  `SetIf` tests only the key it writes, so a build can't be made conditional on the record's
+  `hero`; a Retake that lands after a pick therefore takes the slot back to the match's hero,
+  and the coach picks again. This holds for the two edits themselves: an undo or redo writes a
+  record's `hero` and build rows independently, and can still leave one hero with another's
+  build (TD-145).
 
   The right-hand column is today's behaviour, kept exactly: where a stored `hero` and the
   roster's differ there, a coach picked another hero since, and that pick is never undone by

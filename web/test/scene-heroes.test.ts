@@ -18,7 +18,7 @@ import type { More } from "../src/gen/More";
 import type { Op } from "../src/gen/Op";
 import type { PlayerState as HeroRecord } from "../src/gen/PlayerState";
 import { ROWS } from "../src/gen/rows";
-import { BUILD_KEYS, WRITTEN, captureBuild, captureScene, captured, heroBuildAt, retakeRows, sceneHero, writesHeroes } from "../src/mapstate/build";
+import { BUILD_KEYS, WRITTEN, captureBuild, captureScene, captured, heroBuildAt, moreBytes, retakeRows, sceneHero, writesHeroes } from "../src/mapstate/build";
 import { holdsBuild } from "../src/mapstate/buildView";
 import { pickHeroOps } from "../src/mapstate/edit";
 import { fromScene } from "../src/mapstate/scene";
@@ -274,19 +274,91 @@ describe("a pick in a scene that holds its heroes", () => {
     expect(holdsBuild(after, LATER, 77, true)).toBe(false);
   });
 
-  it("clears only what the record holds; the same hero again, or no hero, writes nothing", () => {
-    expect(pickHeroOps(true, "slot-3", { id: "p3", more: { hero: 13, level: 4 } }, 77)).toEqual([
+  it("clears every build row, held here or not (TD-119); the same hero again, or no hero, writes nothing", () => {
+    const whole = [
       { Set: { id: "p3", value: { More: { key: "hero", value: 77 } } } },
-      { Set: { id: "p3", value: { More: { key: "level", value: null } } } },
-    ]);
-    // A record with nothing of its own yet: its hero is set.
-    expect(pickHeroOps(true, "slot-3", { id: "p3", more: undefined }, 77)).toEqual([{ Set: { id: "p3", value: { More: { key: "hero", value: 77 } } } }]);
+      ...BUILD_KEYS.map((key) => ({ Set: { id: "p3", value: { More: { key, value: null } } } })),
+    ];
+    expect(pickHeroOps(true, "slot-3", { id: "p3", more: { hero: 13, level: 4 } }, 77)).toEqual(whole);
+    // A record with nothing of its own yet: its hero is set, and the build rows are cleared all
+    // the same, for a Retake this client hasn't seen.
+    expect(pickHeroOps(true, "slot-3", { id: "p3", more: undefined }, 77)).toEqual(whole);
     // A name is the slot's, not the build's: kept.
-    expect(pickHeroOps(true, "slot-3", { id: "p3", more: { hero: 13, name: "x" } }, 77)).toHaveLength(1);
+    const named = pickHeroOps(true, "slot-3", { id: "p3", more: { hero: 13, name: "x" } }, 77);
+    expect(named).toEqual(whole);
+    expect(named.some((o) => "Set" in o && "More" in o.Set.value && o.Set.value.More.key === "name")).toBe(false);
     expect(pickHeroOps(true, "slot-3", player, build.hero as number)).toEqual([]);
     expect(pickHeroOps(true, "slot-3", player, null)).toEqual([]);
+    // A row the server still holds `ahead` is refused even as a clear: never named unless the
+    // record holds it. Here `max_health` is that row.
+    const ahead = ROWS.max_health.index;
+    const keys = (more: More | undefined) => pickHeroOps(true, "slot-3", { id: "p3", more }, 77, ahead).flatMap((o) => ("Set" in o && "More" in o.Set.value && o.Set.value.More.value === null ? [o.Set.value.More.key] : []));
+    expect(keys(undefined).sort()).toEqual(BUILD_KEYS.filter((k) => k !== "max_health").sort());
+    expect(keys({ hero: 13, max_health: 900 }).sort()).toEqual([...BUILD_KEYS].sort());
     // No hero record for the slot in the scene: the roster, as anywhere else.
     expect(pickHeroOps(true, "slot-3", undefined, 77)).toEqual([{ Set: { id: "slot-3", value: { RosterHero: 77 } } }]);
+  });
+});
+
+// TD-119's characterisation, written before the fix and run on the code before it: what a scene
+// without the flag gets from Retake and a pick, op for op, and what a flagged scene's Retake
+// writes of a build. The fix changes neither.
+describe("as it was before TD-119", () => {
+  const scene = { id: "scene", scene: { name: "s", order: "a", clock: 4, source: { match_id: tl.match_id, t: 4, tier: "replay" } } } as never;
+  const records = (opts: object) => made<HeroRecord>(save(opts).ops, "PlayerState").map((x) => ({ id: x.id, state: x.r }));
+  const absent = (id: string, key: string, value: unknown) => ({ SetIf: { id, expect: { More: { key, value: null } }, value: { More: { key, value } } } });
+  /** Retake's writes on one hero's record. */
+  const on = (ops: Op[], id: string) => ops.filter((o) => ("SetIf" in o && o.SetIf.id === id) || ("Set" in o && o.Set.id === id));
+
+  // Every way a scene can be without the flag: no state, a state that doesn't say it, one that
+  // says false, and one that says it below its own watermark.
+  const unflagged: Array<[string, { id: string; more: More } | undefined]> = [
+    ["no state", undefined],
+    ["a state from before the row", { id: "state", more: { rows: BEFORE } }],
+    ["a state that says false", { id: "state", more: { rows: LATER, has_heroes: false } }],
+    ["a state that says it below its watermark", { id: "state", more: { rows: BEFORE, has_heroes: true } }],
+  ];
+  it.each(unflagged)("without the flag (%s), Retake writes each absent value by a SetIf, and only those", (_, state) => {
+    const heroes = records({ builds: false });
+    const ops = retakeOps(scene, state, heroes, roster() as never, tl, minter()).flat();
+    heroes.forEach((h, i) => {
+      const want = Object.entries(captureBuild(heroBuildAt(tl, tl.players[i]!, 4))).filter(([k]) => h.state.more?.[k] === undefined);
+      expect(on(ops, h.id)).toEqual(want.map(([k, v]) => absent(h.id, k, v)));
+    });
+    expect(ops.some((o) => "Set" in o)).toBe(false);
+  });
+
+  it("without the flag, a record that holds its hero is filled with SetIfs alone, its hero not written", () => {
+    const heroes = records({ written: LATER, builds: false });
+    expect(heroes.every((h) => typeof h.state.more?.hero === "number")).toBe(true);
+    const ops = retakeOps(scene, { id: "state", more: { rows: BEFORE } }, heroes, roster() as never, tl, minter()).flat();
+    expect(ops.some((o) => "Set" in o)).toBe(false);
+    for (const h of heroes) expect(on(ops, h.id).some((o) => "SetIf" in o && "More" in o.SetIf.value && o.SetIf.value.More.key === "hero")).toBe(false);
+  });
+
+  it("with the flag, Retake fills each absent build row by a SetIf, as Save would have stored it", () => {
+    const heroes = records({ written: LATER, builds: false });
+    const ops = retakeOps(scene, { id: "state", more: { rows: LATER, has_heroes: true } }, heroes, roster() as never, tl, minter(), LATER).flat();
+    heroes.forEach((h, i) => {
+      const { hero: _, ...build } = captureBuild(heroBuildAt(tl, tl.players[i]!, 4));
+      const fills = on(ops, h.id).filter((o) => "SetIf" in o);
+      expect(fills).toEqual(Object.entries(build).map(([k, v]) => absent(h.id, k, v)));
+    });
+  });
+
+  it("with the flag, a record that holds its whole build gets nothing from Retake", () => {
+    const heroes = records({ written: LATER });
+    const ops = retakeOps(scene, { id: "state", more: { rows: LATER, has_heroes: true } }, heroes, roster() as never, tl, minter(), LATER).flat();
+    for (const h of heroes) expect(on(ops, h.id)).toEqual([]);
+  });
+
+  it("a pick in a scene without the flag writes the roster alone", () => {
+    expect(pickHeroOps(false, "slot-3", { id: "p3", more: { hero: 13, items: [5, 0, -1, -1] } }, 77)).toEqual([{ Set: { id: "slot-3", value: { RosterHero: 77 } } }]);
+  });
+
+  it("the reader draws what a flagged record holds, and nothing for one that holds no build", () => {
+    expect(holdsBuild({ hero: 77, items: [5, 0, -1, -1] }, LATER, 77, true)).toBe(true);
+    expect(holdsBuild({ hero: 77 }, LATER, 77, true)).toBe(false);
   });
 });
 
@@ -325,6 +397,72 @@ describe("Retake and the scene's heroes", () => {
     expect(canRetake(src, saved, tl, LATER)).toBe(false);
     expect(canRetake(src, { ...saved, rows: BEFORE - 1 }, tl, LATER)).toBe(true);
     expect(canRetake(src, undefined, tl, LATER)).toBe(true);
+  });
+
+  it("in a scene that holds its heroes, a record given a build is given its hero with it, first and in the same transaction (TD-119)", () => {
+    const heroes = heroesOf(save({ written: LATER, builds: false }).ops);
+    const state = { id: "state", more: { rows: LATER, has_heroes: true } as More };
+    const txs = retakeOps(scene(4), state, heroes, roster() as never, tl, minter(), LATER);
+    heroes.forEach((h, i) => {
+      const tx = txs.find((t) => t.some((o) => "Set" in o && o.Set.id === h.id))!;
+      const mine = tx.filter((o) => ("Set" in o && o.Set.id === h.id) || ("SetIf" in o && o.SetIf.id === h.id));
+      expect(mine[0]).toEqual({ Set: { id: h.id, value: { More: { key: "hero", value: tl.players[i]!.hero_id } } } });
+      expect(mine.slice(1).length).toBeGreaterThan(0);
+      expect(mine.slice(1).every((o) => "SetIf" in o)).toBe(true);
+      // The record's own group is one transaction's: the hero and its build land together.
+      expect(mine.length).toBe(1 + Object.keys(captureBuild(heroBuildAt(tl, tl.players[i]!, 4))).length - 1);
+    });
+    // A record with nothing to fill gets nothing, its hero included.
+    const whole = heroesOf(save({ written: LATER }).ops);
+    const none = retakeOps(scene(4), state, whole, roster() as never, tl, minter(), LATER).flat();
+    expect(none.some((o) => "Set" in o)).toBe(false);
+    // A record that holds a build and no hero is still told its hero.
+    const bare = whole.map((h) => { const { hero: _, ...more } = h.state.more!; return { ...h, state: { ...h.state, more } }; });
+    const told = retakeOps(scene(4), state, bare, roster() as never, tl, minter(), LATER).flat();
+    expect(told.filter((o) => "Set" in o)).toEqual(bare.map((h, i) => ({ Set: { id: h.id, value: { More: { key: "hero", value: tl.players[i]!.hero_id } } } })));
+    // And the rows it holds go with its hero, for a pick that cleared them on the way.
+    const put = (id: string, key: string, value: unknown) => ({ SetIf: { id, expect: { More: { key, value: null } }, value: { More: { key, value } } } });
+    expect(told.filter((o) => "SetIf" in o && o.SetIf.id !== "state")).toEqual(bare.flatMap((h) => BUILD_KEYS.filter((k) => h.state.more[k] !== undefined).map((k) => put(h.id, k, h.state.more[k]))));
+  });
+
+  it("a record holding part of its build sends those rows too, each only where it is gone (TD-119)", () => {
+    const put = (id: string, key: string, value: unknown) => ({ SetIf: { id, expect: { More: { key, value: null } }, value: { More: { key, value } } } });
+    const heroes = heroesOf(save({ written: LATER, builds: false }).ops);
+    const whole = captureBuild(heroBuildAt(tl, tl.players[2]!, 4));
+    const h = heroes[2]!;
+    // A value of its own (not what the match says), one as captured, and the slot's name.
+    h.state.more = { hero: whole.hero!, name: "x", health: 55, pickups: whole.pickups! };
+    const mine = (ops: Op[]) => ops.filter((o) => ("Set" in o && o.Set.id === h.id) || ("SetIf" in o && o.SetIf.id === h.id));
+    const flagged = retakeOps(scene(4), { id: "state", more: { rows: LATER, has_heroes: true } }, heroes, roster() as never, tl, minter(), LATER).flat();
+    // The hero, what it holds as it holds it, then what it lacks. Never the name.
+    expect(mine(flagged)).toEqual([
+      { Set: { id: h.id, value: { More: { key: "hero", value: whole.hero } } } },
+      put(h.id, "health", 55),
+      put(h.id, "pickups", whole.pickups),
+      put(h.id, "deaths", whole.deaths),
+    ]);
+    // Every build row it can hold goes back, whichever it is.
+    const full = heroes[4]!;
+    full.state.more = Object.fromEntries(BUILD_KEYS.map((k) => [k, 1])) as More;
+    const sent = retakeOps(scene(4), { id: "state", more: { rows: LATER, has_heroes: true } }, heroes, roster() as never, tl, minter(), LATER).flat();
+    expect(sent.flatMap((o) => ("SetIf" in o && o.SetIf.id === full.id && "More" in o.SetIf.value ? [o.SetIf.value.More.key] : []))).toEqual([...BUILD_KEYS]);
+    // Without the flag, only what it lacks, as ever.
+    const plain = retakeOps(scene(4), { id: "state", more: { rows: BEFORE } }, heroes, roster() as never, tl, minter(), LATER).flat();
+    expect(mine(plain)).toEqual([put(h.id, "deaths", whole.deaths)]);
+  });
+
+  it("the rows sent back still fit the transactions: twelve records near their cap", () => {
+    const heroes = heroesOf(save({ written: LATER, builds: false }).ops);
+    for (const h of heroes) h.state.more = { hero: h.state.more!.hero!, build_order: Array.from({ length: 600 }, () => 123_456_789) };
+    expect(moreBytes(heroes[0]!.state.more!)).toBeLessThanOrEqual(LIMITS.max_more_bytes);
+    const txs = retakeOps(scene(4), { id: "state", more: { rows: LATER, has_heroes: true } }, heroes, roster() as never, tl, minter(), LATER);
+    expect(txs.length).toBeGreaterThan(1);
+    for (const tx of txs) {
+      expect(opsBytes(tx)).toBeLessThanOrEqual(LIMITS.max_tx_bytes - 1024);
+      expect(tx.length).toBeLessThanOrEqual(LIMITS.max_ops_per_tx);
+    }
+    // Every record's rows, in one transaction with its hero.
+    for (const h of heroes) expect(txs.filter((tx) => tx.some((o) => ("Set" in o && o.Set.id === h.id) || ("SetIf" in o && o.SetIf.id === h.id)))).toHaveLength(1);
   });
 
   it("leaves out a slot given another hero in the scene: the match's build is not that hero's", () => {

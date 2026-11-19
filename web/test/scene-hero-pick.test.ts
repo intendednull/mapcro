@@ -7,7 +7,7 @@ import type { ChildProcess } from "node:child_process";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterAll, beforeAll, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { startServer } from "./support/server";
 import { initSync, newRecordId } from "../src/wasm/mapcro_wasm.js";
@@ -18,9 +18,13 @@ import type { More } from "../src/gen/More";
 import type { PlayerState } from "../src/gen/PlayerState";
 import type { RecordId } from "../src/gen/RecordId";
 import { ROWS } from "../src/gen/rows";
-import { BUILD_KEYS, sceneHero } from "../src/mapstate/build";
+import type { Op } from "../src/gen/Op";
+import type { RosterSlot } from "../src/gen/RosterSlot";
+import { BUILD_KEYS, captureBuild, captureScene, heroBuildAt, sceneHero } from "../src/mapstate/build";
 import { holdsBuild } from "../src/mapstate/buildView";
 import { pickHeroOps } from "../src/mapstate/edit";
+import { retakeOps, slotKey } from "../src/match/save";
+import { replay } from "./support/synthetic-match";
 
 const ROOT = resolve(__dirname, "../..");
 const ORIGIN = "http://localhost:5173";
@@ -52,11 +56,42 @@ const BUILD: More = { hero: 13, items: [5, 0, -1, -1], abilities: [9, 2, 0, -1, 
 /** A watermark past `has_heroes`, as a build that writes it stores. */
 const LATER = ROWS.has_heroes.index + 1;
 
-async function board() {
+/** A socket whose traffic the test can hold back in both directions: the client it serves edits
+ * on a view that hasn't heard from anyone, and what it sent arrives when `release` says. */
+function heldSocket() {
+  let held = false;
+  const out: unknown[] = [];
+  const back: unknown[] = [];
+  let sock: Record<string, unknown> | undefined;
+  let raw: WebSocket | undefined;
+  const open = (url: string) => {
+    const w = new WebSocket(url, { origin: ORIGIN });
+    raw = w;
+    const s: Record<string, unknown> = { send: (d: never) => (held ? out.push(d) : w.send(d)), close: () => w.close(), onopen: null, onmessage: null, onclose: null, onerror: null };
+    w.onopen = () => (s.onopen as (() => void) | null)?.();
+    w.onclose = () => (s.onclose as (() => void) | null)?.();
+    w.onerror = (e) => (s.onerror as ((e: unknown) => void) | null)?.(e);
+    w.onmessage = (e) => (held ? back.push(e) : (s.onmessage as ((e: unknown) => void) | null)?.(e));
+    sock = s;
+    return s as unknown as SocketLike;
+  };
+  return {
+    open,
+    hold: () => { held = true; },
+    release: () => {
+      held = false;
+      for (const d of out.splice(0)) raw!.send(d as never);
+      for (const e of back.splice(0)) (sock!.onmessage as (e: unknown) => void)(e);
+    },
+  };
+}
+
+async function board(sockets: Array<(url: string) => SocketLike> = []) {
   const api = new Api(`http://127.0.0.1:${port}`);
   const { board, owner_token } = await api.createBoard("pick");
+  let opened = 0;
   const open = async () => {
-    const s = new BoardSession({ wsUrl: `ws://127.0.0.1:${port}/ws`, board, token: owner_token, persist: new MemoryPersist(), openSocket });
+    const s = new BoardSession({ wsUrl: `ws://127.0.0.1:${port}/ws`, board, token: owner_token, persist: new MemoryPersist(), openSocket: sockets[opened++] ?? openSocket });
     await s.start();
     expect(await until(() => s.connection.kind === "live")).toBe(true);
     return s;
@@ -127,4 +162,222 @@ it("the server takes the row that says a scene holds its heroes once it is live,
     expect(a.problems.slice(before)).toEqual([]);
   }
   [a, b].forEach((s) => s.stop());
+});
+
+// TD-119: a pick and a Retake sent at about the same moment, each made on a view that doesn't
+// hold the other. The server puts them in one order or the other; each is run here through the
+// real replicas and server, the second editor's socket held until the first is decided.
+describe("a pick racing a Retake, in a scene that holds its heroes and has no builds yet", () => {
+  const tl = replay();
+  const T = 4;
+  const PICKED = 77;
+  const SLOT = 3;
+  const LATER = ROWS.has_heroes.index + 1;
+
+  async function saved() {
+    const [ga, gb] = [heldSocket(), heldSocket()];
+    const { a, b, scene, heroes } = await board([ga.open, gb.open]);
+    const rosterOf = (s: BoardSession) => [...s.records].flatMap(([id, e]) => ("RosterSlot" in e.record ? [{ id, slot: e.record.RosterSlot as RosterSlot }] : []));
+    const match = new Map(tl.players.map((p) => [slotKey(p.team, p.slot), p]));
+    const matchOf = (id: RecordId) => {
+      const r = rosterOf(a).find((x) => x.id === hero(a, id).slot)!.slot;
+      return match.get(slotKey(r.team === "Amber" ? "amber" : "sapphire", r.slot))!;
+    };
+    // As Save leaves a scene it had no room to give builds: each record its match's hero, and
+    // a state that says the scene holds them.
+    const state = newRecordId();
+    const more = captureScene(tl, { builds: false });
+    expect(a.edit([
+      { Create: { id: state, record: { SceneState: { scene, more } } } },
+      ...heroes.map((id): Op => ({ Set: { id, value: { More: { key: "hero", value: matchOf(id).hero_id } } } })),
+    ])).toBe(true);
+    expect(await settled(a, b)).toBe(true);
+    expect(await until(() => b.records.has(state) && heroes.every((id) => typeof hero(b, id).more?.hero === "number"))).toBe(true);
+    const id = heroes[SLOT]!;
+    const row = { id: scene, scene: { name: "s", order: "a", clock: T, source: { match_id: tl.match_id, t: T, tier: "replay" } } } as never;
+    return {
+      a, b, ga, gb, id, heroes, state: { id: state, more }, row, rosterOf,
+      matchHero: matchOf(id).hero_id,
+      build: captureBuild(heroBuildAt(tl, matchOf(id), T)),
+    };
+  }
+  type Saved = Awaited<ReturnType<typeof saved>>;
+  /** What each editor sends, on the view each has when it is called. */
+  const pick = (s: Saved) => pickHeroOps(true, hero(s.a, s.id).slot, { id: s.id, more: hero(s.a, s.id).more }, PICKED);
+  const retake = (s: Saved) => retakeOps(s.row, s.state, s.heroes.map((h) => ({ id: h, state: hero(s.b, h) })) as never, s.rosterOf(s.b) as never, tl, newRecordId);
+  /** What a client from before TD-119 sends. */
+  const oldPick = (s: Saved) => {
+    const more = hero(s.a, s.id).more;
+    return [
+      { Set: { id: s.id, value: { More: { key: "hero", value: PICKED } } } },
+      ...BUILD_KEYS.filter((k) => more?.[k] !== undefined).map((key): Op => ({ Set: { id: s.id, value: { More: { key, value: null } } } })),
+    ] as Op[];
+  };
+  const oldRetake = (s: Saved) => retake(s).map((tx) => tx.flatMap((o): Op[] => ("Set" in o ? [] : [o])));
+
+  const held = (s: BoardSession) => JSON.stringify([...s.records].sort(([x], [y]) => (x < y ? -1 : 1)));
+  /** `first` is decided by the server while `second`, made at the same moment, is still on its
+   * way. Each makes its edit on a view that doesn't hold the other's. */
+  async function race(s: Saved, first: "pick" | "retake", txs: { pick: (s: Saved) => Op[]; retake: (s: Saved) => Op[][] } = { pick, retake }) {
+    const late = first === "pick" ? s.gb : s.ga;
+    late.hold();
+    const pending = { pick: [txs.pick(s)], retake: txs.retake(s) };
+    const sends: { pick: [BoardSession, Op[][]]; retake: [BoardSession, Op[][]] } = { pick: [s.a, pending.pick], retake: [s.b, pending.retake] };
+    const [sooner, later] = first === "pick" ? [sends.pick, sends.retake] : [sends.retake, sends.pick];
+    for (const tx of later[1]) expect(later[0].edit(tx)).toBe(true);
+    for (const tx of sooner[1]) expect(sooner[0].edit(tx)).toBe(true);
+    expect(await settled(sooner[0])).toBe(true);
+    late.release();
+    expect(await settled(s.a, s.b)).toBe(true);
+    expect(await until(() => held(s.a) === held(s.b))).toBe(true);
+  }
+  /** Whatever the order: both replicas hold the same, and a hero holds only its own build. */
+  function agreed(s: Saved) {
+    const more = hero(s.a, s.id).more;
+    expect(hero(s.b, s.id).more).toEqual(more);
+    if (more?.hero !== s.matchHero) expect(BUILD_KEYS.filter((k) => more?.[k] !== undefined)).toEqual([]);
+    return more;
+  }
+  const stop = (s: Saved) => [s.a, s.b].forEach((x) => x.stop());
+
+  it("the Retake decided first: the pick wins the slot, the new hero with no build", async () => {
+    const s = await saved();
+    await race(s, "retake");
+    expect(agreed(s)).toEqual({ hero: PICKED });
+    expect(holdsBuild(hero(s.b, s.id).more, LATER, PICKED, true)).toBe(false);
+    stop(s);
+  });
+
+  it("the pick decided first: the Retake wins the slot, the match's hero with its own build", async () => {
+    const s = await saved();
+    await race(s, "pick");
+    expect(agreed(s)).toEqual(s.build);
+    expect(holdsBuild(hero(s.b, s.id).more, LATER, s.matchHero, true)).toBe(true);
+    stop(s);
+  });
+
+  it.each(["pick", "retake"] as const)("the other eleven get the match's build whatever the order (%s first)", async (first) => {
+    const s = await saved();
+    await race(s, first);
+    for (const h of s.heroes.filter((x) => x !== s.id)) {
+      expect(hero(s.a, h).more).toEqual(hero(s.b, h).more);
+      expect(BUILD_KEYS.some((k) => hero(s.b, h).more?.[k] !== undefined)).toBe(true);
+    }
+    expect(s.a.problems).toEqual([]);
+    expect(s.b.problems).toEqual([]);
+    stop(s);
+  });
+
+  it("undoing the pick that lost nothing: the match's hero again, and nobody's build on another hero", async () => {
+    const s = await saved();
+    await race(s, "retake");
+    s.a.undo();
+    expect(await settled(s.a, s.b)).toBe(true);
+    expect(await until(() => hero(s.b, s.id).more?.hero === s.matchHero)).toBe(true);
+    // The pick never saw the build, so its undo can't bring it back (TD-146).
+    expect(agreed(s)).toEqual({ hero: s.matchHero });
+    stop(s);
+  });
+
+  it("undoing the pick the Retake overrode changes nothing", async () => {
+    const s = await saved();
+    await race(s, "pick");
+    s.a.undo();
+    expect(await settled(s.a, s.b)).toBe(true);
+    expect(await until(() => held(s.a) === held(s.b))).toBe(true);
+    expect(agreed(s)).toEqual(s.build);
+    stop(s);
+  });
+
+  // A scene whose record already holds part of its build: Retake has only the rest to give.
+  describe("when the record already holds part of its build", () => {
+    const sync = async (s: Saved) => {
+      expect(await settled(s.a, s.b)).toBe(true);
+      expect(await until(() => held(s.a) === held(s.b))).toBe(true);
+    };
+    /** The record holds every row of its build but the last. */
+    async function partly() {
+      const s = await saved();
+      const rows = Object.keys(s.build).filter((k) => k !== "hero");
+      const lacks = rows.at(-1)!;
+      expect(rows.length).toBeGreaterThan(1);
+      expect(s.a.edit(rows.filter((k) => k !== lacks).map((key): Op => ({ Set: { id: s.id, value: { More: { key, value: s.build[key]! } } } })))).toBe(true);
+      await sync(s);
+      return { s, lacks };
+    }
+
+    it("the pick decided first: the match's hero with its whole build, not a fragment", async () => {
+      const { s } = await partly();
+      await race(s, "pick");
+      expect(agreed(s)).toEqual(s.build);
+      stop(s);
+    });
+
+    it("the Retake decided first: the new hero with no build", async () => {
+      const { s } = await partly();
+      await race(s, "retake");
+      expect(agreed(s)).toEqual({ hero: PICKED });
+      stop(s);
+    });
+
+    it("a row someone changed while the Retake was on its way keeps their value", async () => {
+      const { s, lacks } = await partly();
+      const kept = Object.keys(s.build).find((k) => k !== "hero" && k !== lacks && typeof s.build[k] === "number")!;
+      const theirs = (s.build[kept] as number) + 1;
+      s.gb.hold();
+      for (const tx of retake(s)) expect(s.b.edit(tx)).toBe(true);
+      expect(s.a.edit([{ Set: { id: s.id, value: { More: { key: kept, value: theirs } } } }])).toBe(true);
+      expect(await settled(s.a)).toBe(true);
+      s.gb.release();
+      await sync(s);
+      expect(agreed(s)).toEqual({ ...s.build, [kept]: theirs });
+      stop(s);
+    });
+
+    it("undoing the Retake takes back only what it filled", async () => {
+      const { s, lacks } = await partly();
+      const before = hero(s.a, s.id).more;
+      const txs = retake(s);
+      for (const tx of txs) expect(s.b.edit(tx)).toBe(true);
+      await sync(s);
+      expect(hero(s.a, s.id).more?.[lacks]).toBeDefined();
+      for (let i = 0; i < txs.length; i++) {
+        s.b.undo();
+        await sync(s);
+      }
+      expect(agreed(s)).toEqual(before);
+      stop(s);
+    });
+  });
+
+  // A tab open from before this build stays open across a client deploy (the build id hashes
+  // the schema). Against it the slot ends no worse than it does today: the half this build
+  // sent holds, and only the old client's half can still leave the old hero's build.
+  describe("with a client from before the fix", () => {
+    it("this pick, an older Retake: the pick decided last is whole; decided first is as today", async () => {
+      const last = await saved();
+      await race(last, "retake", { pick, retake: oldRetake });
+      expect(agreed(last)).toEqual({ hero: PICKED });
+      stop(last);
+      const first = await saved();
+      await race(first, "pick", { pick, retake: oldRetake });
+      const { hero: who, ...rest } = hero(first.a, first.id).more!;
+      expect(who).toBe(PICKED);
+      expect(Object.keys(rest).length).toBeGreaterThan(0);
+      stop(first);
+    });
+
+    it("this Retake, an older pick: the Retake decided last is whole; decided first is as today", async () => {
+      const last = await saved();
+      await race(last, "pick", { pick: oldPick, retake });
+      expect(agreed(last)).toEqual(last.build);
+      stop(last);
+      const first = await saved();
+      await race(first, "retake", { pick: oldPick, retake });
+      const { hero: who, ...rest } = hero(first.a, first.id).more!;
+      expect(who).toBe(PICKED);
+      expect(Object.keys(rest).length).toBeGreaterThan(0);
+      stop(first);
+    });
+  });
 });
