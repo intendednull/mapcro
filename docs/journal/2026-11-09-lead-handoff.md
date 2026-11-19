@@ -3,6 +3,26 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Deployed 04545be: the Player transport, the operator's blend (2026-11-18, lead 9eb2516b)
+
+- **Prod `web` runs 04545be** (infra see the `mapcro: 04545be` commit). Store unchanged (v14, floor 12).
+- **What a coach gets:** speed −, Back, Play, Forward, speed + with Play at the bar's centre, the
+  source at the left, the clock and Save scene at the right. Portrait phones keep the speed list
+  with Play centred. TD-121 (tools overflowing at 800 to 1024 px) is fixed.
+- **The operator accepted these trade-offs:** a shorter timeline on landscape phones, two rows on
+  landscape tablets, Play beside the timeline while the Laser or Edit rail is open, and smaller
+  keys at 720 px tall or less (an 800×600 scene keeps a map of about 130 px).
+- **Review (Opus medium) caught two blockers:** a tall, empty bar in Sandbox and a broken bar on a
+  phone scene. Both are fixed, along with short windows clipping controls, with rows shown to fail
+  without each fix. TD-155 to TD-158 are new.
+- **Gate, in stages:** 571 e2e, VM, reader-check, and the walkthrough 10 of 10 on the merge.
+  Firefox had one failure, "phone follows the presenter's replay time" (TD-133), then 16 of 16.
+  Live check at 1440×900, 1024×600 and a phone: Play 0 px off centre, the key order right, play
+  advances the clock, 0 page errors.
+- **The other design branches stay unmerged** (`player-transport`, `player-alt-*`).
+- **Next:** TD-145 (`td-145-undo`, Opus high: the client re-decides a hero record's undo or redo
+  step through a replica-local `undo_as`/`redo_as`, no wire or store change), then phase 5.
+
 ## Deployed 6d62ad0: TD-119, a pick racing a Retake (2026-11-18, lead 9eb2516b)
 
 - **Prod `web` runs 6d62ad0** (infra baeb540). Store unchanged (v14, floor 12). Client only.
