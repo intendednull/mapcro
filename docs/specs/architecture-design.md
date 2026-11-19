@@ -1217,9 +1217,16 @@ makes a board with that match attached and lands in Player; **New board** is tod
   - Pick-ups, drops and deliveries are events (the "Urn" filter) and ping where they happened.
   - Save scene keeps the open point. In Sandbox the points toggle like the rifts: off by
     default, one open at a time. The metadata tier has no urn.
-- **The transport:** play and pause, speed (− and + step through 0.5×, 1×, 2×, 4×, 8×, with the
-  current speed between them and each disabled at its end: feedback #58), a scrubber with a tick per
-  event, ±10 s, the match clock, and the replay tier's toggles (Troopers, Health), with Pings.
+- **The transport:** the keys are one cluster mirrored around Play, which sits on the bar's centre
+  line at every size (operator, 2026-11-18): speed −, Back 10 s, Play, Forward 10 s, speed +. Speed
+  steps through 0.5×, 1×, 2×, 4×, 8×, each key disabled at its end (feedback #58), and the current
+  speed is a tag on Play's foot. The desktop bar has the scrubber across its width, with a tick per
+  event, over the source, the keys, and the match clock with Save scene. Keys: Play 56 px, Back and
+  Forward 44, speed 40. A dock under 840 px gives the keys a centred row of their own; under 480 px
+  the clock sits beside the source and Save scene under them; a dock under 250 px (windows under
+  800 px) scales the keys to fit and gives the source and the clock a row each. A window 720 px tall
+  or less has smaller keys (Play 44 px, Back and Forward 36, speed 32), so every control stays on
+  screen. In Sandbox the bar is the scene's row alone.
   A tick hovered grows and shows its event's tag above it (the events list's short label, "Walker
   down", "Haze died"); a press jumps there as a row does (less the lead, with the ring). Ticks
   aren't in the tab order: ↑ ↓ step events from the keyboard (2026-11-11, feedback #6).
@@ -1550,7 +1557,7 @@ what is built so far is below.
 to bottom: a status strip (wordmark, tier chip, the follow pill, save state), the 12-hero roster
 in two rows of six, the map, and the transport. Landscape: two panes, the map on the left as a
 square of the height over the transport; strip, roster and sheets on the right; a one-row
-transport.
+transport on a phone (two on a tablet).
 
 **A phone in landscape has no strip row** (under 500 px tall; operator, 2026-11-13, for phones
 under about 380 px tall, built for every phone turned because 390 and 430 px had the same
@@ -1569,16 +1576,17 @@ row's line, so a row is 44 px. Measured: the dock is 150 px at 615 × 344 (it wa
 **The map is square** (the terrain art is drawn at 100% × 100%, so a non-square pane distorts it
 and moves the art off the tokens), full width in portrait and aligned to the top of its zone.
 
-**The transport** holds the chrome. Portrait row 1: Play and the scrubber (at least 60% of the
-width). Row 2: speed, the clock, then Events, Map layers and More (⋯). The tabs keep their width
-and the clock takes what is left: the time and the match's length (smaller, muted) on one line
-where that fits, else the time over the length (under about 390 px; kept as built, operator
-2026-11-13), so nothing sits on the clock at any width from 320 px. More holds Match (the source
+**The transport** holds the chrome. Portrait row 1: the clock and the scrubber (at least 60% of the
+width). Row 2: Play on the bar's centre line (operator, 2026-11-18), the speed list and Events to
+its left, Map layers and More (⋯) to its right. The clock shows the time over the match's length
+(smaller, muted), so nothing sits on the clock at any width from 320 px. More holds Match (the source
 menu, opened as a sheet), Scenes, Laser, Edit, Feedback, and the role. Laser or Edit swaps row 2
-for a tool rail: the tools scroll sideways (Look, Laser, Draw, Arrow, Erase, Undo, Redo), and the
+for a tool rail, with Play back beside the scrubber: the tools scroll sideways (Look, Laser, Draw, Arrow, Erase, Undo, Redo), and the
 ink swatch and Done are pinned at its right end, outside the scroll, so they are always on screen;
-Done restores row 2 and Look. Back/forward, Save scene and the scrubber's event and scene marks
-are not on the phone: Events and Scenes are the larger targets for those jumps.
+Done restores row 2 and Look. Save scene and the scrubber's event and scene marks are not on the
+phone, and Back and Forward show only from 600 px wide upright or 780 px wide on its side: Events and
+Scenes are the larger targets for those jumps. A scene opened from the match keeps this bar, under
+the scene's own row.
 
 **The roster reads like the HUD's bar.** Each 44 px cell is a portrait (a tap opens the build),
 its souls along the foot (12 px), and while dead the portrait greys with the respawn seconds on
@@ -1626,7 +1634,7 @@ and 932 × 430 at a pixel ratio of 3: no
 sideways scroll; Player has no page scroll and every control is on screen; controls at least
 44 × 44 px; no overlapping controls (each cut by its scrollers; content under a sheet or an open
 menu counts as out of reach); text at least 12 px; the map pane and its art square; the
-transport's height (portrait ≤ 104 px, landscape ≤ 60 px); sheets' edges against the transport
+transport's height (portrait ≤ 104 px, a phone in landscape ≤ 60 px, a tablet in landscape ≤ 104 px); sheets' edges against the transport
 and the roster; nothing on the clock or the team totals, and a long match's clock (59:59, and
 1:59:59 from 344 px) inside its place; with a pack that has hero cards, every cell's art drawn
 with at least 28 px of it over the souls; a phone in landscape has no strip row, its tabs all
@@ -1656,8 +1664,9 @@ follows their replay time.
 ### Tablet
 
 A tablet is the same shell (no third layout). Landscape (any size) is two panes: the square map
-on the left, at least 300 px of roster and dock on the right, a one-row transport whose scrubber
-keeps at least 40% of the width (with the tool rail open too: Play, scrubber, rail). Portrait over
+on the left, at least 300 px of roster and dock on the right, and a two-row transport: the scrubber
+across the bar (at least 40% of the width), then the clock, the keys centred on Play, and the tabs
+(with the tool rail open: Play and the scrubber, then the rail). Portrait over
 700 px wide: the roster is one row of 12 (the teams side by side), and sheets stop at half the
 height. Tab has no key on a tablet: an `All builds` toggle (44 px; at the roster's end in portrait, at
 the dock's tab row's end in landscape) drives the

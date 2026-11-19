@@ -355,6 +355,7 @@ test("one Escape with a build inspected and a death recap open closes the build 
 
 test("a panel moves off the map controls when their row changes size, the pane unchanged", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Controls grow"), "Coach");
+  await a.setViewportSize({ width: 1440, height: 980 });   // room under the panel for the row to grow into
   await load(a);
   await scrubTo(a, 15);
   await token(a, "Amber-5").click();
@@ -425,6 +426,7 @@ test("#40 a panel moves anywhere in the board area, off the map too, clamped to 
 test("a follower on another screen size sees the same panels at the same places in its pane, each clamped clear of its controls", async ({ browser }) => {
   const url = await newBoardUrl(server, "Panels follow");
   const a = await joinNew(browser, url, "Coach");
+  await a.setViewportSize({ width: 1440, height: 980 });   // the panels' places below need the pane's height
   await load(a);
   await scrubTo(a, 41);
   await a.locator('[data-testid=death-skull][data-slot="sapphire-2"]').click();

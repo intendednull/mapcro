@@ -12,7 +12,8 @@
 
 .app { position: relative; }
 .board-app .main { grid-template-columns: 1fr 318px; }
-.board-app .stage { overflow: hidden; }
+/* Clip, not hidden: a hidden box still scrolls to a focused control, sideways under the panels (TD-121). */
+.board-app .stage { overflow: clip; }
 
 /* The map takes the largest square the stage allows. */
 .board-app .mapbox {
@@ -131,6 +132,8 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 /* Overlays sit over either layout */
 .scrim { position: fixed; }
 .toast { position: fixed; bottom: 120px; }
+/* Over the map, clear of the dock at its tallest. */
+.board-app .toast, .session-toast { bottom: 248px; }
 /* The installed app's Update available (issue #43): a toast in the corner, small enough to leave
    the board free, over the landing and boards alike. */
 .app-update { position: fixed; right: 16px; bottom: 16px; z-index: 45; display: flex; gap: 10px; align-items: center; padding: 6px 8px 6px 14px; border-radius: 8px; background: var(--raised); border: 1px solid var(--line); box-shadow: 0 10px 30px #0008; font: 600 12.5px var(--ui); color: var(--text); }
@@ -316,67 +319,19 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 /* Match import: a panel over the map's foot; labels only */
 /* Player (spec §6b): the transport in the stage's dock under the map (with the tools), the
    events list on the right. In flow, never fixed: nothing can sit under it. */
-.pl-bar { width: 100%; padding: 8px 16px; border-radius: 0; background: var(--panel); border: 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; box-sizing: border-box; }
 .board-app .stage > .mapfit { flex: 1 1 0; min-height: 160px; width: 100%; container-type: size; display: grid; place-items: center; }
 .board-app .stage > .mapfit > .mapbox { width: min(100cqw, 100cqh); height: min(100cqw, 100cqh); }
 /* The dock runs edge to edge across the centre column (through the stage's side padding), the
    bar flush along its bottom: a bar, not a card (operator, 2026-11-08). */
-.board-app .stage > .dock { flex: none; width: calc(100% + var(--space) * 4); margin: 6px calc(var(--space) * -2) calc(var(--space) * -0.8); display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.board-app .stage > .dock > .pl-bar { width: 100%; }
-/* The scrubber takes what's left, but never under 280 px: narrower, the toggles, the clock and
-   Save scene (.pl-tail) wrap as one to a row of their own, flush right (QA 2026-11-08: at
-   1280 px they ran under the right panel). */
-.pl-transport { flex-wrap: wrap; row-gap: 8px; }
-.pl-transport .pl-scrub { flex: 1 1 280px; min-width: 280px; }
-.pl-tail { display: flex; align-items: center; gap: 8px; flex: none; margin-left: auto; }
-/* The display toggles (Troopers, Health, Names, Pings) read as on or off at a glance, like the
-   events list's chips: brass when on, faint when off. */
-.pl-tail .btn.ghost[aria-pressed="true"] { color: var(--brass); border-color: var(--brass-dim); background: var(--raised); }
-.pl-tail .btn.ghost[aria-pressed="false"] { color: var(--faint); }
-/* As wide for "Pause" as for "Play", so pressing it never re-flows the row. */
-.pl-play { min-width: 60px; justify-content: center; }
-.pl-head { flex-wrap: wrap; row-gap: 6px; }
-.board-app .stage > .dock > .toolbar { margin-top: 0; width: auto; max-width: 100%; flex-wrap: wrap; }
-.pl-head, .pl-transport { display: flex; align-items: center; gap: 8px; }
+.board-app .stage > .dock { flex: none; width: calc(100% + var(--space) * 4); margin: 6px calc(var(--space) * -2) calc(var(--space) * -0.8); display: flex; flex-direction: column; align-items: center; gap: 6px; container: dock / inline-size; }
+/* The tools wrap on a dock too narrow for one row: unwrapped they overflowed the stage, which then
+   scrolled sideways and carried the map and the bar under the left panel (TD-121). */
+.board-app .stage > .dock > .toolbar { margin-top: 0; width: auto; max-width: 100%; flex-wrap: wrap; gap: 3px; }
+.pl-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; row-gap: 6px; }
 .pl-head .spacer { flex: 1; }
 .pl-head .pl-id { width: 130px; height: 28px; }
 .pl-match { font: 600 12px var(--ui); color: var(--faint); }
-/* Speed: − and + around the current speed, which is as wide for "0.5×" as for "8×". Kept
-   narrow (78 px against the old list's 64): what it takes, the scrubber beside it loses. */
-.pl-speed { display: inline-flex; align-items: center; flex: none; }
-.pl-speed .btn { min-width: 24px; padding: 0 4px; justify-content: center; }
-.phone .pl-speed .btn { min-width: 44px; }   /* a touch target, as every phone button is */
-/* The list stands in for the buttons on a phone held upright: its transport has Play and the
-   speed in one column, so the buttons (two touch targets and the readout, 122 px) would take
-   58 px from the scrubber, and under 390 px they don't fit beside the clock and the tabs. */
-.pl-speed-list { display: none; width: 64px; height: 28px; padding: 0 4px; }
-@media (max-width: 480px) {
-  .phone-player .pl-speed { display: none; }
-  .phone-player .pl-speed-list { display: block; grid-area: speed; }
-  .phone-player .pl-bar:has(.p-rail) .pl-speed-list { display: none; }
-}
-.pl-speed-now { min-width: 30px; text-align: center; font: 600 12px var(--ui); font-variant-numeric: tabular-nums; color: var(--text); }
 .pl-vision { width: auto; height: 28px; padding: 0 4px; }
-/* The scene marks and event ticks sit in the scrubber's own top padding, inside its row, so they
-   never reach the row above (QA 2026-11-08: marks drew over the tier chip). */
-.pl-scrub { position: relative; flex: 1; display: flex; align-items: center; padding-top: 16px; }
-/* The marker space scrubs on a press and drag (#45): a finger's sideways drag there is the
-   scrub's, not the page's, and a drag selects nothing. */
-.pl-scrub { touch-action: pan-y; user-select: none; -webkit-user-select: none; }
-.pl-scrub .match-range { width: 100%; }
-.pl-ticks { position: absolute; left: 7px; right: 7px; top: 12px; height: 6px; pointer-events: none; }
-/* A tick takes the pointer over a few px either side (::before); hovered it grows and shows its
-   tag above the scrubber. */
-.pl-tick { position: absolute; bottom: 0; width: 2px; height: 6px; padding: 0; border: 0; background: var(--faint); transform: translateX(-1px); cursor: pointer; pointer-events: auto; transition: height .1s, width .1s, transform .1s; }
-.pl-tick::before { content: ""; position: absolute; left: -3px; right: -3px; top: -3px; bottom: -2px; }
-.pl-tick:hover { z-index: 2; width: 4px; height: 12px; transform: translateX(-2px); }
-/* The tick's tag reads as the map's hover label (.hover-label): bold white on the dark pill (#26). */
-.pl-tick-tag { display: none; position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); padding: 5px 11px; border-radius: 7px; background: #0b1714e6; border: 1px solid #ffffff33; color: #fff; font: 600 15px / 1.2 var(--ui); font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; box-shadow: 0 4px 14px #0008; }
-.pl-tick:hover .pl-tick-tag { display: block; }
-.pl-tick.near-start .pl-tick-tag { left: -6px; transform: none; }
-.pl-tick.near-end .pl-tick-tag { left: auto; right: -6px; transform: none; }
-.pl-tick.death { background: var(--warn); }
-.pl-tick.objective, .pl-tick.mid_boss { background: var(--brass); }
 .pl-side { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; height: 62vh; overflow: hidden; border-bottom: 1px solid var(--line-soft); }
 .pl-hidden { display: none !important; }
 .pl-teams { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 11.5px; }
@@ -406,22 +361,11 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .pl-empty { font-size: 12px; color: var(--faint); padding: 6px 2px; }
 .pl-events-foot { display: flex; gap: 6px; }
 @media (max-width: 699px) {
-  /* On the phone the bar sits in the page's flow, above the scene nav, never over it; the
-     scrubber gets a row of its own. */
-  .pl-bar { width: auto; margin: 6px 0 0; padding: 6px 10px; }
-  .pl-transport .pl-scrub { flex: 1 0 100%; order: 10; min-width: 0; }
-  .pl-tail { flex: 1 1 auto; flex-wrap: wrap; margin-left: 0; }
-  .pl-head { flex-wrap: wrap; }
   .pl-head .pl-id { width: 96px; }
-  .pl-transport { flex-wrap: wrap; }
 }
-.pl-bar.scene { opacity: 0.92; background: color-mix(in srgb, var(--panel) 80%, transparent); }
-.pl-scene-row { display: flex; align-items: center; gap: 8px; }
+.pl-scene-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .pl-scene-row .spacer { flex: 1; }
 .pl-scene-label { font: 600 12.5px var(--ui); color: var(--faint); }
-.pl-marks { position: absolute; left: 7px; right: 7px; top: 3px; height: 10px; pointer-events: none; }
-.pl-mark { position: absolute; width: 9px; height: 9px; transform: translateX(-50%) rotate(45deg); background: var(--brass); border: 1px solid #0008; padding: 0; cursor: pointer; pointer-events: auto; }
-.pl-mark:hover { background: #fff; }
 .scene-chip { font: 600 10.5px var(--ui); padding: 0 6px; border-radius: 999px; border: 1px solid var(--brass-dim); color: var(--brass); background: transparent; cursor: pointer; }
 .pl-tier-wrap { position: relative; display: inline-flex; }
 .pl-tier { font: 600 11.5px var(--ui); border-radius: 999px; padding: 2px 10px; cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--faint); }
@@ -482,8 +426,6 @@ svg[data-tool="select"] .pl-skull[data-recap] { pointer-events: auto; cursor: po
 .match-head .input { width: 180px; height: 30px; }
 .match-head .spacer, .match-foot .spacer { flex: 1; }
 .match-status { font-size: 12px; color: var(--warn); }
-.match-range { flex: 1; accent-color: var(--accent); }
-.match-clock { font: 600 13px var(--ui); min-width: 100px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; flex: none; }
 .match-teams { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 11.5px; }
 .match-team { display: flex; flex-wrap: wrap; gap: 4px 10px; }
 .match-team.amber .match-hero { color: var(--amber); }
@@ -693,20 +635,13 @@ svg[data-tool="select"] .pl-skull[data-recap] { pointer-events: auto; cursor: po
 .map-layers-pop button::after { content: '○' / ''; color: var(--faint); }
 .map-layers-pop button[aria-pressed="true"] { color: var(--brass); background: var(--raised); }
 .map-layers-pop button[aria-pressed="true"]::after { content: '✓' / ''; color: var(--brass); }
-.board-app .stage > .dock > .toolbar { flex-wrap: nowrap; gap: 3px; }
 .board-app .dock .toolbar .tb { padding-left: 7px; padding-right: 11px; gap: 4px; }
 .board-app .dock .toolbar .tb.icon { padding: 0 7px; }
 .board-app .dock .toolbar .tb-sep { margin: 0 2px; }
-.pl-bar { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; padding: 8px 12px; }
 .pl-source { position: relative; }
-.pl-source > summary { white-space: nowrap; padding: 4px 6px; }
 /* Over the replay prompt's map scrim (40): the source opens upward over the map, and the bar stays in use. */
-.pl-source .pl-head { position: absolute; bottom: calc(100% + 10px); left: 0; z-index: 41; width: 300px; flex-wrap: wrap; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 -8px 24px #0005; }
+.pl-source .pl-head { position: absolute; bottom: calc(100% + 10px); left: 0; z-index: 41; width: min(300px, calc(100cqi - 16px)); box-sizing: border-box; flex-wrap: wrap; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 -8px 24px #0005; }
 .pl-source .pl-head > .spacer { display: none; }
-.pl-transport { flex-wrap: nowrap; gap: 6px; min-width: 0; }
-.pl-transport .pl-scrub { flex: 1 1 100px; min-width: 40px; padding-top: 10px; }
-.pl-ticks { top: 6px; }
-.pl-tail { flex: none; gap: 6px; white-space: nowrap; }
 .pl-scene-row { grid-column: 1 / -1; }
 .side { display: flex; flex-direction: column; }
 .side > .pl-side { flex: 1; height: auto; min-height: 0; box-sizing: border-box; }
@@ -718,21 +653,9 @@ svg[data-tool="select"] .pl-skull[data-recap] { pointer-events: auto; cursor: po
 @media (max-width: 1400px) {
   .board-app .dock .toolbar .tb { padding-left: 6px; padding-right: 10px; }
   .board-app .dock .toolbar .tb .k { display: none; }
-  .pl-source > summary { max-width: 112px; overflow: hidden; }
-  .pl-tail .match-clock { font-size: 11px; }
 }
 .p-map-wrap > .map-controls { position: relative; top: auto; bottom: auto; left: auto; right: auto; flex-wrap: wrap; margin: 0 0 8px; }
-@media (max-width: 800px) {
-  .pl-bar { grid-template-columns: minmax(0, 1fr); }
-  .pl-transport { flex-wrap: wrap; }
-  .pl-transport .pl-scrub { flex: 1 0 100%; order: 10; }
-  .pl-tail { margin-left: auto; }
-  .pl-source .pl-head { max-width: calc(100vw - 44px); }
-}
 
-.pl-bar.scene .pl-transport { grid-column: 1 / -1; }
-.pl-mark.current { background: var(--text); box-shadow: 0 0 0 2px var(--brass); }
-.pl-bar.scene .pl-scrub { opacity: .8; }
 
 .pl-ev { flex-wrap: wrap; }
 .death-recap { flex: 1 0 100%; min-width: 0; font-size: 11px; }

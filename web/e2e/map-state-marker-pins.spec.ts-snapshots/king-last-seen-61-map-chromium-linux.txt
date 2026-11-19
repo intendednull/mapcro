@@ -1,5 +1,5 @@
 <div class="mapbox" data-testid="map" style="">
-  <div class="mm-host vp-amber free" data-pack="none" data-viewpoint="amber" style="--mm-stencil-box: url(#mm-stencil-1-box); --mm-stencil-view: url(#mm-stencil-1-view); --u: 1.5px; --mk-scale: 0.9;">
+  <div class="mm-host vp-amber free" data-pack="none" data-viewpoint="amber" style="--mm-stencil-box: url(#mm-stencil-1-box); --mm-stencil-view: url(#mm-stencil-1-view); --u: 1.3px; --mk-scale: 0.9;">
     <svg aria-hidden="true" class="mm-defs" height="0" width="0">
       <clippath clipPathUnits="objectBoundingBox" id="mm-stencil-1-box">
         <path d="M45.6 5.3A11.6 11.6 0 0 1 66.5 8.3A44.8 44.8 0 0 1 54.1 94.6A11.6 11.6 0 0 1 33.2 91.6A44.8 44.8 0 0 1 45.6 5.3Z" transform="translate(-0.1 -0.1) scale(0)">

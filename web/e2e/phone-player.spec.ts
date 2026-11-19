@@ -20,7 +20,8 @@ test.beforeAll(async () => {
   await new Promise<void>((ok) => upstream.listen(0, "127.0.0.1", ok));
   const port = (upstream.address() as { port: number }).port;
   writeFileSync(join(queue, "feedback-token"), "synthetic-test-only", { mode: 0o600 });
-  server = new Server(pack({ cards: true, items: 12 }), { FEEDBACK_GITHUB_TOKEN_FILE: join(queue, "feedback-token"), FEEDBACK_GITHUB_API: `http://127.0.0.1:${port}`, MATCH_API_BASE: `http://127.0.0.1:${port}`, REPLAY_DIR: queue, REPLAY_PER_CLIENT_PER_HOUR: "20" });
+  // The viewport matrix creates about 40 boards; leave headroom above the production cap of 30.
+  server = new Server(pack({ cards: true, items: 12 }), { CREATE_PER_HOUR: "60", FEEDBACK_GITHUB_TOKEN_FILE: join(queue, "feedback-token"), FEEDBACK_GITHUB_API: `http://127.0.0.1:${port}`, MATCH_API_BASE: `http://127.0.0.1:${port}`, REPLAY_DIR: queue, REPLAY_PER_CLIENT_PER_HOUR: "60" });
   await server.start();
 });
 test.afterAll(() => {
@@ -513,5 +514,203 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("board")).toBeVisible();
     await expect(page.locator(".phone")).toHaveCount(0);
+  });
+}
+
+// Before a match is loaded the bar has no transport: the source stays at its left end, and what it
+// opens is on the stage (its Load went under the right panel).
+for (const [width, height] of [[1440, 900], [1280, 768], [800, 768]] as const) {
+  test(`the source opens on the stage with no match, ${width}×${height}`, async ({ browser }) => {
+    test.skip(!hasCdp(browser), "the Firefox project is touch-first throughout");
+    const p = await (await browser.newContext({ viewport: { width, height } })).newPage();
+    await p.goto(await newBoardUrl(server, "No match"));
+    await p.locator("#join-name").fill("Coach");
+    await p.keyboard.press("Enter");
+    await p.getByTestId("mode-player").click();
+    await revealControls(p, "match-id");
+    const stage = (await p.locator(".stage").boundingBox())!;
+    const bar = (await p.getByTestId("player").boundingBox())!;
+    expect((await p.locator(".pl-source > summary").boundingBox())!.x - bar.x, "the source at the bar's left").toBeLessThanOrEqual(24);
+    for (const id of ["match-id", "match-load"]) {
+      const b = (await p.getByTestId(id).boundingBox())!;
+      expect(b.x, id).toBeGreaterThanOrEqual(stage.x);
+      expect(b.x + b.width, id).toBeLessThanOrEqual(stage.x + stage.width);
+    }
+    await p.getByTestId("match-load").click({ trial: true });
+    await p.context().close();
+  });
+}
+
+// The transport's layout at each shell and tier (spec §6b): the keys mirrored around Play on the
+// bar's centre line, every key its size, and nothing outside the bar or the stage.
+const within1 = (a: number, b: number, what: string) => expect(Math.abs(a - b), what).toBeLessThanOrEqual(1);
+const middle = (b: { x: number; width: number }) => b.x + b.width / 2;
+for (const [width, height, touch] of [[1920, 1080, false], [1440, 900, false], [1280, 768, false], [1100, 768, false], [1024, 768, false], [900, 768, false], [820, 768, false], [800, 768, false], [760, 768, false], [720, 768, false], [1024, 768, true], [768, 1024, true], [640, 900, true], [344, 615, true], [360, 740, true], [390, 844, true], [412, 915, true], [844, 390, true], [615, 344, true]] as const) {
+  test(`transport layout ${width}×${height}${touch ? " touch" : ""}`, async ({ browser }) => {
+    test.skip(!touch && !hasCdp(browser), "the Firefox project is touch-first throughout");
+    const viewport = { width, height };
+    const ctx = touch ? await phoneContext(browser, viewport) : await browser.newContext({ viewport });
+    const p = await ctx.newPage();
+    await p.goto(await newBoardUrl(server, "Transport"));
+    await p.locator("#join-name").fill("Coach");
+    await p.keyboard.press("Enter");
+    await open(p, String(129002000 + width + height));
+    await scrubTo(p, 20);
+    const box = async (id: string) => (await p.getByTestId(id).boundingBox())!;
+    const landscape = width > height;
+    const upright = touch && !landscape && width <= 480;
+    const skips = !touch || (landscape ? width >= 780 : width >= 600);
+
+    const track = await box("match-time");
+    expect(track.width).toBeGreaterThan(touch && landscape ? 130 : !touch && width < 800 ? 120 : !touch && width <= 820 ? 200 : 250);
+
+    // Play on the bar's centre line; Back and Forward, and − and +, the same distance either side.
+    const bar = await box("player");
+    const centre = middle(await box("match-play"));
+    within1(centre, middle(bar), "Play on the bar's centre");
+    if (skips) within1(centre - middle(await box("match-back")), middle(await box("match-forward")) - centre, "Back and Forward");
+    if (!upright) {
+      within1(centre - middle(await box("speed-down")), middle(await box("speed-up")) - centre, "− and +");
+      expect(middle(await box("speed-down"))).toBeLessThan(skips ? middle(await box("match-back")) : centre);
+      await expect(p.getByTestId("speed-now")).toBeVisible();
+      within1(middle(await box("speed-now")), centre, "the speed on the centre line");
+    } else await expect(p.getByTestId("match-speed-list")).toBeVisible();
+
+    // Touch keys are 44 px or more: Play, the speed, and Back and Forward where they show.
+    if (touch) for (const id of ["match-play", upright ? "match-speed-list" : "speed-up", ...(upright ? [] : ["speed-down"]), ...(skips ? ["match-back", "match-forward"] : [])]) {
+      const b = await box(id);
+      expect(Math.min(b.width, b.height), id).toBeGreaterThanOrEqual(43.9);
+    }
+    if (!touch) {
+      // Inside the bar and inside the stage: the bar runs under the side panels' edges.
+      const stage = (await p.locator(".stage").boundingBox())!;
+      for (const id of ["match-time", "match-play", "match-back", "match-forward", "speed-down", "speed-up", "match-speed", "match-clock", "match-save"]) {
+        const b = await box(id);
+        expect(b.x, id).toBeGreaterThanOrEqual(Math.max(bar.x, stage.x));
+        expect(b.x + b.width, id).toBeLessThanOrEqual(Math.min(bar.x + bar.width, stage.x + stage.width));
+        expect(b.y + b.height, id).toBeLessThanOrEqual(bar.y + bar.height);
+      }
+      // Desktop keys: Play 56 px, Back and Forward 44, − and + 40 (narrower docks scale them to fit).
+      if (width >= 800) for (const [id, min] of [["match-play", 55.9], ["match-back", 43.9], ["match-forward", 43.9], ["speed-up", 39.9], ["speed-down", 39.9]] as const) {
+        const b = await box(id);
+        expect(Math.min(b.width, b.height), id).toBeGreaterThanOrEqual(min);
+      }
+      // The tools stay on the stage, and it never scrolls sideways (TD-121).
+      for (const b of await p.getByTestId("toolbar").locator("button").evaluateAll((all) => all.map((e) => e.getBoundingClientRect()).filter((r) => r.width > 0).map((r) => ({ x: r.x, width: r.width })))) {
+        expect(b.x, "a tool").toBeGreaterThanOrEqual(stage.x);
+        expect(b.x + b.width, "a tool").toBeLessThanOrEqual(stage.x + stage.width);
+      }
+      await p.getByTestId("toolbar").locator("button").last().focus();
+      expect(await p.locator(".stage").evaluate((e) => e.scrollLeft)).toBe(0);
+      await p.getByTestId("vision-select").focus();
+      expect(await p.locator(".stage").evaluate((e) => e.scrollLeft), "the stage scrolled to the Vision list").toBe(0);
+      // The source opens on screen, clear of the panels.
+      // The match id shows whole beside the clock.
+      expect(await p.locator(".pl-source > summary").evaluate((e) => e.scrollWidth - e.clientWidth), "the source's id").toBeLessThanOrEqual(0);
+      await p.locator(".pl-source > summary").click();
+      const pop = (await p.locator(".pl-source .pl-head").boundingBox())!;
+      expect(pop.x).toBeGreaterThanOrEqual(stage.x);
+      expect(pop.x + pop.width).toBeLessThanOrEqual(stage.x + stage.width);
+      expect(pop.y).toBeGreaterThanOrEqual(0);
+      // Resume, on a saved scene: the same centre line, and the keys stay on the stage.
+      await p.getByTestId("match-save").click();
+      await expect(p.getByTestId("player")).toHaveAttribute("data-state", "scene");
+      await expect(p.getByTestId("match-play")).toHaveAttribute("aria-label", "Resume replay");
+      within1(middle(await box("match-play")), middle(await box("player")), "Resume on the bar's centre");
+      for (const id of ["speed-down", "speed-up", "play-from-here", "mode-player"]) {
+        const b = await box(id);
+        expect(b.x, id).toBeGreaterThanOrEqual(stage.x);
+        expect(b.x + b.width, id).toBeLessThanOrEqual(stage.x + stage.width);
+      }
+    }
+    expect(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await ctx.close();
+  });
+}
+
+// Sandbox on a board with a match: the bar is the scene's row, and the map keeps the room.
+for (const [width, height] of [[1440, 900], [1280, 768], [1024, 768]] as const) {
+  test(`Sandbox keeps no room for the transport, ${width}×${height}`, async ({ browser }) => {
+    test.skip(!hasCdp(browser), "the Firefox project is touch-first throughout");
+    const p = await (await browser.newContext({ viewport: { width, height } })).newPage();
+    await p.goto(await newBoardUrl(server, "Sandbox bar"));
+    await p.locator("#join-name").fill("Coach");
+    await p.keyboard.press("Enter");
+    await open(p, String(129004000 + width));
+    await revealControls(p, "mode-sandbox");
+    await p.getByTestId("mode-sandbox").click();
+    await expect(p.getByTestId("player")).toHaveAttribute("data-state", "scene");
+    await expect(p.getByTestId("match-play")).toHaveCount(0);
+    expect((await p.getByTestId("player").boundingBox())!.height).toBeLessThanOrEqual(60);
+    await p.context().close();
+  });
+}
+
+// A scene saved from the match, opened on a touch screen: the same bar under the scene's row.
+for (const [width, height] of [[344, 615], [390, 844], [768, 1024], [844, 390], [1024, 768]] as const) {
+  test(`a scene from the match on touch, ${width}×${height}`, async ({ browser }) => {
+    const url = await newBoardUrl(server, "Touch scene");
+    const ctx = await phoneContext(browser, { width, height });
+    const p = await ctx.newPage();
+    await p.goto(url);
+    await p.locator("#join-name").fill("Coach");
+    await p.keyboard.press("Enter");
+    await open(p, String(129005000 + width + height));
+    // Saved from a desktop: a phone has no Save scene. Wide enough to be one in the Firefox project.
+    const saver = await (await browser.newContext({ viewport: { width: 1500, height: 900 } })).newPage();
+    await saver.goto(url);
+    await saver.locator("#join-name").fill("Saver");
+    await saver.keyboard.press("Enter");
+    await saver.getByTestId("match-save").click();
+    await p.getByTestId("phone-more").tap();
+    await p.getByTestId("scene-drawer").tap();
+    await expect(p.getByTestId("scene-card")).toHaveCount(2);
+    await p.getByTestId("scene-card").last().tap();
+    await expect(p.getByTestId("player")).toHaveAttribute("data-state", "scene");
+    await expect(p.getByTestId("match-play")).toHaveAttribute("aria-label", "Resume replay");
+
+    const box = async (id: string) => (await p.getByTestId(id).boundingBox())!;
+    const landscape = width > height;
+    const upright = !landscape && width <= 480;
+    const skips = landscape ? width >= 780 : width >= 600;
+    const bar = await box("player");
+    const centre = middle(await box("match-play"));
+    within1(centre, middle(bar), "Play on the bar's centre");
+    if (skips) within1(centre - middle(await box("match-back")), middle(await box("match-forward")) - centre, "Back and Forward");
+    if (!upright) within1(centre - middle(await box("speed-down")), middle(await box("speed-up")) - centre, "− and +");
+    expect((await box("match-time")).width).toBeGreaterThan(landscape && height <= 500 ? 130 : width * .6);
+    // The tabs on one row, as in Player.
+    const tabs = [await box("phone-events"), await box("phone-layers"), await box("phone-more")];
+    expect(Math.max(...tabs.map((t) => t.y)) - Math.min(...tabs.map((t) => t.y))).toBeLessThanOrEqual(1);
+    expect(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await saver.context().close();
+    await ctx.close();
+  });
+}
+
+// A short window: the page doesn't scroll, so every control is on screen, watching and on a scene.
+for (const [width, height] of [[1366, 650], [1280, 600], [1024, 600], [800, 600]] as const) {
+  test(`every control fits a short window, ${width}×${height}`, async ({ browser }) => {
+    test.skip(!hasCdp(browser), "the Firefox project is touch-first throughout");
+    const p = await (await browser.newContext({ viewport: { width, height } })).newPage();
+    await p.goto(await newBoardUrl(server, "Short window"));
+    await p.locator("#join-name").fill("Coach");
+    await p.keyboard.press("Enter");
+    await open(p, String(129006000 + width + height));
+    const check = async (state: string, ids: string[]) => {
+      const stage = (await p.locator(".stage").boundingBox())!;
+      const bottom = Math.min(height, stage.y + stage.height);
+      for (const id of ["match-time", "speed-down", "match-back", "match-play", "match-forward", "speed-up", "match-clock", ...ids]) {
+        const b = (await p.getByTestId(id).boundingBox())!;
+        expect(b.y, `${state}: ${id}`).toBeGreaterThanOrEqual(stage.y);
+        expect(b.y + b.height, `${state}: ${id}`).toBeLessThanOrEqual(bottom);
+      }
+      within1(middle((await p.getByTestId("match-play").boundingBox())!), middle((await p.getByTestId("player").boundingBox())!), `${state}: Play on the bar's centre`);
+    };
+    await check("watching", ["match-save"]);
+    await p.getByTestId("match-save").click();
+    await expect(p.getByTestId("player")).toHaveAttribute("data-state", "scene");
+    await check("scene", ["play-from-here", "mode-player"]);
+    await p.context().close();
   });
 }

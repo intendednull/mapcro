@@ -53,8 +53,8 @@ test("← → seek, ↑ ↓ step events, a Space tap plays and pauses, a Space-d
   await a.getByTestId("match-load").click();
   await expect(clock(a)).toHaveText(/ \/ 21:40$/);
   const play = a.getByTestId("match-play");
-  // The title names the key; the button says which it does now.
-  await expect(play).toHaveAttribute("title", "Play / Pause (Space)");
+  // The title and the button's word both say what a press does now.
+  await expect(play).toHaveAttribute("title", "Play");
   await scrubTo(a, 300);
   await unfocus(a);
 

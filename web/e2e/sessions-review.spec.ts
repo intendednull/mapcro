@@ -51,6 +51,17 @@ test("Ctrl+Z takes back a strip edit on a view-only tab, and with no games left"
   await expect(tabs(other)).toHaveCount(1);
 });
 
+test("the strip's toast clears Player's bar", async ({ browser }) => {
+  const { page } = await threeTabs(browser);
+  await page.getByTestId("mode-player").click();
+  await expect(page.getByTestId("player")).toBeVisible();
+  await tabs(page).nth(0).getByTestId("tab-remove").click();
+  await expect(page.getByTestId("player")).toBeVisible();
+  const toast = (await page.getByTestId("session-toast").boundingBox())!;
+  const bar = (await page.getByTestId("player").boundingBox())!;
+  expect(toast.y + toast.height).toBeLessThanOrEqual(bar.y);
+});
+
 test("a toast's Undo is for its own step: it goes once anything else is done", async ({ browser }) => {
   const { page } = await threeTabs(browser);
   // The strip's toast, then a board edit: its Undo goes (it would take back the move).
