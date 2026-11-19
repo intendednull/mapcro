@@ -3,6 +3,22 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Deployed 6d62ad0: TD-119, a pick racing a Retake (2026-11-18, lead 9eb2516b)
+
+- **Prod `web` runs 6d62ad0** (infra baeb540). Store unchanged (v14, floor 12). Client only.
+- **What a coach gets:** when one editor picks a hero while another Retakes the scene, the slot
+  ends whole, with whichever landed last: the picked hero with no build, or the match's hero with
+  its whole build.
+- **Adversarial review (Opus high):** no regression in the race. Its partial-build finding was
+  reproduced and fixed. Two undo and redo sequences that mix builds were reproduced, are also on
+  main's code, and are logged under TD-145, still open. **Fix TD-145 before phase 5:** phase 5's
+  first new row makes Retake available on every scene that holds its heroes.
+- **Gate, in stages:** clippy, tests, model-sim, Firefox 37 passed, VM, reader-check, and the
+  two-person walkthrough in both orders on the merge. Two flakes, both added to TD-92: one Rust
+  presence test (40 of 40 on repeat) and two laser rows (60 of 60 on repeat), so the final e2e run
+  was 534 passed, 2 failed. Live walkthrough: 0 page errors, 0 5xx.
+- **Next:** the Player blend (`player-blend-build`), then TD-145, then phase 5.
+
 ## Deployed 9b24876: TD-118, the session strip's smaller gaps (2026-11-18, lead 9eb2516b)
 
 - **Prod `web` runs 9b24876** (infra d87eff6). Store unchanged (v14, floor 12). Client only.
