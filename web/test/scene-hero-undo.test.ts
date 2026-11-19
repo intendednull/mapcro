@@ -12,7 +12,7 @@ import { join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { startServer } from "./support/server";
-import { initSync, newRecordId } from "../src/wasm/mapcro_wasm.js";
+import { BoardReplica, initSync, newRecordId } from "../src/wasm/mapcro_wasm.js";
 import { Api } from "../src/core/api";
 import { MemoryPersist } from "../src/core/persist";
 import { BoardSession, type SocketLike } from "../src/core/session";
@@ -23,6 +23,8 @@ import type { RecordId } from "../src/gen/RecordId";
 import type { RosterSlot } from "../src/gen/RosterSlot";
 import { BUILD_KEYS, captureBuild, captureScene, heroBuildAt } from "../src/mapstate/build";
 import { pickHeroOps } from "../src/mapstate/edit";
+import { decideStep } from "../src/mapstate/undo";
+import type { Entry as RecordEntry } from "../src/gen/Entry";
 import { retakeOps, slotKey } from "../src/match/save";
 import { replay } from "./support/synthetic-match";
 
@@ -74,11 +76,15 @@ const SLOT = 3;
 const P = 77;
 const Q = 78;
 
-async function saved() {
+async function saved(sockets: Array<(url: string) => SocketLike> = []) {
   const api = new Api(`http://127.0.0.1:${port}`);
   const { board, owner_token } = await api.createBoard("undo");
+  let opened = 0;
+  const persists = new Map<BoardSession, MemoryPersist>();
   const open = async () => {
-    const s = new BoardSession({ wsUrl: `ws://127.0.0.1:${port}/ws`, board, token: owner_token, persist: new MemoryPersist(), openSocket });
+    const persist = new MemoryPersist();
+    const s = new BoardSession({ wsUrl: `ws://127.0.0.1:${port}/ws`, board, token: owner_token, persist, openSocket: sockets[opened++] ?? openSocket });
+    persists.set(s, persist);
     await s.start();
     expect(await until(() => s.connection.kind === "live")).toBe(true);
     return s;
@@ -109,6 +115,11 @@ async function saved() {
   const row = { id: scene, scene: { name: "s", order: "a", clock: T, source: { match_id: tl.match_id, t: T, tier: "replay" } } } as never;
   const s = {
     a, b, id, heroes, open,
+    /** What `x` saved of its replica's state, once its saves are done. */
+    stored: async (x: BoardSession) => {
+      await (x as unknown as { saves: Promise<void> }).saves;
+      return JSON.parse(persists.get(x)!.data.get(board)!) as { undo: Entry[]; redo: Entry[] };
+    },
     M: matchOf(id).hero_id,
     /** The match hero's build at the scene's moment, `hero` included. */
     build: captureBuild(heroBuildAt(tl, matchOf(id), T)) as More,
@@ -153,48 +164,283 @@ async function everywhere(s: Saved): Promise<More | undefined> {
 const rows = (more: More | undefined) => BUILD_KEYS.filter((k) => more?.[k] !== undefined);
 const withoutHero = (b: More) => Object.fromEntries(Object.entries(b).filter(([k]) => k !== "hero"));
 
-// The three sequences as they behave before the fix (TD-145): each ends with a hero that is not
-// the match's holding the match hero's build.
-describe("TD-145 as it is: an undo or redo across another editor's edit mixes two heroes", () => {
-  it("(1) A picks P, A undoes, B Retakes, A redoes: P with the match hero's build", async () => {
+/** Whatever happened: a record that holds a build holds the match hero's, whole. */
+function coherent(s: Saved, more: More | undefined) {
+  if (more?.hero !== s.M) expect(rows(more)).toEqual([]);
+  else if (rows(more).length) expect(more).toEqual(s.build);
+}
+const heroOf = (o: Op) => ("SetIf" in o && "More" in o.SetIf.value && o.SetIf.value.More.key === "hero" ? o.SetIf : undefined);
+/** A stack's steps for the record: each as its hero write (`h -> h` an assertion) and the
+ * build rows it writes, `null` for a clear. */
+const steps = (s: Saved, st: Op[][]) =>
+  st
+    .map((e) => e.filter((o) => ("SetIf" in o ? o.SetIf.id : "Set" in o ? o.Set.id : undefined) === s.id))
+    .filter((e) => e.length)
+    .map((e) => {
+      const h = e.map(heroOf).find(Boolean);
+      const fill = e.flatMap((o) => ("SetIf" in o && "More" in o.SetIf.value && o.SetIf.value.More.key !== "hero" ? [o.SetIf.value.More.value === null ? "clear" : "fill"] : []));
+      return { hero: h && [h.expect, h.value].map((v) => ("More" in v ? v.More.value : v)), rows: [...new Set(fill)] };
+    });
+/** The record as a save with room for builds leaves it, made by someone else. */
+async function withBuild(s: Saved) {
+  const setup = await s.open();
+  expect(setup.edit(Object.entries(withoutHero(s.build)).map(([key, value]): Op => ({ Set: { id: s.id, value: { More: { key, value } } } })))).toBe(true);
+  expect(await settled(setup)).toBe(true);
+  setup.stop();
+  expect(await until(() => [s.a, s.b].every((x) => rows(hero(x, s.id).more).length > 0))).toBe(true);
+  await sync(s);
+  expect(hero(s.a, s.id).more).toEqual(s.build);
+}
+
+// The three sequences of TD-145, in order, nothing raced. Before the fix each ended with a hero
+// that isn't the match's holding the match hero's build (commit "TD-145's three undo and redo
+// sequences, as they behave today"): now the step that no longer fits leaves the record whole.
+describe("an undo or redo across another editor's pick or Retake leaves a hero with its own build", () => {
+  it("(1) A picks P, A undoes, B Retakes, A redoes: P with no build; A's undo then gives back the match hero with its build", async () => {
     const s = await saved();
     await step(s, () => s.pick(s.a, P));
     await step(s, () => s.a.undo());
     expect(hero(s.a, s.id).more).toEqual({ hero: s.M });
+    expect(steps(s, stacks(s.a).redo)).toEqual([{ hero: [s.M, P], rows: [] }]);
     await step(s, () => s.retake(s.b));
     expect(hero(s.a, s.id).more).toEqual(s.build);
     await step(s, () => s.a.redo());
-    expect(await everywhere(s)).toEqual({ ...s.build, hero: P });
+    expect(hero(s.a, s.id).more).toEqual({ hero: P });
+    // The redo wrote the record whole, so its undo gives back what it replaced, whole.
+    expect(steps(s, stacks(s.a).undo)).toEqual([{ hero: [P, s.M], rows: ["fill"] }]);
+    expect(stacks(s.a).redo).toEqual([]);
+    await step(s, () => s.a.undo());
+    expect(hero(s.a, s.id).more).toEqual(s.build);
+    await step(s, () => s.a.redo());
+    expect(await everywhere(s)).toEqual({ hero: P });
   });
 
-  it("(2) B Retakes over the match's hero, B undoes every step, A picks P, B redoes: P with the match hero's build", async () => {
+  it("(2) B Retakes over the match's hero, B undoes every step, A picks P, B redoes: P with no build", async () => {
     const s = await saved();
     let n = 0;
     await step(s, () => (n = s.retake(s.b)));
     expect(hero(s.a, s.id).more).toEqual(s.build);
+    // The Retake's `Set hero` wrote the hero the record already had, so its undo has none.
+    expect(steps(s, stacks(s.b).undo)).toEqual([{ hero: undefined, rows: ["clear"] }]);
     for (let i = 0; i < n; i++) await step(s, () => s.b.undo());
     expect(hero(s.a, s.id).more).toEqual({ hero: s.M });
-    // The Retake's `Set hero` wrote the hero the record already had, so it left no undo: the
-    // redo is only the rows' `SetIf null -> value`.
-    expect(stacks(s.b).redo.flat().filter((o) => "SetIf" in o && o.SetIf.id === s.id && "More" in o.SetIf.value && o.SetIf.value.More.key === "hero")).toEqual([]);
+    // The redo carries the hero it was made on.
+    expect(steps(s, stacks(s.b).redo)).toEqual([{ hero: [s.M, s.M], rows: ["fill"] }]);
     await step(s, () => s.pick(s.a, P));
     for (let i = 0; i < n; i++) await step(s, () => s.b.redo());
-    expect(await everywhere(s)).toEqual({ ...s.build, hero: P });
+    // The redo no longer fits the record, and left it out: nothing of it to undo there.
+    expect(steps(s, stacks(s.b).undo)).toEqual([]);
+    expect(stacks(s.b).redo).toEqual([]);
+    // The other eleven took their builds back.
+    for (const h of s.heroes.filter((x) => x !== s.id)) expect(rows(hero(s.b, h).more).length).toBeGreaterThan(0);
+    expect(await everywhere(s)).toEqual({ hero: P });
   });
 
-  it("(3) A picks P over the match's hero with its build, B picks Q, A undoes: Q with the match hero's build", async () => {
+  it("(3) A picks P over the match's hero with its build, B picks Q, A undoes: Q with no build", async () => {
     const s = await saved();
-    // The record as a save with room for builds leaves it, made by someone else.
-    const setup = await s.open();
-    expect(setup.edit(Object.entries(withoutHero(s.build)).map(([key, value]): Op => ({ Set: { id: s.id, value: { More: { key, value } } } })))).toBe(true);
-    expect(await settled(setup)).toBe(true);
-    setup.stop();
-    expect(await until(() => rows(hero(s.a, s.id).more).length > 0 && rows(hero(s.b, s.id).more).length > 0)).toBe(true);
-    await sync(s);
-    expect(hero(s.a, s.id).more).toEqual(s.build);
+    await withBuild(s);
     await step(s, () => s.pick(s.a, P));
+    expect(steps(s, stacks(s.a).undo)).toEqual([{ hero: [P, s.M], rows: ["fill"] }]);
     await step(s, () => s.pick(s.b, Q));
+    // A's state as saved holds its pick's step...
+    const end = Date.now() + 10_000;
+    while ((await s.stored(s.a)).undo.length !== 1 && Date.now() < end) await new Promise((r) => setTimeout(r, 50));
+    expect((await s.stored(s.a)).undo).toHaveLength(1);
+    const sentBefore = s.a.records.size;
+    s.a.undo();
+    // ...and the dropped step is saved as gone at once: no reload brings it back.
+    expect(await s.stored(s.a)).toMatchObject({ undo: [], redo: [] });
+    await sync(s);
+    // The step touched this record alone: dropped whole, nothing sent, nothing left to redo.
+    expect(s.a.records.size).toBe(sentBefore);
+    expect(stacks(s.a)).toEqual({ undo: [], redo: [] });
+    expect(s.a.canUndo).toBe(false);
+    // B's own undo still gives back what B's pick replaced: P, with no build.
+    await step(s, () => s.b.undo());
+    expect(hero(s.a, s.id).more).toEqual({ hero: P });
+    await step(s, () => s.b.redo());
+    expect(await everywhere(s)).toEqual({ hero: Q });
+  });
+
+  it("the undo of a pick, with no one else's edit between, gives back the old hero with its build, as before", async () => {
+    const s = await saved();
+    await withBuild(s);
+    await step(s, () => s.pick(s.a, P));
     await step(s, () => s.a.undo());
-    expect(await everywhere(s)).toEqual({ ...s.build, hero: Q });
+    expect(hero(s.b, s.id).more).toEqual(s.build);
+    await step(s, () => s.a.redo());
+    expect(hero(s.b, s.id).more).toEqual({ hero: P });
+    await step(s, () => s.a.undo());
+    expect(await everywhere(s)).toEqual(s.build);
+  });
+
+  it("a Retake's undo and redo, with no one else's edit between, as before", async () => {
+    const s = await saved();
+    let n = 0;
+    await step(s, () => (n = s.retake(s.b)));
+    for (let i = 0; i < n; i++) await step(s, () => s.b.undo());
+    expect(hero(s.a, s.id).more).toEqual({ hero: s.M });
+    for (let i = 0; i < n; i++) await step(s, () => s.b.redo());
+    expect(hero(s.a, s.id).more).toEqual(s.build);
+    for (let i = 0; i < n; i++) await step(s, () => s.b.undo());
+    expect(await everywhere(s)).toEqual({ hero: s.M });
+  });
+});
+
+/** A socket whose traffic the test can hold back in both directions (as scene-hero-pick's). */
+function heldSocket() {
+  let held = false;
+  const out: unknown[] = [];
+  const back: unknown[] = [];
+  let sock: Record<string, unknown> | undefined;
+  let raw: WebSocket | undefined;
+  const open = (url: string) => {
+    const w = new WebSocket(url, { origin: ORIGIN });
+    raw = w;
+    const s: Record<string, unknown> = { send: (d: never) => (held ? out.push(d) : w.send(d)), close: () => w.close(), onopen: null, onmessage: null, onclose: null, onerror: null };
+    w.onopen = () => (s.onopen as (() => void) | null)?.();
+    w.onclose = () => (s.onclose as (() => void) | null)?.();
+    w.onerror = (e) => (s.onerror as ((e: unknown) => void) | null)?.(e);
+    w.onmessage = (e) => (held ? back.push(e) : (s.onmessage as ((e: unknown) => void) | null)?.(e));
+    sock = s;
+    return s as unknown as SocketLike;
+  };
+  return {
+    open,
+    hold: () => { held = true; },
+    release: () => {
+      held = false;
+      for (const d of out.splice(0)) raw!.send(d as never);
+      for (const e of back.splice(0)) (sock!.onmessage as (e: unknown) => void)(e);
+    },
+  };
+}
+
+// The same sequences with the last two edits made at the same moment, each on a view that
+// doesn't hold the other: the server takes them in one order or the other, and the slot ends
+// as the later of the two left it, whole (spec §4.5). An undo that lands just after another
+// editor's pick takes the slot back; that is the cost of never mixing two heroes.
+describe("an undo or redo racing another editor's pick or Retake: the later one decides the slot, whole", () => {
+  type Held = Saved & { ga: ReturnType<typeof heldSocket>; gb: ReturnType<typeof heldSocket> };
+  async function heldSaved(): Promise<Held> {
+    const [ga, gb] = [heldSocket(), heldSocket()];
+    return { ...(await saved([ga.open, gb.open])), ga, gb };
+  }
+  interface Case {
+    name: string;
+    /** Whose undo or redo it is: "a" or "b"; the other makes the pick or the Retake. */
+    mine: "a" | "b";
+    setup: (s: Held) => Promise<void>;
+    undoing: (s: Held) => void;
+    other: (s: Held) => void;
+    /** The record when the undo or redo is decided last, and when the other edit is. */
+    mineLast: (s: Held) => More;
+    otherLast: (s: Held) => More;
+  }
+  const cases: Case[] = [
+    {
+      name: "(1) A's redo of its pick, B's Retake",
+      mine: "a",
+      setup: async (s) => { await step(s, () => s.pick(s.a, P)); await step(s, () => s.a.undo()); },
+      undoing: (s) => s.a.redo(),
+      other: (s) => void s.retake(s.b),
+      mineLast: () => ({ hero: P }),
+      otherLast: (s) => s.build,
+    },
+    {
+      name: "(2) B's redo of its Retake, A's pick of P",
+      mine: "b",
+      setup: async (s) => { const n = s.retake(s.b); await sync(s); for (let i = 0; i < n; i++) await step(s, () => s.b.undo()); },
+      undoing: (s) => { while (s.b.canRedo) s.b.redo(); },
+      other: (s) => s.pick(s.a, P),
+      mineLast: (s) => s.build,
+      otherLast: () => ({ hero: P }),
+    },
+    {
+      name: "(3) A's undo of its pick, B's pick of Q",
+      mine: "a",
+      setup: async (s) => { await withBuild(s); await step(s, () => s.pick(s.a, P)); },
+      undoing: (s) => s.a.undo(),
+      other: (s) => s.pick(s.b, Q),
+      mineLast: (s) => s.build,
+      otherLast: () => ({ hero: Q }),
+    },
+  ];
+  for (const c of cases) {
+    for (const last of ["mine", "other"] as const) {
+      it(`${c.name}: ${last === "mine" ? "the undo or redo" : "the other edit"} decided last`, async () => {
+        const s = await heldSaved();
+        await c.setup(s);
+        const me = c.mine === "a" ? { session: s.a, sock: s.ga } : { session: s.b, sock: s.gb };
+        const them = c.mine === "a" ? { session: s.b, sock: s.gb } : { session: s.a, sock: s.ga };
+        const [sooner, later] = last === "mine" ? [them, me] : [me, them];
+        later.sock.hold();
+        // Each made on a view that doesn't hold the other.
+        if (later === me) { c.undoing(s); c.other(s); } else { c.other(s); c.undoing(s); }
+        expect(await settled(sooner.session)).toBe(true);
+        later.sock.release();
+        await sync(s);
+        coherent(s, hero(s.a, s.id).more);
+        expect(await everywhere(s)).toEqual(last === "mine" ? c.mineLast(s) : c.otherLast(s));
+      });
+    }
+  }
+});
+
+// The decided path against the plain one, through the real replica: a step that writes no
+// hero's record in a scene that holds its heroes goes on the wire exactly as the plain undo
+// and redo send it, and in a step that does, every other record's ops do too.
+describe("every other record's ops go exactly as the plain undo and redo send them", () => {
+  /** Two replicas restored from `s.a`'s state, connected; and `s.a`'s view as records. */
+  function twins(s: Saved) {
+    const state = (s.a as unknown as { replica: { state(): string } }).replica.state();
+    const pair = [BoardReplica.restore(state), BoardReplica.restore(state)] as const;
+    for (const x of pair) x.connect();
+    return pair;
+  }
+  const submits = (u: string) => (JSON.parse(u).frames as Array<{ msg: { Submit?: { ops: Op[]; kind: unknown } } }>).flatMap((f) => (f.msg.Submit ? [f.msg.Submit] : []));
+  const target = (o: Op) => (Object.values(o)[0] as { id: RecordId }).id;
+  const records = (r: BoardReplica) => new Map(JSON.parse(r.view()) as Array<[RecordId, RecordEntry]>);
+  /** Undo (or redo) on both: plainly, and as decided. */
+  function both(plain: BoardReplica, decided: BoardReplica, which: "undo" | "redo") {
+    const step = JSON.parse(which === "undo" ? plain.nextUndo() : plain.nextRedo()) as Op[];
+    const d = decideStep(step, records(decided));
+    const p = submits(which === "undo" ? plain.undo() : plain.redo());
+    const q = submits(which === "undo" ? decided.undoAs(JSON.stringify(d.ops), JSON.stringify(d.carry)) : decided.redoAs(JSON.stringify(d.ops), JSON.stringify(d.carry)));
+    return { d, p: p[0]!, q: q[0]! };
+  }
+
+  it("a step that writes no hero's record in such a scene: the same tx, the same next step", async () => {
+    const s = await saved();
+    const other = s.heroes[0]!;
+    await step(s, () => expect(s.a.edit([{ Set: { id: other, value: { PlayerPos: { x: 5, y: 6 } } } }, { Set: { id: other, value: { More: { key: "name", value: "x" } } } }])).toBe(true));
+    const [plain, decided] = twins(s);
+    for (const which of ["undo", "redo", "undo"] as const) {
+      const { d, p, q } = both(plain, decided, which);
+      expect(d.changed).toBe(false);
+      expect(q).toEqual(p);
+      expect(decided.nextUndo()).toEqual(plain.nextUndo());
+      expect(decided.nextRedo()).toEqual(plain.nextRedo());
+    }
+    [s.a, s.b].forEach((x) => x.stop());
+  });
+
+  it("a step that writes one and other records too: the others' ops as `undo` sends them, in order", async () => {
+    const s = await saved();
+    const other = s.heroes[0]!;
+    await withBuild(s);
+    const pick = pickHeroOps(true, hero(s.a, s.id).slot, { id: s.id, more: hero(s.a, s.id).more }, P);
+    await step(s, () => expect(s.a.edit([{ Set: { id: other, value: { PlayerPos: { x: 5, y: 6 } } } }, ...pick, { Set: { id: other, value: { More: { key: "name", value: "x" } } } }])).toBe(true));
+    const [plain, decided] = twins(s);
+    for (const which of ["undo", "redo"] as const) {
+      const { d, p, q } = both(plain, decided, which);
+      expect(d.changed).toBe(true);
+      expect(q.kind).toEqual(p.kind);
+      expect(q.ops.filter((o) => target(o) !== s.id)).toEqual(p.ops.filter((o) => target(o) !== s.id));
+      // With no one else's edit between, the hero's record ends as the plain step leaves it.
+      expect(records(decided).get(s.id)).toEqual(records(plain).get(s.id));
+      expect(records(decided).get(other)).toEqual(records(plain).get(other));
+    }
+    [s.a, s.b].forEach((x) => x.stop());
   });
 });

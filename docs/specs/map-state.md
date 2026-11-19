@@ -278,9 +278,29 @@ So that an absent key can be told from an unknown one, `SceneState.more` holds:
   later of the two left it: the picked hero with no build, or the match's hero with its own. A
   `SetIf` tests only the key it writes, so a build can't be made conditional on the record's
   `hero`; a Retake that lands after a pick therefore takes the slot back to the match's hero,
-  and the coach picks again. This holds for the two edits themselves: an undo or redo writes a
-  record's `hero` and build rows independently, and can still leave one hero with another's
-  build (TD-145).
+  and the coach picks again.
+
+  **Undo and redo of a hero's record (TD-145):** the engine's step is a `SetIf` per key, so on
+  its own it could leave one hero with another's build (an undo across someone else's pick, a
+  redo across their Retake). The client re-decides the step from its view before sending it
+  (`web/src/mapstate/undo.ts`, sent by the replica's `undo_as`/`redo_as`), record by record:
+  the step expects a hero, the one its `hero` write expects or, where it doesn't change the
+  hero, the one it was made on (carried with the step as `SetIf hero h -> h`). If the record
+  holds another hero now, the step leaves that record's hero and build alone (and a step left
+  with nothing is dropped, nothing sent). If it holds that hero, the record goes whole: a `Set`
+  of its hero and of every build row, as the step leaves them; a step that only clears an
+  unchanged hero's rows goes as recorded. A step with a build to give and no hero to expect (one
+  stored before this build) can't say whose build it is, and leaves it out. Every other op of the
+  step goes exactly as recorded. On the wire it is an ordinary undo or redo: no new op kind, and
+  the server and older builds take it as any transaction.
+
+  What the whole write costs, accepted like TD-146's outcomes: in a race, the later of the undo
+  or redo and the other edit decides the slot. **An undo or redo that lands just after another
+  editor's pick, which it never saw, takes the slot back** (their pick is to make again), and
+  **its `Set`s overwrite build rows another editor changed in the meantime** where a `SetIf`
+  would have skipped them (spec §7's "skip rather than clobber" holds for every other field).
+  Nothing of the kind happens without a race: a step decided on a view that already holds
+  the other edit leaves the record alone.
 
   The right-hand column is today's behaviour, kept exactly: where a stored `hero` and the
   roster's differ there, a coach picked another hero since, and that pick is never undone by
