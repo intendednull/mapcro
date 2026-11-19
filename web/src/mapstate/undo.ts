@@ -56,14 +56,12 @@ function slotWrite(op: Op): { id: RecordId; key: string; expect: Value | undefin
   return { id: w.id, key: w.value.More.key, expect, value: w.value.More.value };
 }
 
-/** The hero records of scenes that hold their heroes, as the view has them. */
+/** The hero records of scenes that hold their heroes, as the view has them. A deleted scene or
+ * state counts as it was: a scene's hero records are never deleted with it, so a step still
+ * writes them, and restoring the scene shows what it wrote (review B1). */
 function ownHeroes(records: ReadonlyMap<RecordId, Entry>): Set<RecordId> {
   const scenes = new Set<RecordId>();
-  for (const [, e] of records) {
-    if (e.deleted || !("SceneState" in e.record)) continue;
-    const scene = records.get(e.record.SceneState.scene);
-    if (scene && !scene.deleted && captured(e.record.SceneState.more).heroes) scenes.add(e.record.SceneState.scene);
-  }
+  for (const [, e] of records) if ("SceneState" in e.record && captured(e.record.SceneState.more).heroes) scenes.add(e.record.SceneState.scene);
   const out = new Set<RecordId>();
   if (scenes.size) for (const [id, e] of records) if (!e.deleted && "PlayerState" in e.record && scenes.has(e.record.PlayerState.scene)) out.add(id);
   return out;

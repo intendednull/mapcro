@@ -286,7 +286,9 @@ So that an absent key can be told from an unknown one, `SceneState.more` holds:
   (`web/src/mapstate/undo.ts`, sent by the replica's `undo_as`/`redo_as`), record by record:
   the step expects a hero, the one its `hero` write expects or, where it doesn't change the
   hero, the one it was made on (carried with the step as `SetIf hero h -> h`). If the record
-  holds another hero now, the step leaves that record's hero and build alone (and a step left
+  holds another hero now, the step leaves that record's hero and build alone. A scene deleted
+  since counts as it was: its hero records are not deleted with it, so the step still writes
+  them, and restoring the scene shows what it wrote (and a step left
   with nothing is dropped, nothing sent). If it holds that hero, the record goes whole: a `Set`
   of its hero and of every build row, as the step leaves them; a step that only clears an
   unchanged hero's rows goes as recorded. A step with a build to give and no hero to expect (one
@@ -296,9 +298,12 @@ So that an absent key can be told from an unknown one, `SceneState.more` holds:
 
   What the whole write costs, accepted like TD-146's outcomes: in a race, the later of the undo
   or redo and the other edit decides the slot. **An undo or redo that lands just after another
-  editor's pick, which it never saw, takes the slot back** (their pick is to make again), and
+  editor's pick, which it never saw, takes the slot back** (their pick is to make again; queued
+  offline, "just after" can be any length of time, as for a Retake), and
   **its `Set`s overwrite build rows another editor changed in the meantime** where a `SetIf`
   would have skipped them (spec §7's "skip rather than clobber" holds for every other field).
+  A whole `Set` that would take the record over its byte cap is refused with its whole step,
+  where a `SetIf` was skipped (unlikely: builds are trimmed to fit when captured).
   Nothing of the kind happens without a race: a step decided on a view that already holds
   the other edit leaves the record alone.
 

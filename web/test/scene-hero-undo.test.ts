@@ -25,7 +25,9 @@ import { BUILD_KEYS, captureBuild, captureScene, heroBuildAt } from "../src/maps
 import { pickHeroOps } from "../src/mapstate/edit";
 import { decideStep } from "../src/mapstate/undo";
 import type { Entry as RecordEntry } from "../src/gen/Entry";
-import { retakeOps, slotKey } from "../src/match/save";
+import { matchSceneOps, retakeOps, slotKey, sourceOf } from "../src/match/save";
+import { keyBetween } from "../src/core/order";
+import type { Tx } from "../src/gen/Tx";
 import { replay } from "./support/synthetic-match";
 
 const ROOT = resolve(__dirname, "../..");
@@ -76,7 +78,7 @@ const SLOT = 3;
 const P = 77;
 const Q = 78;
 
-async function saved(sockets: Array<(url: string) => SocketLike> = []) {
+async function saved(sockets: Array<(url: string) => SocketLike> = [], own = true) {
   const api = new Api(`http://127.0.0.1:${port}`);
   const { board, owner_token } = await api.createBoard("undo");
   let opened = 0;
@@ -102,7 +104,7 @@ async function saved(sockets: Array<(url: string) => SocketLike> = []) {
   // As Save leaves a scene it had no room to give builds: each record its match's hero, and a
   // state that says the scene holds them. Made by someone else, so neither editor can undo it.
   const state = newRecordId();
-  const more = captureScene(tl, { builds: false });
+  const more = captureScene(tl, { builds: false, heroes: own });
   const setup = await open();
   expect(setup.edit([
     { Create: { id: state, record: { SceneState: { scene, more } } } },
@@ -114,7 +116,7 @@ async function saved(sockets: Array<(url: string) => SocketLike> = []) {
   const id = heroes[SLOT]!;
   const row = { id: scene, scene: { name: "s", order: "a", clock: T, source: { match_id: tl.match_id, t: T, tier: "replay" } } } as never;
   const s = {
-    a, b, id, heroes, open,
+    a, b, id, heroes, open, scene, state, rosterOf,
     /** What `x` saved of its replica's state, once its saves are done. */
     stored: async (x: BoardSession) => {
       await (x as unknown as { saves: Promise<void> }).saves;
@@ -146,16 +148,20 @@ const step = async (s: Saved, f: () => void) => {
 
 /** The record as both editors hold it, and as a fresh copy from the server holds it: now, and
  * after the server restarts and replays its log. */
-async function everywhere(s: Saved): Promise<More | undefined> {
-  const more = hero(s.a, s.id).more;
-  expect(hero(s.b, s.id).more).toEqual(more);
+async function everywhere(s: Saved, id: RecordId = s.id): Promise<More | undefined> {
+  const more = hero(s.a, id).more;
+  expect(hero(s.b, id).more).toEqual(more);
+  // A fresh copy is live before it has caught up: wait on the record itself.
+  const holds = (x: BoardSession) => until(() => x.records.has(id) && JSON.stringify(hero(x, id).more) === JSON.stringify(more));
   const fresh = await s.open();
-  expect(hero(fresh, s.id).more).toEqual(more);
+  await holds(fresh);
+  expect(hero(fresh, id).more).toEqual(more);
   fresh.stop();
   [s.a, s.b].forEach((x) => x.stop());
   await restart();
   const replayed = await s.open();
-  expect(hero(replayed, s.id).more).toEqual(more);
+  await holds(replayed);
+  expect(hero(replayed, id).more).toEqual(more);
   replayed.stop();
   return more;
 }
@@ -284,6 +290,83 @@ describe("an undo or redo across another editor's pick or Retake leaves a hero w
     expect(hero(s.a, s.id).more).toEqual(s.build);
     for (let i = 0; i < n; i++) await step(s, () => s.b.undo());
     expect(await everywhere(s)).toEqual({ hero: s.M });
+  });
+});
+
+// A deleted scene's hero records are not deleted with it (they live and die with their scene,
+// hidden while it is): an undo or redo still writes them, and restoring the scene shows what it
+// wrote. Each sequence here mixed two heroes before the fix's review B1, with no race.
+describe("an undo or redo of a hero's record in a deleted scene: what a restore shows is whole", () => {
+  /** Another scene, made by `by` as New scene makes one: the scene and a hero per slot. */
+  async function another(s: Saved, by: BoardSession) {
+    const id = newRecordId();
+    const order = (by.records.get(s.scene)!.record as { Scene: { order: string } }).Scene.order;
+    const heroes = s.heroes.map((h): Op => {
+      const { more: _, ...fields } = hero(by, h);
+      return { Create: { id: newRecordId(), record: { PlayerState: { ...fields, scene: id } } } };
+    });
+    await step(s, () => expect(by.edit([{ Create: { id, record: { Scene: { name: "", order: keyBetween(order, undefined), clock: null } } as never } }, ...heroes])).toBe(true));
+    return id;
+  }
+  const deleteScene = (s: Saved, by: BoardSession, scene: RecordId) => step(s, () => expect(by.edit([{ Delete: { id: scene } }])).toBe(true));
+  const gone = (s: Saved, scene: RecordId) => (s.a.records.get(scene)!.deleted);
+
+  it("(B1.1) A picks P over the match's hero with its build, B picks Q, B deletes the scene, A undoes, B restores it: Q with no build", async () => {
+    const s = await saved();
+    await withBuild(s);
+    await step(s, () => s.pick(s.a, P));
+    await step(s, () => s.pick(s.b, Q));
+    await another(s, s.b);
+    await deleteScene(s, s.b, s.scene);
+    expect(gone(s, s.scene)).toBe(true);
+    await step(s, () => s.a.undo());
+    // While the scene is gone the record holds what a restore will show.
+    expect(hero(s.a, s.id).more).toEqual({ hero: Q });
+    await step(s, () => s.b.undo());
+    expect(gone(s, s.scene)).toBe(false);
+    expect(await everywhere(s)).toEqual({ hero: Q });
+  });
+
+  it("(B1.2) A picks P, A undoes, B Retakes, B deletes the scene, A redoes, B restores it: P with no build", async () => {
+    const s = await saved();
+    await step(s, () => s.pick(s.a, P));
+    await step(s, () => s.a.undo());
+    await step(s, () => s.retake(s.b));
+    expect(hero(s.a, s.id).more).toEqual(s.build);
+    await another(s, s.b);
+    await deleteScene(s, s.b, s.scene);
+    await step(s, () => s.a.redo());
+    await step(s, () => s.b.undo());
+    expect(gone(s, s.scene)).toBe(false);
+    expect(await everywhere(s)).toEqual({ hero: P });
+  });
+
+  it("(B1.3) B saves a scene, A picks P in it, C picks Q, B undoes the save, A undoes, B redoes the save: Q with no build", async () => {
+    const s = await saved();
+    const scenes = [...s.b.records].flatMap(([id, e]) => (!e.deleted && "Scene" in e.record ? [{ id, scene: e.record.Scene }] : [])) as never;
+    const save = matchSceneOps(s.rosterOf(s.b) as never, scenes, undefined, tl, T, [], newRecordId, [], { source: sourceOf(tl) });
+    expect(save.builds).toBe(true);
+    await step(s, () => expect(s.b.edit(save.ops)).toBe(true));
+    const slot = hero(s.a, s.id).slot;
+    const id = [...s.a.records].find(([, e]) => "PlayerState" in e.record && e.record.PlayerState.scene === save.id && e.record.PlayerState.slot === slot)![0];
+    const saved_ = hero(s.a, id).more!;
+    expect(saved_.hero).toBe(s.M);
+    expect(rows(saved_).length).toBeGreaterThan(0);
+    const c = await s.open();
+    expect(await until(() => c.records.has(id))).toBe(true);
+    await step(s, () => expect(s.a.edit(pickHeroOps(true, slot, { id, more: hero(s.a, id).more }, P))).toBe(true));
+    expect(await until(() => c.records.get(id) !== undefined && hero(c, id).more?.hero === P)).toBe(true);
+    expect(c.edit(pickHeroOps(true, slot, { id, more: hero(c, id).more }, Q))).toBe(true);
+    expect(await settled(c)).toBe(true);
+    await sync(s);
+    expect(hero(s.a, id).more).toEqual({ hero: Q });
+    c.stop();
+    await step(s, () => s.b.undo());
+    expect(gone(s, save.id)).toBe(true);
+    await step(s, () => s.a.undo());
+    await step(s, () => s.b.redo());
+    expect(gone(s, save.id)).toBe(false);
+    expect(await everywhere(s, id)).toEqual({ hero: Q });
   });
 });
 
@@ -441,6 +524,80 @@ describe("every other record's ops go exactly as the plain undo and redo send th
       expect(records(decided).get(s.id)).toEqual(records(plain).get(s.id));
       expect(records(decided).get(other)).toEqual(records(plain).get(other));
     }
+    [s.a, s.b].forEach((x) => x.stop());
+  });
+});
+
+// The session's own choice, through BoardSession.undo and redo: a step it needn't decide goes by
+// the plain undo, exactly; one it decides goes as decided. Each sent transaction is compared
+// with what the plain undo of a copy of the same replica sends.
+describe("BoardSession.undo and redo send the plain step unless a hero's record needs deciding", () => {
+  /** A socket that records every transaction it sends. */
+  function recording() {
+    const sent: Tx[] = [];
+    const open = (url: string) => {
+      const w = openSocket(url) as unknown as { send: (d: string) => void };
+      const send = w.send.bind(w);
+      w.send = (d: string) => {
+        const f = JSON.parse(d) as { t: string; msg?: { Submit?: Tx } };
+        if (f.msg?.Submit) sent.push(f.msg.Submit);
+        send(d);
+      };
+      return w as unknown as SocketLike;
+    };
+    return { open, sent };
+  }
+  /** What the plain undo (redo) of a copy of `x`'s replica sends now. */
+  const plainly = (x: BoardSession, which: "undo" | "redo") => {
+    const twin = BoardReplica.restore((x as unknown as { replica: { state(): string } }).replica.state());
+    twin.connect();
+    const u = JSON.parse(which === "undo" ? twin.undo() : twin.redo()) as { frames: Array<{ msg: { Submit?: Tx } }> };
+    return u.frames.flatMap((f) => (f.msg.Submit ? [f.msg.Submit] : []));
+  };
+  async function through(s: Saved, rec: ReturnType<typeof recording>, which: "undo" | "redo") {
+    const want = plainly(s.a, which);
+    const from = rec.sent.length;
+    await step(s, () => (which === "undo" ? s.a.undo() : s.a.redo()));
+    return { want, got: rec.sent.slice(from) };
+  }
+
+  it("a step with no hero's record: what the plain undo and redo send", async () => {
+    const rec = recording();
+    const s = await saved([rec.open]);
+    await step(s, () => expect(s.a.edit([{ Set: { id: s.heroes[0]!, value: { PlayerPos: { x: 5, y: 6 } } } }, { Set: { id: s.scene, value: { SceneName: "x" } } }])).toBe(true));
+    for (const which of ["undo", "redo", "undo"] as const) {
+      const { want, got } = await through(s, rec, which);
+      expect(got).toEqual(want);
+    }
+    [s.a, s.b].forEach((x) => x.stop());
+  });
+
+  it("a Retake in a scene that doesn't hold its heroes (slot writes, no `has_heroes`): what the plain undo and redo send", async () => {
+    const rec = recording();
+    const s = await saved([rec.open], false);
+    // `a` is the recorded one: it retakes.
+    let n = 0;
+    await step(s, () => (n = s.retake(s.a)));
+    expect(rows(hero(s.a, s.id).more).length).toBeGreaterThan(0);
+    for (const which of ["undo", "redo", "undo"] as const) {
+      for (let i = 0; i < n; i++) {
+        const { want, got } = await through(s, rec, which);
+        expect(got).toEqual(want);
+      }
+    }
+    [s.a, s.b].forEach((x) => x.stop());
+  });
+
+  it("a hero's record in a scene that holds its heroes: the step as decided, not the plain one", async () => {
+    const rec = recording();
+    const s = await saved([rec.open]);
+    await step(s, () => s.pick(s.a, P));
+    const { want, got } = await through(s, rec, "undo");
+    expect(got).toHaveLength(1);
+    expect(got[0]!.ops).not.toEqual(want[0]!.ops);
+    // The record written whole: its hero, then every build row.
+    expect(got[0]!.ops[0]).toEqual({ Set: { id: s.id, value: { More: { key: "hero", value: s.M } } } });
+    expect(got[0]!.kind).toEqual(want[0]!.kind);
     [s.a, s.b].forEach((x) => x.stop());
   });
 });

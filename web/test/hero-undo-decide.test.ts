@@ -54,13 +54,35 @@ describe("a step that writes no hero's record in a scene that holds its heroes g
   it.each([
     ["writes no hero slot", [note, setIf(H, "name", "x", "y")], view()],
     ["is in a scene that doesn't hold its heroes", undoOfPick(), view({ own: false, hero: { hero: P } })],
-    ["is in a scene whose state is gone", undoOfPick(), view({ stateGone: true, hero: { hero: P } })],
-    ["is in a scene that is gone", undoOfPick(), view({ sceneGone: true, hero: { hero: P } })],
   ])("one that %s", (_, step, records) => {
     const d = decideStep(step, records);
     expect(d).toEqual({ ops: step, carry: [], changed: false });
     expect(d.ops).toBe(step);
   });
+});
+
+// A deleted scene's hero records are not deleted with it: a step still writes them, and a
+// Restore of the scene shows what it wrote (review B1). So they are decided as if it were there.
+describe("a step that writes a hero's record in a deleted scene that held its heroes", () => {
+  it.each([
+    ["whose state is deleted", { stateGone: true }],
+    ["that is deleted", { sceneGone: true }],
+    ["that is deleted with its state", { sceneGone: true, stateGone: true }],
+  ])("in a scene %s: decided as in a live one", (_, gone) => {
+    expect(decideStep(undoOfPick(), view({ ...gone, hero: { hero: P } }))).toEqual({ ops: whole(M, BUILD), carry: [], changed: true });
+    expect(decideStep(undoOfPick(), view({ ...gone, hero: { hero: 78 } }))).toEqual({ ops: [], carry: [], changed: true });
+  });
+});
+
+it("a hero record of another scene, one that doesn't hold its heroes, goes as recorded beside one that does", () => {
+  const records = view({ hero: { hero: P } });
+  const SCENE2 = "00000000000000000000000000000012" as RecordId;
+  const X = "00000000000000000000000000000022" as RecordId;
+  records.set(SCENE2, records.get(SCENE)!);
+  const h = records.get(H)!.record as { PlayerState: object };
+  records.set(X, { record: { PlayerState: { ...h.PlayerState, scene: SCENE2, more: { hero: P } } } as never, deleted: false });
+  const step = undoOfPick(X);
+  expect(decideStep(step, records)).toEqual({ ops: step, carry: [], changed: false });
 });
 
 describe("a step that writes a hero's record in a scene that holds its heroes", () => {
