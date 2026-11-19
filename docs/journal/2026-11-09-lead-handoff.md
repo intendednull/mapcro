@@ -3,6 +3,20 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Paused (2026-11-19, operator: weekly usage at 97%)
+
+- **Prod runs 04545be** (infra 064667d), store v14 floor 12, healthy. Nothing in flight; no heavy
+  jobs queued. Main is f09c0c1.
+- **Resume order:**
+  1. **TD-145** (`td-145-undo`, ae6386b): reviewed, fixed, and gated on merge 8d7b834 (571 e2e,
+     VM, reader-check, Firefox 51 passed). Left: the two-person walkthrough on the merge
+     (`/tmp/td145/walk-merge.sh` via `tools/heavy.sh`), then merge, deploy (server and client
+     together: the build id changes, old tabs see Update available), live check.
+  2. **Phase 5:** plan on `map-state-p5` (1845dba). Send the operator's answers and the plan
+     review's must-fixes (lead memory `map-state-spec.md`, 2026-11-18 entry) to an Opus high
+     implementer to revise the plan, then build R1 (both readers).
+  3. TD-117 (session Open in app) when desktop 0.2.4 has been out a while.
+
 ## Deployed 04545be: the Player transport, the operator's blend (2026-11-18, lead 9eb2516b)
 
 - **Prod `web` runs 04545be** (infra 064667d). Store unchanged (v14, floor 12).
