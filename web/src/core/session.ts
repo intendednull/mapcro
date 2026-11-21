@@ -13,6 +13,7 @@ import type { Presence } from "../gen/Presence";
 import type { RoomKind } from "../gen/RoomKind";
 import type { Via } from "../gen/Via";
 import { BoardReplica, buildId, newClientId, newClientSecret, presenceFrameOk } from "../wasm/mapcro_wasm.js";
+import { decideStep } from "../mapstate/undo";
 import { MemoryPersist, type Persist } from "./persist";
 import { pageSeat } from "./seat";
 import type { SaveStatus, Update } from "./update";
@@ -386,11 +387,30 @@ export class BoardSession {
   }
 
   undo(): void {
-    this.local((r) => r.undo());
+    this.step("undo");
   }
 
   redo(): void {
-    this.local((r) => r.redo());
+    this.step("redo");
+  }
+
+  /**
+   * Undo or redo the next step, re-decided from the view where it writes a hero's record in a
+   * scene that holds its heroes (TD-145, `mapstate/undo.ts`); any other step goes as recorded.
+   * A step that no longer fits anywhere is dropped, and nothing is sent.
+   */
+  private step(which: "undo" | "redo"): void {
+    let dropped = false;
+    this.local((r) => {
+      const next = JSON.parse(which === "undo" ? r.nextUndo() : r.nextRedo()) as Op[] | null;
+      const d = next ? decideStep(next, this.records) : undefined;
+      if (!d?.changed) return which === "undo" ? r.undo() : r.redo();
+      dropped = d.ops.length === 0;
+      const [ops, carry] = [JSON.stringify(d.ops), JSON.stringify(d.carry)];
+      return which === "undo" ? r.undoAs(ops, carry) : r.redoAs(ops, carry);
+    });
+    // Nothing sent, but the step is gone: kept so, across a reload.
+    if (dropped) this.saveState().catch((e) => this.problems.push(`could not save locally: ${e}`));
   }
 
   private local(call: (r: BoardReplica) => string): boolean {

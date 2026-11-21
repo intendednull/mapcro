@@ -105,7 +105,9 @@ impl World {
 
 /// noClobber, stated without trusting `SetIf`: every field an undo or redo changes must hold,
 /// just before it lands, exactly the value the transaction it reverses wrote there. Returns how
-/// many field changes were checked.
+/// many field changes were checked. A field the undo or redo writes with a plain `Set` is out of
+/// it: that is a client's whole write of a record it re-decided from its view (TD-145), which
+/// takes the field as the later writer, on purpose.
 pub(crate) fn check_undo_did_not_clobber(before: &Doc, after: &Doc, tx: &Tx, log: &[Tx]) -> Result<usize, String> {
     let of = match tx.kind {
         TxKind::Edit => return Ok(0),
@@ -119,7 +121,7 @@ pub(crate) fn check_undo_did_not_clobber(before: &Doc, after: &Doc, tx: &Tx, log
         let Some(prev) = before.get(id) else { continue };
         for field in Field::all() {
             let (Some(old), Some(new)) = (prev.record.get(field), entry.record.get(field)) else { continue };
-            if old == new {
+            if old == new || set_by(tx, id, field) {
                 continue;
             }
             checked += 1;
@@ -141,6 +143,11 @@ pub(crate) fn check_undo_did_not_clobber(before: &Doc, after: &Doc, tx: &Tx, log
         }
     }
     Ok(checked)
+}
+
+/// Whether `tx` writes `id.field` with a plain `Set`.
+fn set_by(tx: &Tx, id: mapcro_schema::RecordId, field: Field) -> bool {
+    tx.ops.iter().any(|op| matches!(op, Op::Set { id: i, value } if *i == id && value.field() == field))
 }
 
 /// The last value `tx` wrote to `id.field`, if it wrote one.

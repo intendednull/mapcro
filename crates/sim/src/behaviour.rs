@@ -47,12 +47,25 @@ pub(crate) fn act(world: &mut World, i: usize) -> Result<(), String> {
                 _ => 8,
             };
             let roll = rng.random_range(0..100);
+            // Undoers and Fillers re-decide half their steps from the view, as the client does
+            // for a hero's record (TD-145): `undo_as` and `redo_as`.
+            let decides = matches!(behaviour, Behaviour::Undoer | Behaviour::Filler) && rng.random_range(0..2) == 0;
             if roll < undo_bias / 2 && replica.can_undo() {
                 stats.undos += 1;
-                describe("undo", replica.undo(), &mut c.up)
+                if decides {
+                    let (ops, carry) = decided(rng, replica.view(), replica.next_undo().unwrap_or_default());
+                    describe("undo as decided", replica.undo_as(ops, carry), &mut c.up)
+                } else {
+                    describe("undo", replica.undo(), &mut c.up)
+                }
             } else if roll < undo_bias && replica.can_redo() {
                 stats.undos += 1;
-                describe("redo", replica.redo(), &mut c.up)
+                if decides {
+                    let (ops, carry) = decided(rng, replica.view(), replica.next_redo().unwrap_or_default());
+                    describe("redo as decided", replica.redo_as(ops, carry), &mut c.up)
+                } else {
+                    describe("redo", replica.redo(), &mut c.up)
+                }
             } else {
                 let ops = edit_ops(rng, replica, *behaviour);
                 if ops.is_empty() {
@@ -92,6 +105,32 @@ pub(crate) fn act(world: &mut World, i: usize) -> Result<(), String> {
     let name = world.clients[i].name.clone();
     world.log(format!("{name}: {line}"));
     Ok(())
+}
+
+/// A step as a client re-deciding it from its view might send it (TD-145), and what it carries:
+/// some ops left out (no longer fitting), some `SetIf`s whose expectation the view holds sent as
+/// a whole `Set`, sometimes nothing at all; and assertions (a field's value onto itself) of what
+/// the view holds of the records it writes.
+fn decided(rng: &mut ChaCha8Rng, view: &mapcro_schema::Doc, step: &[Op]) -> (Vec<Op>, Vec<Op>) {
+    if rng.random_range(0..8) == 0 {
+        return (Vec::new(), Vec::new());
+    }
+    let (mut ops, mut carry) = (Vec::new(), Vec::new());
+    for op in step {
+        let held = |id: &RecordId, value: &FieldValue| view.live(*id).and_then(|r| r.get(value.field()));
+        if let Op::SetIf { id, value, .. } = op
+            && rng.random_range(0..4) == 0
+            && let Some(now) = held(id, value)
+        {
+            carry.push(Op::SetIf { id: *id, expect: now.clone(), value: now });
+        }
+        match (rng.random_range(0..4), op) {
+            (0, _) => {}
+            (1, Op::SetIf { id, expect, value }) if held(id, value).as_ref() == Some(expect) => ops.push(Op::Set { id: *id, value: value.clone() }),
+            _ => ops.push(op.clone()),
+        }
+    }
+    (ops, carry)
 }
 
 fn describe(what: &str, r: Result<Option<ClientMsg>, UndoError>, up: &mut std::collections::VecDeque<ClientMsg>) -> String {
