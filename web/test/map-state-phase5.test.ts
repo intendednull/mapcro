@@ -251,7 +251,9 @@ describe("Phase 5 R1: exhaustive §9 round-trip property (Groups A & B)", () => 
       height: ({ p, s }) => {
         for (const sl of rs) {
           const k = slotKey(sl.slot.team, sl.slot.slot);
-          expect(s.hero(k).height(), k).toBe(p.hero(k).height());
+          // Street level (0) is the omitted default and reads as `undefined` in fromScene (plan §3 row 21).
+          const ph = p.hero(k).height();
+          expect(s.hero(k).height(), k).toBe(ph === 1 || ph === 2 ? ph : undefined);
         }
       },
       zipline: ({ p, s }) => {

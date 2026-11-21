@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { LIMITS } from "../src/gen/limits";
 import { ROWS, type RowKey } from "../src/gen/rows";
-import { WRITTEN, captureBuild, captureScene, captured, heroBuildAt, readBuild, statOf, type HeroBuild, writesHeroes } from "../src/mapstate/build";
+import { BUILD_KEYS, WRITTEN, captureBuild, captureScene, captured, heroBuildAt, readBuild, statOf, type HeroBuild, writesHeroes } from "../src/mapstate/build";
 import { buildAt, buildOrder } from "../src/match/builds";
 import { PICKUPS_FORMAT, statBuild } from "../src/match/stats";
 import type { Timeline, TimelinePlayer } from "../src/match/timeline";
@@ -37,8 +37,8 @@ const match = (format: number): Timeline => ({
 const written = (b: HeroBuild): HeroBuild => {
   const out = { ...b };
   const field: Partial<Record<RowKey, keyof HeroBuild>> = { build_order: "order" };
-  for (const key of Object.keys(ROWS) as RowKey[]) {
-    if (ROWS[key].entity !== "hero" || ROWS[key].index < WRITTEN || key === "name") continue;
+  for (const key of BUILD_KEYS) {
+    if (ROWS[key].index < WRITTEN) continue;
     (out as Record<string, unknown>)[field[key] ?? key] = null;
   }
   return out;
