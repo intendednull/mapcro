@@ -109,4 +109,5 @@ Pass 003 (`passes/2026-11-21-pass-003-world-import-phone-player.md`, Neon medium
 
 ### Feedback loop triggered
 - Spawned `qa-p3-fixes` (Neon medium) for Pass 003's 3 confirmed bugs (`Scene ""` handoff label on unnamed scenes, Landing `.dem` `looksLikeDemo` before `idFromName`, Player `host.ts` `take()` empty-`matchId` handling + stale error clear, and omitting `[1]`/`[2]`/`[3]` shortcut brackets on touch Vision `<select>`) with regression tests proven to fail before each fix.
-- Next QA cycle (Cycle 2, Pass 004+): run after Phase 5 R1 + Pass 1–3 fixes + Argon responsive polish land, targeting regression verification + deepening remaining `smoke` rows to `deep`.
+- **Cycle 1 fixes shipped (2026-11-21):** Merged all 4 fix/polish branches (`qa-p1-fixes`, `qa-p2-fixes`, `qa-p3-fixes`, and Argon `qa-responsive-design` — 16 confirmed findings closed with fail-before-fix regression tests, zero conflicts), gated across `just web-test` (85 suites), full Chromium Playwright (`578 passed, 16 skipped`), and Firefox Android phone/tablet Playwright (`52 passed, 22 skipped`).
+- Next QA cycle (Cycle 2, Pass 004+): run after Phase 5 R1 + Cycle 1 fixes land on prod, targeting live regression verification of all 16 fixes + deepening remaining `smoke` rows to `deep`.
