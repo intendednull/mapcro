@@ -14,7 +14,7 @@ import type { RecordId } from "../gen/RecordId";
 import type { RosterSlot } from "../gen/RosterSlot";
 import { ROWS } from "../gen/rows";
 import { shiftEdges } from "../map/lanes";
-import { shopsClosed, slotKey } from "../match/timeline";
+import { type CampAt, type PowerupAt, shopsClosed, slotKey } from "../match/timeline";
 import { type CapturedSnapshot, captured, holdsHealth, sceneHero } from "./build";
 import {
   decodeCC, decodeCamps, decodeEdges, decodeObjHealth, decodePowerups, decodeRejuv, decodeRift, decodeSkulls, decodeUrn,
@@ -150,9 +150,9 @@ export function fromScene(src: SceneRecords): MapState {
     });
 
   // Group B baseline tables, decoded once per state/frame/markers change.
-  const campsMap = memo(() => (CAPTURED.camps(snap()) ? decodeCamps(src.state()?.camps, frame(), markerList()) : new Map()));
-  const powerupsMap = memo(() => (CAPTURED.powerups(snap()) ? decodePowerups(src.state()?.powerups, frame(), markerList()) : new Map()));
-  const objHealthMap = memo(() => (CAPTURED.obj_health(snap()) ? decodeObjHealth(src.state()?.obj_health, markerList()) : new Map()));
+  const campsMap = memo(() => (CAPTURED.camps(snap()) ? decodeCamps(src.state()?.camps, frame(), markerList()) : new Map<string, CampAt>()));
+  const powerupsMap = memo(() => (CAPTURED.powerups(snap()) ? decodePowerups(src.state()?.powerups, frame(), markerList()) : new Map<string, PowerupAt>()));
+  const objHealthMap = memo(() => (CAPTURED.obj_health(snap()) ? decodeObjHealth(src.state()?.obj_health, markerList()) : new Map<string, { pct: number; stage?: number }>()));
   const riftDecoded = memo(() => (CAPTURED.rifts(snap()) ? decodeRift(src.state()?.rift, frame(), markerList()) : undefined), sameValue);
   const closedShops = memo(() => {
     if (!CAPTURED.camps(snap())) return new Set<string>();

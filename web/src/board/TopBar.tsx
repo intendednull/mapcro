@@ -192,7 +192,7 @@ export function TopBar(p: {
     const st = stateRow();
     const waves = new Map(
       p.state
-        .rowsIn<{ lane: string; t: number; more?: import("../gen/More").More }>("Wave", p.scene)
+        .rowsIn<import("../gen/Wave").Wave>("Wave", p.scene)
         .map((w) => [w.r.lane, { id: w.id, t: w.r.t, ...(w.r.more ? { more: w.r.more } : {}) }]),
     );
     const txs = retakeOps(sc, st ? { id: st.id, more: st.r?.more } : undefined, p.state.playersIn(p.scene), p.state.roster(), tl, newRecordId, undefined, p.art.model.markers, waves);

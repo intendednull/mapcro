@@ -393,8 +393,8 @@ describe("FNV-1a hashes, collision fallback, over-length caps & byte-cap drop or
     expect(fnv1a32("costarring")).toBe(fnv1a32("liquid"));
     const collidingMarkers = [
       ...markers,
-      { key: "costarring", kind: "camp" as const, team: "neutral" as const, at: { x: 100, y: 100 } },
-      { key: "liquid", kind: "camp" as const, team: "neutral" as const, at: { x: 200, y: 200 } },
+      { key: "costarring", kind: "camp" as const, team: "neutral" as const, lane: null, at: { x: 100, y: 100 } },
+      { key: "liquid", kind: "camp" as const, team: "neutral" as const, lane: null, at: { x: 200, y: 200 } },
     ];
     const camps = new Map<string, CampAt>([
       ["costarring", { state: "cleared", at: 100 }],
@@ -407,8 +407,8 @@ describe("FNV-1a hashes, collision fallback, over-length caps & byte-cap drop or
 
     // Colliding rift / urn site key reports collision so Save falls back to ObjectiveState.
     const riftMarkers = [
-      { key: "costarring", kind: "koth" as const, team: "neutral" as const, at: { x: 100, y: 100 } },
-      { key: "liquid", kind: "koth" as const, team: "neutral" as const, at: { x: 200, y: 200 } },
+      { key: "costarring", kind: "koth" as const, team: "neutral" as const, lane: null, at: { x: 100, y: 100 } },
+      { key: "liquid", kind: "koth" as const, team: "neutral" as const, lane: null, at: { x: 200, y: 200 } },
     ];
     expect(encodeRift(new Map([["costarring", { state: "active", giveUp: 100, capture: null }]]), 50, riftMarkers).collision).toBe(true);
     expect(
@@ -425,6 +425,7 @@ describe("FNV-1a hashes, collision fallback, over-length caps & byte-cap drop or
       key: `camp:neutral:lane1:${i}`,
       kind: "camp" as const,
       team: "neutral" as const,
+      lane: null,
       at: { x: i, y: i },
     }));
     const camps = new Map<string, CampAt>(fakeMarkers.map((m) => [m.key, { state: "cleared", at: 200 }]));
@@ -439,7 +440,7 @@ describe("FNV-1a hashes, collision fallback, over-length caps & byte-cap drop or
       fakeMarkers.slice(0, MAX_POWERUPS + 1).map((m) => [m.key, { state: "up", buff: "gun" }]),
     );
     expect(encodePowerups(powerups, 10, fakeMarkers).overflow).toBe(true);
-    expect(encodePowerups(new Map([...powerups].slice(0, MAX_POWERUPS)), fakeMarkers).overflow).toBe(false);
+    expect(encodePowerups(new Map([...powerups].slice(0, MAX_POWERUPS)), 10, fakeMarkers).overflow).toBe(false);
 
     // End-to-end Save with > 200 cleared camps omits has_camps/camps and writes ObjectiveStates instead.
     const tl = richReplay();
@@ -577,8 +578,9 @@ describe("Sight (Q2), toggleSightOps, derived skulls/urn & status-wins rules", (
     const cap = captureToScene(tl, 1, WRITTEN_A);
     // Hero 0: force visible: false (pre-Retake manual mark) and no more.unseen.
     const h0 = cap.heroes[0]!;
-    h0.state = { ...h0.state, visible: false, more: { ...(h0.state.more ?? {}), unseen: undefined } as More };
-    delete h0.state.more!.unseen;
+    const nextMore: More = { ...(h0.state.more ?? {}) };
+    delete nextMore.unseen;
+    h0.state = { ...h0.state, visible: false, more: nextMore };
     createRoot((dispose) => {
       const s = fromScene({
         heroes: () => cap.heroes,
@@ -779,8 +781,8 @@ describe("Marker clicks (objectives.ts) with baseline shown & TD-163 sitesAt", (
 describe("Dormant Retake, re-picked slots, TD-145 undo & copy filter", () => {
   it("canRetake per-feature tier matrix never offers a no-op Retake (TD-161)", () => {
     const tl = richReplay();
-    const scReplay = { source: sourceOf(tl) };
-    const scMeta = { source: sourceOf(metadata) };
+    const scReplay = { source: { ...sourceOf(tl), t: 3 } };
+    const scMeta = { source: { ...sourceOf(metadata), t: 3 } };
     // v14 scene on R2 (written=27): replay & metadata both retakable (skulls for metadata, all A for replay).
     const v14State: More = { rows: 16, has_builds: true, has_heroes: true };
     expect(canRetake(scReplay, v14State, tl, WRITTEN_A, markers)).toBe(true);
