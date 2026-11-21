@@ -32,7 +32,7 @@ import type { BoardState, Player, Slot } from "../src/board/state";
 import { WRITTEN, captured } from "../src/mapstate/build";
 import {
   MAX_CAMPS, MAX_OBJ_HEALTH, MAX_POWERUPS,
-  decodeEdges, encodeCamps, encodeObjHealth, encodePowerups, encodeRift, encodeUrn, fnv1a32, markerHashIndex,
+  decodeEdges, decodeUrn, encodeCamps, encodeObjHealth, encodePowerups, encodeRift, encodeUrn, fnv1a32, markerHashIndex,
 } from "../src/mapstate/codec";
 import { pickHeroOps, toggleSightOps } from "../src/mapstate/edit";
 import { fromScene } from "../src/mapstate/scene";
@@ -41,7 +41,7 @@ import { FEATURES, type MapState, fromTimeline } from "../src/mapstate/state";
 import { decideStep } from "../src/mapstate/undo";
 import { DROP_ORDER, canRetake, matchSceneOps, opsBytes, retakeOps, sourceOf } from "../src/match/save";
 import { type CampAt, type PowerupAt, type Timeline, markerKey, sitesAt, slotKey } from "../src/match/timeline";
-import { tipFacts } from "../src/player/Camps";
+import { tipFacts, urnItemTip } from "../src/player/Camps";
 import { markerStates } from "../src/player/markerStates";
 import { keyOf, markers, metadata, replay } from "./support/synthetic-match";
 
@@ -730,6 +730,54 @@ describe("Sight (Q2), toggleSightOps, derived skulls/urn & status-wins rules", (
       expect(tipFacts(s, campKey, true, s.scene().urn()).camp).toBeUndefined();
       dispose();
     });
+  });
+
+  it("gates shopClosed strictly on has_camps (D5 parity on old scenes) and round-trips returning ground urn", () => {
+    const tl = richReplay();
+    const rs = roster(tl);
+    // At t=6, guardian:sapphire:lane4:1 is destroyed; its adjacent lane shop closes ONLY when has_camps is true.
+    const capA = captureToScene(tl, 6, WRITTEN_A, rs);
+    const capB = captureToScene(tl, 6, WRITTEN_B, rs);
+    const shopKeys = markers.filter((m) => m.kind === "shop").map((m) => m.key);
+    createRoot((dispose) => {
+      const sA = fromScene({
+        heroes: () => capA.heroes, roster: () => rs, objectives: () => capA.objectives, waves: () => capA.waves,
+        state: () => capA.sceneState, tier: () => capA.tier, frame: () => capA.frameT, markers: () => markers,
+      });
+      const sB = fromScene({
+        heroes: () => capB.heroes, roster: () => rs, objectives: () => capB.objectives, waves: () => capB.waves,
+        state: () => capB.sceneState, tier: () => capB.tier, frame: () => capB.frameT, markers: () => markers,
+      });
+      expect(sA.has("camps")).toBe(false);
+      expect(shopKeys.some((k) => sA.marker(k).shopClosed())).toBe(false);
+      expect(sB.has("camps")).toBe(true);
+      expect(shopKeys.some((k) => sB.marker(k).shopClosed())).toBe(true);
+      dispose();
+    });
+
+    // Returning ground urn (`returns <= second`) encodes walkBackIn=0 (not -1) and says "Urn returning".
+    const frame = 300;
+    const delivery = keyOf("urn", 1);
+    const returning = encodeUrn(
+      { state: "ground", at: { x: 100, y: 200 }, team: null, slot: null, delivery, next: null, returns: 295 },
+      frame,
+      markers,
+    );
+    expect(returning.ints[4]).toBe(0);
+    const decodedRet = decodeUrn(returning.ints, returning.at, frame, markers, () => null)!;
+    expect(decodedRet.returns).toBe(frame);
+    expect(urnItemTip(decodedRet, frame)).toBe("Urn returning");
+
+    // Falling/unsettled ground urn (`returns === null`) encodes walkBackIn=-1 and says "Urn".
+    const unsettled = encodeUrn(
+      { state: "ground", at: { x: 100, y: 200 }, team: null, slot: null, delivery, next: null, returns: null },
+      frame,
+      markers,
+    );
+    expect(unsettled.ints[4]).toBe(-1);
+    const decodedUn = decodeUrn(unsettled.ints, unsettled.at, frame, markers, () => null)!;
+    expect(decodedUn.returns).toBeNull();
+    expect(urnItemTip(decodedUn, frame)).toBe("Urn");
   });
 });
 
