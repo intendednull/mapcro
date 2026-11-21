@@ -118,6 +118,7 @@ export function effectiveCamp(own: ObjectiveStatus | undefined, base: CampAt | u
 export function effectiveRift(own: ObjectiveStatus | undefined, base: RiftAt | undefined): RiftAt | undefined {
   if (!base || own === undefined) return base;
   if (own === "Active") return base.state === "active" ? base : undefined;
+  if (own === "Destroyed") return base.state !== "active" ? base : undefined;
   return undefined;
 }
 
@@ -133,6 +134,7 @@ export function effectivePowerup(own: ObjectiveStatus | undefined, base: Powerup
 export function effectiveUrn(own: ObjectiveStatus | undefined, key: string, urn: UrnNow | undefined): UrnNow | undefined {
   if (!urn || own === undefined || !key.startsWith("urn:")) return urn;
   if (own === "Active") return urn.delivery === key ? urn : undefined;
+  if (own === "Destroyed") return urn.delivery !== key ? urn : undefined;
   return undefined;
 }
 

@@ -40,9 +40,9 @@ import { fromScene } from "../src/mapstate/scene";
 import { heroDraw } from "../src/mapstate/shown";
 import { FEATURES, type MapState, fromTimeline } from "../src/mapstate/state";
 import { decideStep } from "../src/mapstate/undo";
-import { DROP_ORDER, canRetake, matchSceneOps, opsBytes, retakeOps, sourceOf } from "../src/match/save";
+import { canRetake, matchSceneOps, opsBytes, retakeOps, sourceOf } from "../src/match/save";
 import { type CampAt, type PowerupAt, type Timeline, markerKey, sitesAt, slotKey } from "../src/match/timeline";
-import { centreTimer, effectiveCamp, effectivePowerup, effectiveRift, effectiveUrn, tipFacts, urnItemTip } from "../src/player/Camps";
+import { centreTimer, effectiveCamp, effectivePowerup, effectiveRift, effectiveUrn, markerTip, tipFacts, urnItemTip } from "../src/player/Camps";
 import { markerStates } from "../src/player/markerStates";
 import { keyOf, markers, metadata, replay } from "./support/synthetic-match";
 
@@ -486,25 +486,16 @@ describe("FNV-1a hashes, collision fallback, over-length caps & byte-cap drop or
     expect(objOps.length).toBeGreaterThanOrEqual(205);
   });
 
-  it("drops optional features one by one in DROP_ORDER when txBudget tightens, never dropping camps", () => {
-    // Build a frame where every feature in DROP_ORDER has non-empty baseline data AND strictly
-    // shrinks tx bytes when dropped (rifts/urn waiting so dropping them adds no ObjectiveState,
-    // powerups up so dropping them adds no ObjectiveState).
-    const base = richReplay();
-    const dropTl = {
-      ...base,
-      rifts: [{ key: keyOf("koth", 0), start_s: 30, live_s: 30, end_s: 60 }],
-      urn: {
-        spawns: [{ t: 25, key: keyOf("urn", 0) }],
-        at: [],
-      },
-      powerups: [
-        { key: keyOf("powerup", 0), available: [1, 1, 1, 1, 1, 1, 1], stale: [], spawns: [{ t: 0, buff: "gun" }] },
-        { key: keyOf("powerup", 1), available: [1, 1, 1, 1, 1, 1, 1], stale: [], spawns: [{ t: 0, buff: "casting" }] },
-      ],
-    } as unknown as Timeline;
+  it("drops optional features one by one in plan §3 DROP_ORDER without re-inserting ObjectiveStates, never dropping camps", () => {
+    // At t=4 on richReplay(), EVERY feature in DROP_ORDER has non-empty data AND urn (delivery open),
+    // rift (active), and powerups (1 down, 1 up) are non-default: shedding them for bytes must clear
+    // their SceneState flags WITHOUT re-inserting ObjectiveState records (plan §3).
+    const dropTl = richReplay();
     const rs = roster(dropTl);
-    const flagOf: Record<(typeof DROP_ORDER)[number], keyof More> = {
+    const EXPECTED_DROP_ORDER = [
+      "skulls", "movement", "cc", "rejuv", "urn", "rifts", "powerups", "obj_health", "lanes", "sight",
+    ] as const;
+    const flagOf: Record<(typeof EXPECTED_DROP_ORDER)[number] | "camps", keyof More> = {
       skulls: "has_skulls",
       movement: "has_movement",
       cc: "has_cc",
@@ -520,39 +511,43 @@ describe("FNV-1a hashes, collision fallback, over-length caps & byte-cap drop or
 
     const saveAt = (txBudget?: number) => {
       let n = 0;
-      const saved = matchSceneOps(rs, [], undefined, dropTl, 5, markers, () => `d${n++}`, [], {
+      const saved = matchSceneOps(rs, [], undefined, dropTl, 4, markers, () => `d${n++}`, [], {
         source: sourceOf(dropTl),
         written: WRITTEN_B,
         ...(txBudget !== undefined ? { txBudget } : {}),
       });
       const st = saved.ops.find((o) => "Create" in o && "SceneState" in o.Create.record);
       const more = st && "Create" in st && "SceneState" in st.Create.record ? st.Create.record.SceneState.more : undefined;
-      return { saved, more, bytes: opsBytes(saved.ops) };
+      const objKeys = saved.ops.flatMap((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [o.Create.record.ObjectiveState.key] : []));
+      return { saved, more, objKeys, bytes: opsBytes(saved.ops) };
     };
 
     const full = saveAt();
     expect(full.saved.builds).toBe(true);
     expect(full.more?.has_camps).toBe(true);
-    for (const f of DROP_ORDER) expect(full.more?.[flagOf[f]], f).toBe(true);
+    for (const f of EXPECTED_DROP_ORDER) expect(full.more?.[flagOf[f]], f).toBe(true);
+    // At t=4, only guardian:sapphire:lane4 is destroyed; urn/rift/powerup/camp have no ObjectiveState.
+    expect(full.objKeys).toEqual([markerKey("guardian:sapphire:lane4", markers)!]);
 
     // Step txBudget down just below each previous step: every single DROP_ORDER transition fires
-    // in exact order, keeping `camps` and decoding all surviving features accurately.
+    // in exact plan §3 order, never re-inserting ObjectiveState records for shed baseline features!
     let budget = full.bytes;
     const droppedInOrder: string[] = [];
-    for (let step = 0; step < DROP_ORDER.length; step++) {
+    for (let step = 0; step < EXPECTED_DROP_ORDER.length; step++) {
       const next = saveAt(budget - 1);
-      expect(next.saved.builds, `step ${step} (${DROP_ORDER[step]})`).toBe(true);
+      const expected = EXPECTED_DROP_ORDER[step]!;
+      expect(next.saved.builds, `step ${step} (${expected})`).toBe(true);
       expect(next.more?.has_camps, `step ${step} keeps camps`).toBe(true);
-      const expected = DROP_ORDER[step]!;
+      // Shedding urn, rifts, powerups for bytes NEVER re-inserts ObjectiveState records!
+      expect(next.objKeys, `step ${step} (${expected}) adds no ObjectiveState`).toEqual(full.objKeys);
       expect(next.more?.[flagOf[expected]], `step ${step} drops ${expected}`).toBeUndefined();
-      // Every earlier feature stays dropped; every later feature is still captured!
-      for (let i = 0; i <= step; i++) expect(next.more?.[flagOf[DROP_ORDER[i]!]], `dropped ${DROP_ORDER[i]}`).toBeUndefined();
-      for (let i = step + 1; i < DROP_ORDER.length; i++) expect(next.more?.[flagOf[DROP_ORDER[i]!]], `kept ${DROP_ORDER[i]}`).toBe(true);
+      for (let i = 0; i <= step; i++) expect(next.more?.[flagOf[EXPECTED_DROP_ORDER[i]!]], `dropped ${EXPECTED_DROP_ORDER[i]}`).toBeUndefined();
+      for (let i = step + 1; i < EXPECTED_DROP_ORDER.length; i++) expect(next.more?.[flagOf[EXPECTED_DROP_ORDER[i]!]], `kept ${EXPECTED_DROP_ORDER[i]}`).toBe(true);
       droppedInOrder.push(expected);
       expect(next.bytes).toBeLessThan(budget);
       budget = next.bytes;
     }
-    expect(droppedInOrder).toEqual([...DROP_ORDER]);
+    expect(droppedInOrder).toEqual([...EXPECTED_DROP_ORDER]);
 
     // Verify decoded surviving `camps` after all 10 optional features dropped!
     const campOnly = saveAt(budget);
@@ -560,24 +555,30 @@ describe("FNV-1a hashes, collision fallback, over-length caps & byte-cap drop or
     const objs = new Map(campOnly.saved.ops.flatMap((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [[o.Create.record.ObjectiveState.key, { status: o.Create.record.ObjectiveState.status }]] : [])));
     const waves = new Map(campOnly.saved.ops.flatMap((o) => ("Create" in o && "Wave" in o.Create.record ? [[o.Create.record.Wave.lane, { t: o.Create.record.Wave.t, ...(o.Create.record.Wave.more ? { more: o.Create.record.Wave.more } : {}) }]] : [])));
     createRoot((dispose) => {
-      const p = fromTimeline({ tl: () => dropTl, t: () => 5, markers: () => markers });
+      const p = fromTimeline({ tl: () => dropTl, t: () => 4, markers: () => markers });
       const s = fromScene({
         heroes: () => heroes, roster: () => rs, objectives: () => objs, waves: () => waves,
-        state: () => campOnly.more, tier: () => "replay", frame: () => 5, markers: () => markers,
+        state: () => campOnly.more, tier: () => "replay", frame: () => 4, markers: () => markers,
       });
       expect(s.has("camps")).toBe(true);
       expect(s.has("sight")).toBe(false);
-      expect(s.marker(keyOf("camp", 0)).camp()).toEqual(p.marker(keyOf("camp", 0)).camp());
+      expect(s.marker(keyOf("camp", 3)).camp()).toEqual(p.marker(keyOf("camp", 3)).camp());
       expect(s.scene().bossCamp()).toEqual(p.scene().bossCamp());
       dispose();
     });
   });
 
-  it("overflow (>256 potential ops) caps optional site fallbacks so Save still succeeds within max_ops_per_tx", () => {
-    // Must-Fix #5 Hazard A: 250 cleared camps overflows MAX_CAMPS (200) AND 250 + 17 > max_ops_per_tx (256).
+  it("overflow (>256 ops): v14 (written=16) stays all-or-nothing, while written=40 omits whole overflowing camp bucket without losing mandatory/urn/rift", () => {
+    // 250 cleared camps (overflows MAX_CAMPS=200 AND op cap 256) + destroyed lane objectives + active rift + open urn.
     const tl = richReplay();
+    const riftMarker = markers.find((m) => m.key === keyOf("koth", 0))!;
+    const urnMarker0 = markers.find((m) => m.key === keyOf("urn", 0))!;
+    const urnMarker1 = markers.find((m) => m.key === keyOf("urn", 1))!;
     const fakeMarkers = [
       ...markers.filter((m) => m.kind === "t1" || m.kind === "t2"),
+      riftMarker,
+      urnMarker0,
+      urnMarker1,
       ...Array.from({ length: 250 }, (_, i) => ({
         key: `camp:neutral:lane1:${i}`,
         kind: "camp" as const,
@@ -592,31 +593,42 @@ describe("FNV-1a hashes, collision fallback, over-length caps & byte-cap drop or
         .filter((m) => m.kind === "camp")
         .map((m) => ({ key: m.key, first_s: 0, cleared: [[0, 200]] as Array<[number, number]> })),
     } as unknown as Timeline;
-    let n = 0;
-    const saved = matchSceneOps(roster(bigTl), [], undefined, bigTl, 6, fakeMarkers, () => `ov${n++}`, [], {
+
+    // 1. At written=16 (R1): exact v14 all-or-nothing behavior — 12 heroes + 250 down sites + waves > 256 -> empty ops ("Not saved")!
+    let n16 = 0;
+    const saved16 = matchSceneOps(roster(bigTl), [], undefined, bigTl, 4, fakeMarkers, () => `v16_${n16++}`, [], {
+      source: sourceOf(bigTl),
+      written: 16,
+    });
+    expect(saved16.ops).toEqual([]);
+    expect(saved16.builds).toBe(false);
+
+    // 2. At written=40: saves cleanly within max_ops_per_tx, keeps mandatory lane objectives + active rift/urn,
+    // and omits the overflowing 250-camp bucket WHOLE (zero partial camp ObjectiveStates!).
+    let n40 = 0;
+    const saved40 = matchSceneOps(roster(bigTl), [], undefined, bigTl, 4, fakeMarkers, () => `ov${n40++}`, [], {
       source: sourceOf(bigTl),
       written: WRITTEN_B,
     });
-    expect(saved.ops.length).toBeGreaterThan(0);
-    expect(saved.ops.length).toBeLessThanOrEqual(LIMITS.max_ops_per_tx);
-    expect(saved.builds).toBe(true);
-    const st = saved.ops.find((o) => "Create" in o && "SceneState" in o.Create.record);
+    expect(saved40.ops.length).toBeGreaterThan(0);
+    expect(saved40.ops.length).toBeLessThanOrEqual(LIMITS.max_ops_per_tx);
+    expect(saved40.builds).toBe(true);
+    const st = saved40.ops.find((o) => "Create" in o && "SceneState" in o.Create.record);
     expect(st).toBeDefined();
     const more = st && "Create" in st && "SceneState" in st.Create.record ? st.Create.record.SceneState.more : undefined;
     expect(more?.has_camps).toBeUndefined();
-    // Mandatory destroyed lane objectives from frame.down MUST still be present!
-    const objKeys = new Set(saved.ops.flatMap((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [o.Create.record.ObjectiveState.key] : [])));
-    expect(objKeys.has(markerKey("walker:amber:lane1:1", fakeMarkers)!)).toBe(true);
-    expect(objKeys.has(markerKey("guardian:sapphire:lane4", fakeMarkers)!)).toBe(true);
+    expect(more?.has_rifts).toBe(true);
+    expect(more?.has_urn).toBe(true);
+    const objKeys = saved40.ops.flatMap((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [o.Create.record.ObjectiveState.key] : []));
+    // Mandatory destroyed lane objective preserved; ZERO partial prefix of camp ObjectiveStates!
+    expect(objKeys).toContain(markerKey("guardian:sapphire:lane4", fakeMarkers)!);
+    expect(objKeys.filter((k) => k.startsWith("camp:"))).toEqual([]);
   });
 
-  it("tight txBudget heroes-only fallback preserves legacy ObjectiveState records for camps and sites", () => {
-    // Must-Fix #5 Hazard B: when builds don't fit txBudget and Save falls back to heroes-only
-    // (`builds: false`, no `has_camps`), legacy ObjectiveState records MUST NOT be dropped.
+  it("tight txBudget heroes-only fallback preserves legacy ObjectiveState buckets and drops overflowing site bucket whole", () => {
+    // 1. Normal tight txBudget on richReplay: heroes-only fallback keeps ALL legacy ObjectiveState records.
     const tl = richReplay();
     const rs = roster(tl);
-    // Measure heroes-only legacy size (written=16, builds=false) at t=3 (camp #3 cleared, midboss cleared,
-    // rift #0 active, urn #1 open, powerup #0 down) and give enough room for heroes-only + sites, not builds.
     let m0 = 0;
     const legacy = matchSceneOps(rs, [], undefined, tl, 3, markers, () => `lg${m0++}`, [], {
       source: sourceOf(tl),
@@ -638,12 +650,51 @@ describe("FNV-1a hashes, collision fallback, over-length caps & byte-cap drop or
     expect(more?.has_builds).toBeUndefined();
     expect(more?.has_camps).toBeUndefined();
     const objs = new Map(fallback.ops.flatMap((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [[o.Create.record.ObjectiveState.key, o.Create.record.ObjectiveState.status]] : [])));
-    // Camp #3, midboss, active rift, open urn delivery, and down powerup ObjectiveStates MUST all survive!
     expect(objs.get(keyOf("camp", 3))).toBe("Destroyed");
     expect(objs.get(keyOf("midboss", 0))).toBe("Destroyed");
     expect(objs.get(keyOf("koth", 0))).toBe("Active");
     expect(objs.get(keyOf("urn", 1))).toBe("Active");
     expect(objs.get(keyOf("powerup", 0))).toBe("Destroyed");
+
+    // 2. Over-length optional camps bucket (150 cleared camps ~18 KB) exhausts txBudget while mandatory
+    // heroes-only + lane objectives + urn/rift/powerup buckets DO fit: drops camps bucket WHOLE so Save succeeds!
+    const manyCampMarkers = [
+      ...markers.filter((m) => m.kind !== "camp"),
+      ...Array.from({ length: 150 }, (_, i) => ({
+        key: `camp:neutral:lane1:${i}`,
+        kind: "camp" as const,
+        team: "neutral" as const,
+        lane: "yellow" as const,
+        at: { x: 100 + i, y: 200 },
+      })),
+    ];
+    const manyCampTl = {
+      ...tl,
+      camps: [
+        ...manyCampMarkers
+          .filter((m) => m.kind === "camp")
+          .map((m) => ({ key: m.key, first_s: 0, cleared: [[0, 200]] as Array<[number, number]> })),
+        { key: keyOf("midboss"), first_s: 0, cleared: [[3, 400]] as Array<[number, number]> },
+      ],
+    } as unknown as Timeline;
+    // Budget fits heroes-only + mandatory + urn/rift/powerups (~4.5 KB), NOT builds (~10 KB) or 150 camps (~18 KB).
+    let k = 0;
+    const tightHero = matchSceneOps(rs, [], undefined, manyCampTl, 3, manyCampMarkers, () => `th${k++}`, [], {
+      source: sourceOf(manyCampTl),
+      written: WRITTEN_B,
+      txBudget: 5000,
+    });
+    expect(tightHero.ops.length).toBeGreaterThan(0);
+    expect(opsBytes(tightHero.ops)).toBeLessThanOrEqual(5000);
+    expect(tightHero.builds).toBe(false);
+    const thObjs = new Map(tightHero.ops.flatMap((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [[o.Create.record.ObjectiveState.key, o.Create.record.ObjectiveState.status]] : [])));
+    // Mandatory objectives + small site buckets (urn, rift, powerup) preserved; 150-camp bucket dropped WHOLE!
+    expect(thObjs.get(markerKey("guardian:sapphire:lane4", manyCampMarkers)!)).toBe("Destroyed");
+    expect(thObjs.get(keyOf("midboss", 0))).toBe("Destroyed");
+    expect(thObjs.get(keyOf("koth", 0))).toBe("Active");
+    expect(thObjs.get(keyOf("urn", 1))).toBe("Active");
+    expect(thObjs.get(keyOf("powerup", 0))).toBe("Destroyed");
+    expect([...thObjs.keys()].filter((key) => key.startsWith("camp:"))).toEqual([]);
   });
 
   it("covered only omits camps/midboss actually tracked in sec.camps (Mid-Boss kill without camp track keeps ObjectiveState)", () => {
@@ -1278,6 +1329,34 @@ describe("Dormant Retake, re-picked slots, TD-145 undo & copy filter", () => {
       expect(tipFacts(s, openUrn, true, urn).urn).toBeUndefined();
       expect(effectiveUrn(s.marker(closedUrn).status(), closedUrn, urn)).toBeUndefined();
       expect(effectivePowerup("Active", { state: "up", buff: "gun" })).toEqual({ state: "up", buff: "gun" });
+      dispose();
+    });
+
+    // 3. Compatible `Destroyed` on CLOSED sites (waiting rift & closed urn with spawn timer) keeps their countdown tips!
+    // At t=8 on richReplay(): urn is `state: "none"` with `next: { t: 10, key: urn 1 }` and rift 0 is waiting?
+    // Use t=6 on a timeline where rift 0 opens at t=30 and urn is `none` spawning at t=25.
+    const closedTl = {
+      ...base,
+      rifts: [{ key: activeRift, start_s: 30, live_s: 30, end_s: 60 }],
+      urn: { spawns: [{ t: 25, key: closedUrn }], at: [{ t: 0, state: "none" }] },
+    } as unknown as Timeline;
+    const capClosed = captureToScene(closedTl, 5, WRITTEN_B, rs);
+    const closedObjectives = new Map<string, { status: ObjectiveStatus }>([
+      [activeRift, { status: "Destroyed" }],
+      [closedUrn, { status: "Destroyed" }],
+    ]);
+    createRoot((dispose) => {
+      const s = fromScene({
+        heroes: () => capClosed.heroes, roster: () => rs, objectives: () => closedObjectives, waves: () => capClosed.waves,
+        state: () => capClosed.sceneState, tier: () => capClosed.tier, frame: () => capClosed.frameT, markers: () => markers,
+      });
+      const urn = s.scene().urn();
+      const rf = tipFacts(s, activeRift, true, urn);
+      expect(rf.rift?.state).toBe("waiting");
+      expect(markerTip({ key: activeRift, kind: "koth" }, rf, 5)).toBe("Rift opens in 0:25");
+      const uf = tipFacts(s, closedUrn, true, urn);
+      expect(uf.urn?.state).toBe("none");
+      expect(markerTip({ key: closedUrn, kind: "urn" }, uf, 5)).toBe("Urn spawns in 0:20");
       dispose();
     });
   });

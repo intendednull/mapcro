@@ -323,35 +323,73 @@ export function matchSceneOps(
   const own = writesHeroes(written);
   const rosterOps: Op[] = !own && opts.roster !== false ? rosterChanges(roster, tl).map((c) => ({ Set: { id: c.id, value: { RosterHero: c.hero } } })) : [];
 
-  // Save omission rule (plan §4 Q6): computed against the feature set that ACTUALLY survives into
-  // `SceneState` (so a dropped feature or heroes-only fallback keeps its legacy ObjectiveStates).
-  // Mandatory destroyed objectives (`frame.down`) come first, then optional site fallbacks
-  // (`frame.sites`), capped so an overflow never breaches `max_ops_per_tx` or cancels the save.
+  // Save omission rule (plan §4 Q6):
+  // - At `written <= 16` (`!fd`): preserve exact v14 all-or-nothing legacy `ObjectiveState` list (no truncation).
+  // - At `written > 16` (`fd`): cover sites using `fd.available` during the `builds: true` / `DROP_ORDER`
+  //   pass (plan §3: never replace dropped baseline features with `ObjectiveState`s), and budget any
+  //   uncovered optional site fallbacks as whole feature buckets (`urn`, `rifts`, `powerups`, `camps`)
+  //   so an overflowing bucket is omitted whole rather than prefix-truncated or crowding out smaller sites.
   type ObjEntry = { key: string; status: "Active" | "Destroyed" };
-  const objectivesFor = (active: ReadonlySet<Phase5Feature>, maxOps: number): ObjEntry[] => {
+  type SiteBucket = "urn" | "rifts" | "powerups" | "camps";
+  const BUCKET_ORDER: readonly SiteBucket[] = ["urn", "rifts", "powerups", "camps"];
+  const bucketOf = (key: string): SiteBucket =>
+    key.startsWith("urn:") ? "urn" : key.startsWith("rift:") ? "rifts" : key.startsWith("powerup:") ? "powerups" : "camps";
+
+  const coveredFrom = (avail: ReadonlySet<Phase5Feature>): Set<string> => {
     const covered = new Set<string>();
-    if (fd) {
-      for (const mk of markers) {
-        if (active.has("camps") && isCampKind(mk.kind) && fd.sec.camps.has(mk.key) && !fd.skippedCamps.has(mk.key)) covered.add(mk.key);
-        if (active.has("powerups") && mk.kind === "powerup" && fd.sec.powerups.has(mk.key) && !fd.skippedPowerups.has(mk.key)) covered.add(mk.key);
-        if (active.has("rifts") && mk.kind === "koth") covered.add(mk.key);
-        if (active.has("urn") && mk.kind === "urn") covered.add(mk.key);
-      }
+    if (!fd) return covered;
+    for (const mk of markers) {
+      if (avail.has("camps") && isCampKind(mk.kind) && fd.sec.camps.has(mk.key) && !fd.skippedCamps.has(mk.key)) covered.add(mk.key);
+      if (avail.has("powerups") && mk.kind === "powerup" && fd.sec.powerups.has(mk.key) && !fd.skippedPowerups.has(mk.key)) covered.add(mk.key);
+      if (avail.has("rifts") && mk.kind === "koth") covered.add(mk.key);
+      if (avail.has("urn") && mk.kind === "urn") covered.add(mk.key);
     }
-    const out: ObjEntry[] = [];
+    return covered;
+  };
+
+  const splitObjectives = (covered: ReadonlySet<string>) => {
+    const mandatory: ObjEntry[] = [];
     for (const key of frame.down) {
-      if (!covered.has(key) && out.length < maxOps) out.push({ key, status: "Destroyed" });
+      if (!covered.has(key)) mandatory.push({ key, status: "Destroyed" });
     }
+    const optional: Array<ObjEntry & { bucket: SiteBucket }> = [];
+    const byBucket: Record<SiteBucket, ObjEntry[]> = { urn: [], rifts: [], powerups: [], camps: [] };
     // Only what differs from a new scene's defaults: the rift that's up and the open urn point
     // (both default off), and taken powerups/camps (they default available).
     for (const [key, status] of frame.sites) {
       if (covered.has(key)) continue;
       const off = key.startsWith("rift:") || key.startsWith("urn:");
-      if (((off && status === "Active") || (!off && status === "Destroyed")) && out.length < maxOps) {
-        out.push({ key, status });
+      if ((off && status === "Active") || (!off && status === "Destroyed")) {
+        const entry = { key, status };
+        const bucket = bucketOf(key);
+        optional.push({ ...entry, bucket });
+        byBucket[bucket].push(entry);
       }
     }
-    return out;
+    return { mandatory, optional, byBucket };
+  };
+
+  const fitBuckets = (covered: ReadonlySet<string>, maxOps: number, fits?: (objs: ObjEntry[]) => boolean): ObjEntry[] => {
+    const { mandatory, optional, byBucket } = splitObjectives(covered);
+    const chosen = new Set<SiteBucket>();
+    let count = mandatory.length;
+    const assemble = () => [...mandatory, ...optional.filter((e) => chosen.has(e.bucket)).map(({ key, status }) => ({ key, status }))];
+    for (const b of BUCKET_ORDER) {
+      const list = byBucket[b];
+      if (!list.length || count + list.length > maxOps) continue;
+      chosen.add(b);
+      if (fits && !fits(assemble())) {
+        chosen.delete(b);
+      } else {
+        count += list.length;
+      }
+    }
+    return assemble();
+  };
+
+  const allLegacyObjs = (): ObjEntry[] => {
+    const { mandatory, optional } = splitObjectives(new Set());
+    return [...mandatory, ...optional.map(({ key, status }) => ({ key, status }))];
   };
 
   const fixedCount = sceneAndHeroes.length + waveRecs.length + rosterOps.length;
@@ -372,86 +410,90 @@ export function matchSceneOps(
   // is saved without builds (Retake can add them later).
   const txBudget = opts.txBudget ?? (LIMITS.max_tx_bytes - TX_SLACK);
   let stored = false;
-  let finalObjs: ObjEntry[] = objectivesFor(new Set(), Math.max(0, LIMITS.max_ops_per_tx - fixedCount));
+  const legacyObjs = allLegacyObjs();
+  let finalObjs: ObjEntry[] = legacyObjs;
   let finalState: More | undefined;
   if (opts.builds !== false && fixedCount < LIMITS.max_ops_per_tx) {
     const tier = opts.source ? opts.source.tier : null;
     if (!fd) {
-      const baseObjs = objectivesFor(new Set(), maxObjWithState);
-      if (fixedCount + baseObjs.length < LIMITS.max_ops_per_tx) {
+      if (fixedCount + legacyObjs.length < LIMITS.max_ops_per_tx) {
         const stateMore = captureScene(tl, { written });
-        const room = txBudget - opsBytes(previewOps(baseObjs, stateMore));
+        const room = txBudget - opsBytes(previewOps(legacyObjs, stateMore));
         const builds = sceneBuilds(roster, tl, second, room, tier);
         if (builds) {
           roster.forEach((s, idx) => {
             const more = builds.get(s.id);
             if (more) heroes[idx]!.PlayerState.more = more;
           });
-          finalObjs = baseObjs;
+          finalObjs = legacyObjs;
           finalState = stateMore;
           stored = true;
         }
       }
     } else {
-      const active = new Set(fd.available);
-      const syncWaves = () => {
-        for (const { lane, rec } of waveRecs) {
-          const e = active.has("lanes") ? fd.laneEdges.get(lane) : undefined;
-          if (e) rec.Wave.more = { edges: e };
-          else delete rec.Wave.more;
+      // Coverage stays fixed to `fd.available` across `DROP_ORDER` (plan §3: never replace dropped
+      // baseline features with `ObjectiveState`s).
+      const objs = fitBuckets(coveredFrom(fd.available), maxObjWithState);
+      if (fixedCount + objs.length < LIMITS.max_ops_per_tx) {
+        const active = new Set(fd.available);
+        const syncWaves = () => {
+          for (const { lane, rec } of waveRecs) {
+            const e = active.has("lanes") ? fd.laneEdges.get(lane) : undefined;
+            if (e) rec.Wave.more = { edges: e };
+            else delete rec.Wave.more;
+          }
+        };
+        const tryFit = (allowTrim: boolean): { builds: Map<RecordId, More>; stateMore: More } | undefined => {
+          syncWaves();
+          const stateMore = captureScene(tl, { written, ...sceneCaptureFrom(fd, active) });
+          const room = txBudget - opsBytes(previewOps(objs, stateMore));
+          const builds = sceneBuilds(roster, tl, second, room, tier, (slot) => heroExtraFrom(fd, active, slot), allowTrim);
+          return builds ? { builds, stateMore } : undefined;
+        };
+        let fitted = tryFit(false);
+        if (!fitted) {
+          for (const drop of DROP_ORDER) {
+            if (!active.has(drop)) continue;
+            active.delete(drop);
+            fitted = tryFit(false);
+            if (fitted) break;
+          }
         }
-      };
-      const tryFit = (allowTrim: boolean): { builds: Map<RecordId, More>; stateMore: More; objs: ObjEntry[] } | undefined => {
-        syncWaves();
-        const objs = objectivesFor(active, maxObjWithState);
-        if (fixedCount + objs.length >= LIMITS.max_ops_per_tx) return undefined;
-        const stateMore = captureScene(tl, { written, ...sceneCaptureFrom(fd, active) });
-        const room = txBudget - opsBytes(previewOps(objs, stateMore));
-        const builds = sceneBuilds(roster, tl, second, room, tier, (slot) => heroExtraFrom(fd, active, slot), allowTrim);
-        return builds ? { builds, stateMore, objs } : undefined;
-      };
-      let fitted = tryFit(false);
-      if (!fitted) {
-        for (const drop of DROP_ORDER) {
-          if (!active.has(drop)) continue;
-          active.delete(drop);
-          fitted = tryFit(false);
-          if (fitted) break;
+        if (!fitted) fitted = tryFit(true);
+        if (fitted) {
+          roster.forEach((s, idx) => {
+            const more = fitted!.builds.get(s.id);
+            if (more) heroes[idx]!.PlayerState.more = more;
+          });
+          finalObjs = objs;
+          finalState = fitted.stateMore;
+          stored = true;
+        } else {
+          for (const { rec } of waveRecs) delete rec.Wave.more;
         }
-      }
-      if (!fitted) fitted = tryFit(true);
-      if (fitted) {
-        roster.forEach((s, idx) => {
-          const more = fitted!.builds.get(s.id);
-          if (more) heroes[idx]!.PlayerState.more = more;
-        });
-        finalObjs = fitted.objs;
-        finalState = fitted.stateMore;
-        stored = true;
-      } else {
-        for (const { rec } of waveRecs) delete rec.Wave.more;
       }
     }
   }
   // Without the builds the scene still holds its heroes: each record its match's hero, and a
-  // state that says so. Both or neither, to the byte. Uses the empty active set so legacy
-  // camp/site `ObjectiveState` records are preserved when Group B baseline wasn't stored.
+  // state that says so. Both or neither, to the byte.
+  // - At `written <= 16` (`!fd`): exact v14 all-or-nothing check against `legacyObjs`.
+  // - At `written > 16` (`fd`): preserve legacy site buckets as whole units; drop overflowing
+  //   optional site buckets by ops or bytes so the mandatory heroes-only scene still saves.
   let held = !own || stored;
   if (!stored && own && fixedCount < LIMITS.max_ops_per_tx) {
-    const fallbackObjs = objectivesFor(new Set(), maxObjWithState);
-    if (fixedCount + fallbackObjs.length < LIMITS.max_ops_per_tx) {
-      const players = new Map(tl.players.map((p) => [slotKey(p.team, p.slot), p]));
-      const mine = roster.map((s) => players.get(slotKey(s.slot.team, s.slot.slot))?.hero_id);
-      const stateMore = captureScene(tl, { builds: false, written });
-      const bytes = mine.reduce((n: number, hero) => n + (hero == null ? 0 : MORE_KEY + moreBytes({ hero })), 0);
-      if (opsBytes(previewOps(fallbackObjs, stateMore)) + bytes <= txBudget) {
-        mine.forEach((hero, idx) => {
-          if (hero != null) heroes[idx]!.PlayerState.more = { hero };
-        });
-        finalObjs = fallbackObjs;
-        finalState = stateMore;
-        held = true;
-      }
+    const players = new Map(tl.players.map((p) => [slotKey(p.team, p.slot), p]));
+    const mine = roster.map((s) => players.get(slotKey(s.slot.team, s.slot.slot))?.hero_id);
+    const stateMore = captureScene(tl, { builds: false, written });
+    const bytes = mine.reduce((n: number, hero) => n + (hero == null ? 0 : MORE_KEY + moreBytes({ hero })), 0);
+    const fitsBytes = (objs: ObjEntry[]) => opsBytes(previewOps(objs, stateMore)) + bytes <= txBudget;
+    const fallbackObjs = fd ? fitBuckets(new Set(), maxObjWithState, fitsBytes) : legacyObjs;
+    if (fixedCount + fallbackObjs.length < LIMITS.max_ops_per_tx && fitsBytes(fallbackObjs)) {
+      mine.forEach((hero, idx) => {
+        if (hero != null) heroes[idx]!.PlayerState.more = { hero };
+      });
+      finalObjs = fallbackObjs;
+      finalState = stateMore;
+      held = true;
     }
   }
   // No room even for that (the save's own records fill the transaction; not seen on a real
