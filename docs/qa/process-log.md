@@ -1,0 +1,74 @@
+# Exploratory QA Process Log
+
+An append-only record of how mapcro's Exploratory QA Loop and `tools/qa-browser/` evolve over time.
+After each pass (or batch of passes), review the explorer's Process Meta-Notes, record what held
+or broke against our predictions, and log concrete upgrades here.
+
+---
+
+## 2026-11-21 — v1: Initial Launch
+
+### What we built
+- **Driver (`tools/qa-browser/`):** Zero-new-dependency Node.js CLI (`qa-browser.mjs`) + Unix-socket
+  daemon (`daemon.mjs`) reusing Playwright from `web/node_modules` inside `nix develop`.
+  - One isolated Playwright `BrowserContext` per named tab (`coachA`, `coachB`), so multi-user
+    testing has separate `localStorage` and `IndexedDB`.
+  - Auto-starts a throwaway local `mapcro-server` (reusing `target/debug/mapcro-server` or
+    `/tmp/lead-gate/target/debug/mapcro-server`, local packs if present, temp `DATA_DIR` and
+    `REPLAY_DIR`) with `--mock-replay-129738985` + `feed-replay` so real 6v6 replay `129738985`
+    loads in <2s without burning 15s of CPU parsing every pass.
+  - Compact `snapshot` command (URL, viewport, headings, overlays, interactive elements with
+    `data-testid`, state flags, and bounding boxes, plus console/network error counts) to keep
+    agent context lean.
+  - Hard screenshot path guardrail: `shot` resolves symlinks and refuses any path inside the repo,
+    worktrees, or any git directory (only `/tmp/` and `/home/intendednull/concierge/artifacts/`).
+- **Playbook & Living Map (`docs/qa/`):**
+  - `README.md`: 5-step loop, viewport matrix (`1440x900`, `1024x600`, `800x600`, `1024x768` touch,
+    `390x844` touch), severity taxonomy, guardrails, and pass report template with mandatory
+    Process Meta-Notes.
+  - `feature-map.md`: Seeded with 72 rows across 15 user-facing domains grounded in `web/src/`,
+    `web/e2e/`, and `web/test/` (71 `auto-only`, 1 `unmapped`).
+
+### Design choices
+- **Unix socket daemon over per-command browser launch:** Exploratory QA needs fast, stateful
+  back-and-forth (click → snapshot → hover → screenshot → check logs). Cold-launching Chromium per
+  command would burn ~2s per step and lose page state.
+- **Reuse `web/node_modules` Playwright across worktrees:** Worktrees often don't run `npm ci`, so
+  the daemon falls back to `<git-common-dir>/../web/node_modules/playwright` and
+  `/tmp/lead-gate/web/node_modules/playwright`.
+- **Both cache-seed and inbox-watch for `129738985`:** Seeding `DATA_DIR/replays/129738985-cdn.json`
+  makes "enter match ID 129738985" instant, while watching `REPLAY_DIR/inbox/` makes `.dem` upload
+  flows instant too.
+
+### Predictions / hypotheses to evaluate after Passes 1–3
+1. **Narrow desktop & visual overlap bugs:** Automated e2e mostly runs at `1440x900` and phone
+   `390x844`. We predict Passes 1–3 will find real layout/overlap/clipping issues at `1024x600`,
+   `800x600`, and `1024x768` (touch) that existing e2e never saw.
+2. **State-transition & cross-feature interaction bugs:** Automated specs test one feature per file.
+   We predict interactive exploration (e.g. Player → open builds → switch viewport → follow another
+   peer → switch session tab) will uncover stale overlays, z-index clashes, or focus traps.
+3. **Driver ergonomics:** We expect explorers to ask for at least one of:
+   - a `touch-tap` / `long-press` command (for `touch-menu` / phone exploration),
+   - a `upload` command (to set files on `<input type="file">` for `.dem` and `.mapcro` testing),
+   - or a `network` / `ws` inspection helper for offline/reconnect exploration.
+   We intentionally kept v1 small and will add these only when Pass Meta-Notes confirm the need.
+
+---
+
+## 2026-11-21 — v1.1: Pass 001 Retro & Driver Upgrades
+
+### Pass 001 evaluation against v1 predictions
+Pass 001 (`passes/2026-11-21-pass-001-player-narrow-tablet.md`, Neon medium on `8c6ec5e`) moved 21 rows (`0 unmapped`, `10 deep`, `11 smoke`) and surfaced **10 findings** (`5 bug-minor`, `1 label-violation`, `3 ux-rough`, `1 test-gap`) with zero console/page errors:
+1. **Prediction #1 (narrow desktop & tablet visual overlaps) — strongly confirmed:** 4 visual/overflow bugs missed by ~570 automated e2e tests (`800×600` header pushing `More` off-screen, `1024×768 --touch` `.p-top` 138 px overflow clipping `Follow`, `1024×600` `Map layers` popover clipping and rendering behind TopBar portraits, `1024×600`/`800×600` `All builds` column collision).
+2. **Prediction #2 (cross-feature state transitions) — confirmed + bonus data bug:** Stale skull recap across large scrubs/Scene flips, stale `Back to replay` toast inside Replay, plus a high-visibility desktop Player data bug in Events `Ults` (raw internal ability slugs + non-ult abilities listed as ults) and a §4b label violation (`title="Parsed from the replay file"`).
+3. **Visual screenshot inspection (`read_file` on `/tmp/qa-pass-001/*.png`)** proved essential — DOM metrics alone would have missed `Map layers` z-index occlusion behind TopBar portraits, `All builds` text collisions, and the tablet `Scenes` drawer overlap.
+
+### Driver upgrades applied (`tools/qa-browser/` v1.1, from Pass 001 Meta-Notes)
+1. **Visible-first locators:** `click`, `rclick`, `dblclick`, `hover`, and `fill` now default to `locator(sel).filter({ visible: true }).first()` (opt-out with `--any`), eliminating repeated 10 s timeouts on hidden desktop/phone duplicate elements.
+2. **Accurate `snapshot` visibility + `<summary>`:** `vis()` now walks ancestors so elements inside closed popovers (`opacity: 0` / `visibility: hidden` on a parent) are no longer falsely listed as visible, and `<summary>` elements (e.g. `Match source ▲`) are included in the interactive list.
+3. **`upload <tab> <selector> <file>` command:** Added ahead of Pass 002 to drive `<input type="file">` for `.mapcro` board file import and `.dem` upload flows without requiring visible inputs.
+
+### Feedback loop triggered
+- Spawned `qa-p1-fixes` (Neon medium) to fix the 5 non-design bugs (`.p-top` tablet overflow, `Map layers` z-index/max-height, `800×600` header overflow, Events `Ults` localization + non-ult filtering, `match-tier` §4b title, stale `Back to replay` toast) with automated e2e/unit regression tests proven to fail before each fix.
+- Routed narrow-desktop sidebar auto-collapse and `All builds` narrow-width redesign (`#4`, `#6`) to approved design models per `ui-design-model.md`.
+- Next: Pass 002 on Sessions, Multi-Tab Follow, Sharing/Roles, Board Files (`.mapcro` export/import), and Multi-User Undo/Redo using v1.1.

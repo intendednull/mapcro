@@ -4,6 +4,70 @@ Ideas the operator wants kept but not built yet. Newest first. Each entry record
 what it is, and what it depends on.
 
 
+## Exploratory QA Pass 002 findings (2026-11-21)
+
+Found during [QA Pass 002](qa/passes/2026-11-21-pass-002-sessions-sharing-editing.md) on `8c6ec5e`:
+
+- **Landing inline board rename navigates into the board on `Enter`** (`bug-minor`, `FM-002`). On `/`,
+  clicking `[data-testid="known-rename"]`, editing the title, and pressing `Enter` saves the new
+  title AND immediately navigates to `/b/<id>#<tok>`. `Enter` should commit the inline rename and
+  stay on `/`. Add a regression assertion in `web/e2e/boards-list.spec.ts`.
+- **`HeroPicker` disabled tiles use sentence-style `title` tooltips violating spec §4b**
+  (`label-violation`, `FM-025`). Already-picked heroes in `[data-testid="hero-picker"]` carry
+  `title="<Hero>: <Slot> has this hero"` — full prose repeating text already shown on the tile.
+  Remove or shorten and guard in `web/test/labels.test.ts`.
+- **`ShareDialog` lacks a Revoke button for minted links and keeps `Copy` active on revoked rows**
+  (`ux-rough`, `FM-120`). Server `DELETE /api/{boards,sessions}/{id}/links/{link}`, `api.revoke()`,
+  and `.link-row.revoked` CSS exist, but `ShareDialog.tsx` renders an empty `<span />` placeholder
+  in column 3 and still shows an active `Copy` button on revoked rows.
+- **Live-revoked viewer overlay says `"Invalid link"` (contradicting header `"Link revoked"`) and
+  leaves board DOM visible behind the scrim** (`bug-minor`, `FM-121`). On `CloseReason::Revoked`,
+  align `[data-testid="dead-link"]` copy to `"Link revoked"`, clear/unmount sensitive board contents,
+  and add live-revocation e2e coverage in `web/e2e/share.spec.ts`.
+- **Phone (`390×844 --touch`) Scene shell layout roughness** (`ux-rough`, `FM-130`). In a Session on
+  phone, `h1` `"Scene 1"` touches/overlaps the top of the first Amber portrait, the bottom toolbar
+  (`Look`/`Laser`/`Edit`/`Colour`) sits flush-right while `Player` below is centered, and header
+  `role-chip` truncates to `"Can edit..."`. Route visual adjustments to an approved design model.
+
+
+## Exploratory QA Pass 001 findings (2026-11-21, FM-132 / Player)
+
+Found during [QA Pass 001](qa/passes/2026-11-21-pass-001-player-narrow-tablet.md) on `8c6ec5e`
+(reference replay `129738985`):
+
+- **Desktop header overflows at `800×600`, clipping `More` (`⋯`) off-screen** (`bug-minor`, `FM-010`,
+  `FM-013`, `FM-132`). With `Full replay` + `Presenting · 1 following` + avatars + `Share`,
+  `header.scrollWidth > header.clientWidth` and `More` is pushed past the right viewport edge. Add a
+  narrow-desktop regression row to `header.spec.ts`.
+- **Tablet `1024×768 --touch` header (`.p-top`) overflows by 138 px, clipping `Follow`** (`bug-minor`,
+  `FM-132`, `FM-112`). With a presenter active (`Coach A is presenting`), `.p-top` is 497 px wide
+  inside 359 px and the `Follow` button sits at `x=1006..1066` in a 1024 px viewport. Add a tablet
+  row to `phone-player.spec.ts`.
+- **`Map layers` popover clips off top of map pane and renders behind TopBar portraits at `1024×600`**
+  (`bug-minor`, `FM-081`, `FM-132`). In Player at `1024×600`, the popover opens upward above the
+  170 px map pane, clipping `Lane troopers`/`Health bars & arcs` and drawing `Event pings`/`Crowd
+  control` underneath TopBar portraits. Add a `1024×600` z-order/bounds check in `player-visible.spec.ts`.
+- **`All builds` overlay collides horizontally and overlaps map controls at `1024×600` and `800×600`**
+  (`bug-minor`, `FM-090`, `FM-132`). The 12 desktop build columns have no narrow-width fallback,
+  colliding stat text across columns and overlapping `Map layers`, `Vision`, and `Flip map`.
+- **Events sidebar `Ults` shows raw internal ability slugs and includes non-ult abilities**
+  (`bug-minor`, `FM-063`). Match `129738985` shows unlocalized slugs (`unicorn dazzlingorb`,
+  `ratking standard bearer`, `fencer ultimate`, `deadpack ultimate`, `priest weaponswap`,
+  `nurse fear`) where Death recap resolves localized names, and classifies non-ults (`sleep dagger`,
+  `ratking ratnibble`, `ratking scrap grenade`, `unicorn radiantblast`) under `Ults`. Add unit
+  coverage in `web/test/player-events.test.ts`.
+- **Narrow desktop (`1024×600` / `800×600`) crushes minimap to `170×170 px` / `164×164 px`**
+  (`ux-rough`, `FM-060`, `FM-061`, `FM-132`). Both sidebars stay open while the Player dock wraps to
+  5 rows; route responsive sidebar-collapse / compact layout decision to an approved design model.
+- **`[data-testid="match-tier"]` `title="Parsed from the replay file"` violates spec §4b**
+  (`label-violation`, `FM-070`). Provenance/method copy in hover text; drop or shorten and guard in
+  `web/test/labels.test.ts`.
+- **Stale overlays across mode/time transitions & tablet `Scenes` drawer overlap** (`ux-rough`,
+  `FM-093`, `FM-065`, `FM-132`). Skull death recap remains open (and followed) across large scrubs
+  and Scene↔Replay flips; `Saved scene · Back to replay` toast persists after returning to Replay;
+  tablet `Scenes` drawer's 44×44 `▶` circle slightly overlaps the row above.
+
+
 ## Follow across tabs: what phase 4 left (2026-11-14, from sessions-p4)
 
 - ~~**Someone on another tab whom nobody follows yet can't be followed from where you are.**~~
