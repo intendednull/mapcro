@@ -103,10 +103,19 @@ export interface TipFacts {
   urn?: UrnNow | undefined;
 }
 
-/** Marker `key`'s facts in the frame. A scene holds none of them yet, so it says nothing. */
+/** Marker `key`'s facts in the frame. Status override wins over baseline timers/buffs/rifts (plan §4). */
 export function tipFacts(ms: MapState, key: string, health: boolean, urn: UrnNow | undefined): TipFacts {
   const m = ms.marker(key);
-  return { down: m.down(), camp: m.camp(), health: health ? m.health()?.pct : undefined, rift: m.rift(), powerup: m.powerup(), urn };
+  const own = m.status();
+  const down = own !== undefined ? own === "Destroyed" : m.down();
+  return {
+    down,
+    camp: own !== undefined ? undefined : m.camp(),
+    health: health && !down ? m.health()?.pct : undefined,
+    rift: own !== undefined ? undefined : m.rift(),
+    powerup: own !== undefined ? undefined : m.powerup(),
+    urn: own !== undefined && key.startsWith("urn:") ? undefined : urn,
+  };
 }
 
 /**

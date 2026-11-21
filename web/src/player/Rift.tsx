@@ -23,7 +23,11 @@ export function RiftRings(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; f
   const open = () => {
     for (const m of p.art.model.markers) {
       if (m.kind !== "koth") continue;
-      const r = p.frame.ms().marker(m.key).rift();
+      const mk = p.frame.ms().marker(m.key);
+      // Status override wins: a rift the coach turned off draws no rings (plan §2, §4).
+      const own = mk.status();
+      if (own !== undefined && own !== "Active") continue;
+      const r = mk.rift();
       if (r?.state === "active" && r.capture) return { key: m.key, at: m.at, capture: r.capture };
     }
     return undefined;

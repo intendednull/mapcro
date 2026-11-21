@@ -91,7 +91,7 @@ export interface SceneFacts {
 
 /** What a frame can hold beyond the heroes' places: computed by Player when its timeline has
  * the data, captured (or not) in a scene. */
-export const FEATURES = ["health", "sight", "cc", "movement", "lanes", "camps", "powerups", "rifts", "urn", "rejuv"] as const;
+export const FEATURES = ["health", "sight", "cc", "movement", "lanes", "skulls", "camps", "powerups", "obj_health", "rifts", "urn", "rejuv"] as const;
 export type Feature = (typeof FEATURES)[number];
 
 export interface MapState {
@@ -138,8 +138,10 @@ export function featuresOf(m: Timeline): Record<Feature, boolean> {
     cc: replay && some((p) => p.cc?.length),
     movement: replay && some((p) => p.height?.length || p.zipline?.length),
     lanes: !!m.zips?.length,
-    camps: !!m.camps?.length,
-    powerups: !!m.powerups?.length,
+    skulls: true,
+    camps: !!(m.camps?.length || m.heals?.length || m.crates?.length),
+    powerups: !!m.powerups?.some((p) => !!p.spawns?.length),
+    obj_health: replay && !!m.objective_health?.length,
     rifts: !!m.rifts,
     urn: !!m.urn,
     rejuv: !!m.rejuv,

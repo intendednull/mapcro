@@ -7,7 +7,7 @@ import { isFurniture, markersFrom, modelFromFallback, optionalShown, withBuiltIn
 import { artFromManifest } from "../src/map/pack";
 import { type Timeline, campsAt, sitesAt } from "../src/match/timeline";
 import { tipOf } from "./support/tips";
-import type { MatchPreview } from "../src/match/preview";
+import type { MatchPreview } from "./support/player-frame";
 
 // As the extractor writes one (129738985's lane4:3 broke at 181, back at 361).
 const crate: PackEntity = { key: "tough_crate:neutral:lane4:3", kind: "tough_crate", team: "neutral", lane: "lane4", world: [3480, 1112, 320] };

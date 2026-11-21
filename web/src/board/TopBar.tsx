@@ -26,18 +26,21 @@ import type { Art } from "../map/pack";
 import type { Viewpoint } from "../map/transform";
 import { InlineEdit } from "../ui/InlineEdit";
 import type { BoardState, Player, Slot } from "./state";
-import { BarClock, EyeIcon, PortraitSlot, Souls, TeamColumn, TeamScore, TopBarFrame, UltDial, portraitTitle } from "./TopBarParts";
+import { BarClock, EyeIcon, PortraitSlot, RejuvBadge, RejuvTimer, RespawnTimer, Souls, TeamColumn, TeamScore, TopBarFrame, UltDial, portraitTitle } from "./TopBarParts";
 import { aliveOps } from "./Tokens";
 import { slotPlaceholder } from "./roster";
 import { LIMITS } from "../gen/limits";
 import { ContextMenu, type MenuItem } from "../ui/ContextMenu";
 import type { SceneState } from "../gen/SceneState";
 import { captured } from "../mapstate/build";
-import type { MapState } from "../mapstate/state";
+import { toggleSightOps } from "../mapstate/edit";
+import { heroDraw } from "../mapstate/shown";
+import { type MapState, sameValue } from "../mapstate/state";
 import { holdsBuild, sceneBuildView } from "../mapstate/buildView";
 import { canRetake, retakeOps, slotKey } from "../match/save";
 import { ladderKeyFor, loadStatTable, tableKeyFor, type LoadedTable } from "../match/stats";
 import { BuildColumn } from "../player/BuildColumn";
+import { centreTimer } from "../player/Camps";
 import type { PlayerHost } from "../player/host";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { buildPanels } from "./buildPanels";
@@ -149,7 +152,7 @@ export function TopBar(p: {
   const sceneRow = () => p.state.scenes().find((s) => s.id === p.scene);
   // The scene's snapshot (map-state spec §4.5): what it says it holds. None: a scene from before.
   const stateRow = createMemo(() => p.state.rowsIn<SceneState>("SceneState", p.scene)[0]);
-  const snap = createMemo(() => captured(stateRow()?.r?.more), undefined, { equals: (a, b) => a.builds === b.builds && a.heroes === b.heroes && a.rows === b.rows && a.patch === b.patch });
+  const snap = createMemo(() => captured(stateRow()?.r?.more), undefined, { equals: sameValue });
   /** The hero a slot holds in this scene: its own once the scene holds its heroes (spec D2),
    * else the board roster's. */
   const heroIn = (x: { slot: Slot }) => heroOf(x.slot).hero();
@@ -164,17 +167,35 @@ export function TopBar(p: {
   const current = (t: LoadedTable | undefined, key: string | null) => (t && key && p.art.stats?.tables.get(key)?.clientVersion === t.data.client_version ? t : undefined);
   /** The frame's match second: where the snapshot was taken. */
   const frameT = () => sceneRow()?.scene.source?.t ?? sceneRow()?.scene.clock ?? 0;
+  /** Unedited snapshot time (`Scene.source.t`) for Rejuv and Mid-Boss timers (plan §2). */
+  const sourceT = () => sceneRow()?.scene.source?.t ?? 0;
+  const rejuv = createMemo(() => p.ms.scene().rejuv() ?? []);
+  const held = (t: "Amber" | "Sapphire") => rejuv().find((r) => r.team === t.toLowerCase());
+  const bossKey = () => p.art.model.markers.find((m) => m.kind === "midboss")?.key;
+  const centre = createMemo(() => {
+    const k = bossKey();
+    const boss = k ? p.ms.marker(k) : undefined;
+    // Status override wins over baseline Mid-Boss respawn timer (plan §2, §4).
+    const camp = boss && boss.status() === undefined ? boss.camp() : undefined;
+    return centreTimer(rejuv(), camp);
+  });
+  const respawnAt = () => { const c = centre(); return c.kind === "respawn" ? c.at : undefined; };
   // Retake (spec D10): what this scene didn't capture, from its own moment of the open match.
   const retakable = () => {
     const sc = sceneRow();
-    return editable() && !p.compact && !!sc && canRetake(sc.scene, stateRow()?.r?.more, p.host.tl());
+    return editable() && !p.compact && !!sc && canRetake(sc.scene, stateRow()?.r?.more, p.host.tl(), undefined, p.art.model.markers);
   };
   const retake = () => {
     const sc = sceneRow();
     const tl = p.host.tl();
     if (!sc || !tl) return;
     const st = stateRow();
-    const txs = retakeOps(sc, st ? { id: st.id, more: st.r?.more } : undefined, p.state.playersIn(p.scene), p.state.roster(), tl, newRecordId);
+    const waves = new Map(
+      p.state
+        .rowsIn<{ lane: string; t: number; more?: import("../gen/More").More }>("Wave", p.scene)
+        .map((w) => [w.r.lane, { id: w.id, t: w.r.t, ...(w.r.more ? { more: w.r.more } : {}) }]),
+    );
+    const txs = retakeOps(sc, st ? { id: st.id, more: st.r?.more } : undefined, p.state.playersIn(p.scene), p.state.roster(), tl, newRecordId, undefined, p.art.model.markers, waves);
     // In order, stopping at a refusal: the scene's state is last, so it never claims builds
     // that weren't written.
     for (const tx of txs) if (!p.state.edit(tx)) break;
@@ -247,6 +268,15 @@ export function TopBar(p: {
           // All builds and Tab mount the twelve once: after that they stay, hidden (as Player's).
           const allShown = createMemo((was: boolean) => was || (has() && panels.all()), false);
           const view = sceneBuildView({ more: () => player.state.more, rows: () => snap().rows, hero: () => heroId() ?? 0, alive: h.alive, patch, time: frameT });
+          // Under `has("sight")`, portrait dimming follows heroDraw (never dimming under Vision All);
+          // on old scenes (`!has("sight")`), keeps legacy D5 (`!h.inSight()`).
+          const dimmed = () =>
+            heroDraw(
+              { team: t.toLowerCase() as "amber" | "sapphire", inSight: h.inSight(), lastSeen: null },
+              { vision: p.host.vision(), lastSeen: false },
+              p.ms.has("sight"),
+              true,
+            ).as === "faded";
           return (
             <PortraitSlot
               team={t}
@@ -255,7 +285,7 @@ export function TopBar(p: {
               art={p.art}
               hero={hero()}
               dead={!h.alive()}
-              unseen={!h.inSight()}
+              unseen={dimmed()}
               class={open() && "build-open"}
               title={portraitTitle(label(), hero())}
               onContextMenu={(e) => openMenu(e, slot, player, portraitTitle(label(), hero()))}
@@ -314,14 +344,17 @@ export function TopBar(p: {
                 </button>
               </Show>
               <button
-                class={cx("tb-vis", !h.inSight() && "off")}
+                class={cx("tb-vis", dimmed() && "off")}
                 data-testid="tb-vision"
                 disabled={!editable()}
-                hidden={!editable() && h.inSight()}
+                hidden={!editable() && !dimmed()}
                 title={h.inSight() ? "In vision" : "Not seen"}
                 aria-label={h.inSight() ? `${label()}, In vision` : `${label()}, Not seen`}
                 aria-pressed={!h.inSight()}
-                onClick={() => p.state.edit([{ Set: { id: player.id, value: { PlayerVisible: !player.state.visible } } }])}
+                onClick={() => {
+                  const ops = toggleSightOps(p.ms.has("sight"), player.id, player.state);
+                  if (ops.length) p.state.edit(ops);
+                }}
               >
                 <EyeIcon off={!h.inSight()} />
               </button>
@@ -426,10 +459,15 @@ export function TopBar(p: {
       },
       {
         get label() {
-          return pl().state.visible ? "Mark not seen" : "Mark in vision";
+          const r = pl().state;
+          const seen = p.ms.has("sight") ? r.more?.unseen !== true && r.visible !== false : r.visible;
+          return seen ? "Mark not seen" : "Mark in vision";
         },
         testid: "hero-menu-vision",
-        run: () => p.state.edit([{ Set: { id: pl().id, value: { PlayerVisible: !pl().state.visible } } }]),
+        run: () => {
+          const ops = toggleSightOps(p.ms.has("sight"), pl().id, pl().state);
+          if (ops.length) p.state.edit(ops);
+        },
       },
     ];
     if (heroIn(m) == null && p.onFocus) items.push({ label: "Show on the map", testid: "hero-menu-focus", run: () => p.onFocus!(m.slot.slot.team, m.slot.slot.slot) });
@@ -487,6 +525,15 @@ export function TopBar(p: {
         {score(friend(), false)}
         {score(enemy(), true)}
       </div>
+      <Show when={p.ms.has("rejuv")}>
+        <RejuvBadge held={() => held(friend())} team={friend()} side="friend" art={p.art} />
+        <RejuvBadge held={() => held(enemy())} team={enemy()} side="enemy" art={p.art} />
+        <RejuvTimer held={() => held(friend())} both={() => !!held(enemy())} t={sourceT} team={friend()} side="friend" art={p.art} />
+        <RejuvTimer held={() => held(enemy())} both={() => !!held(friend())} t={sourceT} team={enemy()} side="enemy" art={p.art} />
+      </Show>
+      <Show when={p.ms.has("camps")}>
+        <RespawnTimer at={respawnAt} t={sourceT} art={p.art} />
+      </Show>
     </TopBarFrame>
   );
 }

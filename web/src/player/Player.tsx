@@ -12,7 +12,6 @@ import type { SceneRow } from "../board/scenes";
 import type { RecordId } from "../gen/RecordId";
 import type { Op } from "../gen/Op";
 import { type MatchEvent, clockLabel, playersAt, tierOf } from "../match/timeline";
-import { UltRing } from "../match/preview";
 import { chunkByBytes, matchSceneOps, matchScenesOps, slotKey, sourceOf } from "../match/save";
 import { MAX_OPS_PER_TX, chunks, clearAnnotationsOps, copyAnnotationsOps, ensureLiveOps, liveIds, takeAnnotationsOps } from "./live";
 import { FETCH_WHY, busy, jobLabel, queueLabel, staleUpload } from "./api";

@@ -9,11 +9,12 @@ import type { RecordId } from "../gen/RecordId";
 import { type Marker, offByDefault } from "../map/model";
 
 export type Current = Map<string, { id: RecordId; status: ObjectiveStatus }>;
+export type ShownStatus = (key: string) => ObjectiveStatus | undefined;
 
 /** Whether a marker is "on" (active, alive) in a scene. Rifts and urn points default to off;
- * the rest to on. */
-export function isOn(m: Pick<Marker, "kind" | "key">, cur: Current): boolean {
-  const s = cur.get(m.key)?.status;
+ * the rest to on. `shown` supplies the effective status (`ObjectiveState ?? baseline detail`). */
+export function isOn(m: Pick<Marker, "kind" | "key">, cur: Current, shown?: ShownStatus): boolean {
+  const s = shown ? shown(m.key) : cur.get(m.key)?.status;
   return offByDefault(m.kind) ? s === "Active" : s === undefined || s === "Active" || s === "Stage2";
 }
 
@@ -23,18 +24,26 @@ export function nextPatron(s: ObjectiveStatus | undefined): ObjectiveStatus {
   return s === undefined || s === "Active" || s === "Hidden" ? "Stage2" : s === "Stage2" ? "Destroyed" : "Active";
 }
 
-export function toggleOps(m: Pick<Marker, "kind" | "key">, markers: Array<Pick<Marker, "kind" | "key">>, cur: Current, scene: RecordId, mint: () => RecordId): Op[] {
+export function toggleOps(
+  m: Pick<Marker, "kind" | "key">,
+  markers: Array<Pick<Marker, "kind" | "key">>,
+  cur: Current,
+  scene: RecordId,
+  mint: () => RecordId,
+  shown?: ShownStatus,
+): Op[] {
+  const statusOf: ShownStatus = shown ?? ((k) => cur.get(k)?.status);
   const set = (key: string, status: ObjectiveStatus): Op[] => {
     const c = cur.get(key);
     if (c) return c.status === status ? [] : [{ Set: { id: c.id, value: { ObjectiveStatus: status } } }];
     return [{ Create: { id: mint(), record: { ObjectiveState: { scene, key, status } } } }];
   };
-  const on = isOn(m, cur);
-  if (m.kind === "t3") return set(m.key, nextPatron(cur.get(m.key)?.status));
+  const on = isOn(m, cur, statusOf);
+  if (m.kind === "t3") return set(m.key, nextPatron(statusOf(m.key)));
   if (!offByDefault(m.kind)) return set(m.key, on ? "Destroyed" : "Active");
   if (on) return set(m.key, "Destroyed");
   // Only one rift (one urn point) at a time: the others go off with this one coming on.
-  const others = markers.filter((x) => x.kind === m.kind && x.key !== m.key && isOn(x, cur)).flatMap((x) => set(x.key, "Destroyed"));
+  const others = markers.filter((x) => x.kind === m.kind && x.key !== m.key && isOn(x, cur, statusOf)).flatMap((x) => set(x.key, "Destroyed"));
   return [...set(m.key, "Active"), ...others];
 }
 
@@ -46,17 +55,27 @@ type M = Pick<Marker, "kind" | "key">;
  * keep their rule: at most one is on, so turning a group on turns on only the clicked rift (or,
  * if a non-rift was clicked, the group's first), and any other rift that is on goes off.
  */
-export function groupToggleOps(clicked: M, group: M[], markers: M[], cur: Current, scene: RecordId, mint: () => RecordId): Op[] {
+export function groupToggleOps(
+  clicked: M,
+  group: M[],
+  markers: M[],
+  cur: Current,
+  scene: RecordId,
+  mint: () => RecordId,
+  shown?: ShownStatus,
+): Op[] {
+  const statusOf: ShownStatus = shown ?? ((k) => cur.get(k)?.status);
   const set = (key: string, status: ObjectiveStatus): Op[] => {
     const c = cur.get(key);
     if (c) return c.status === status ? [] : [{ Set: { id: c.id, value: { ObjectiveStatus: status } } }];
-    // Absent means the default: on for objectives, off for rifts. Writing the default is a no-op.
+    // Skip creating a record only when the effective status (`shown` or board default) already equals `status`.
     const kind = markers.find((m) => m.key === key)?.kind ?? group.find((m) => m.key === key)?.kind;
     const off = !!kind && offByDefault(kind);
-    if ((off && status === "Destroyed") || (!off && status === "Active")) return [];
+    const eff = statusOf(key) ?? (off ? "Destroyed" : "Active");
+    if (eff === status) return [];
     return [{ Create: { id: mint(), record: { ObjectiveState: { scene, key, status } } } }];
   };
-  const turnOn = !isOn(clicked, cur);
+  const turnOn = !isOn(clicked, cur, statusOf);
   const ops: Op[] = [];
   if (!turnOn) {
     for (const m of group) ops.push(...set(m.key, "Destroyed"));

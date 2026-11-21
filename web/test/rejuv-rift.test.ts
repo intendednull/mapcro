@@ -8,7 +8,7 @@ import { type Timeline, captureAt, campsAt, rejuvAt, riftAt, urnAt } from "../sr
 import { centreTimer, rejuvTip, respawnTip, riftTip, urnItemTip } from "../src/player/Camps";
 import { tipOf } from "./support/tips";
 import { groupOf, label, labelParts, namesFor, shortLabel } from "../src/player/events";
-import type { MatchPreview } from "../src/match/preview";
+import type { MatchPreview } from "./support/player-frame";
 
 const markers = modelFromFallback(FALLBACK).markers;
 const WEST = "rift:neutral:lane1:1";
@@ -54,18 +54,18 @@ describe("rift capture", () => {
 describe("Rejuvenator", () => {
   it("is held from its pickup to its end, with the revives the game counts", () => {
     expect(rejuvAt(tl, 1871.9)).toEqual([]);
-    expect(rejuvAt(tl, 1872)).toEqual([{ team: "sapphire", left: 3, ends: 2052 }]);
-    expect(rejuvAt(tl, 1952.5)).toEqual([{ team: "sapphire", left: 1, ends: 2052 }]);
+    expect(rejuvAt(tl, 1872)).toEqual([{ team: "sapphire", left: 3, ends: 2052, taken: 1872 }]);
+    expect(rejuvAt(tl, 1952.5)).toEqual([{ team: "sapphire", left: 1, ends: 2052, taken: 1872 }]);
     expect(rejuvAt(tl, 2052)).toEqual([]);
-    expect(rejuvAt(tl, 2394.5)).toEqual([{ team: "amber", left: 2, ends: 2574 }]);
+    expect(rejuvAt(tl, 2394.5)).toEqual([{ team: "amber", left: 2, ends: 2574, taken: 2394 }]);
     expect(rejuvAt({}, 2000)).toEqual([]);
   });
 
   it("the timer's hover counts down to its end, rounding the seconds up", () => {
-    expect(rejuvTip({ team: "sapphire", left: 2, ends: 2052 }, 1952)).toBe("Archmother Rejuvenator ends in 1:40");
-    expect(rejuvTip({ team: "sapphire", left: 2, ends: 2052 }, 1951.2)).toBe("Archmother Rejuvenator ends in 1:41");
-    expect(rejuvTip({ team: "amber", left: 1, ends: 2574 }, 2573.5)).toBe("Hidden King Rejuvenator ends in 0:01");
-    expect(rejuvTip({ team: "amber", left: 0, ends: 2574 }, 2580)).toBe("Hidden King Rejuvenator ends in 0:00");
+    expect(rejuvTip({ team: "sapphire", left: 2, ends: 2052, taken: 1872 }, 1952)).toBe("Archmother Rejuvenator ends in 1:40");
+    expect(rejuvTip({ team: "sapphire", left: 2, ends: 2052, taken: 1872 }, 1951.2)).toBe("Archmother Rejuvenator ends in 1:41");
+    expect(rejuvTip({ team: "amber", left: 1, ends: 2574, taken: 2394 }, 2573.5)).toBe("Hidden King Rejuvenator ends in 0:01");
+    expect(rejuvTip({ team: "amber", left: 0, ends: 2574, taken: 2394 }, 2580)).toBe("Hidden King Rejuvenator ends in 0:00");
   });
 
   it("the mid boss's label is its respawn or health alone, never the Rejuvenator (feedback #44)", () => {
@@ -91,7 +91,7 @@ describe("Rejuvenator", () => {
     // Up again, nothing held: none.
     expect(centreTimer([], boss(2300))).toEqual({ kind: "none" });
     // Held with no revives left counts as none held.
-    expect(centreTimer([{ team: "amber", left: 0, ends: 2574 }], boss(2100))).toEqual({ kind: "respawn", at: 2285 });
+    expect(centreTimer([{ team: "amber", left: 0, ends: 2574, taken: 2394 }], boss(2100))).toEqual({ kind: "respawn", at: 2285 });
     // Held while the boss is up: the Rejuvenator's.
     expect(centreTimer(rejuvAt(tl, 2400), boss(2400))).toEqual({ kind: "rejuv" });
     // Before its first spawn, or no camps (the API summary): none.

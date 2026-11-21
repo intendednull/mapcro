@@ -35,6 +35,7 @@ export const MODULE_STATE: Record<string, Entries> = {
     isOpen: ["constant", "a selector over openId, made once: it holds nothing of its own"],
   },
   "mapstate/undo.ts": { slotKeys: ["constant", "a hero's slot keys (`hero` and BUILD_KEYS), made on first use and never written again"] },
+  "mapstate/codec.ts": { hashIndexCache: ["immutable-cache", "FNV-1a marker key reverse index by marker list (WeakMap; goes with the pack)"] },
   "player/handoff.ts": { pending: ["keyed-by-board", "takeHandoff(board) gives it only to the board it was made for"] },
   "player/ReplaysFolder.tsx": { store: ["device", "the app's replay folder: the same on every board"] },
   "player/ReplayPicker.tsx": {

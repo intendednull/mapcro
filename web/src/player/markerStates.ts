@@ -26,10 +26,18 @@ export interface MarkerFrame {
 export function markerStates(frame: MarkerFrame, keys: () => readonly string[]) {
   const statusNow = (k: string): ObjectiveStatus | undefined => {
     const m = frame.ms().marker(k);
-    // A shop is up on a board; in Player a lane shop is gone once its guardian falls.
+    // A shop is up on a board; in Player (or a scene with `has_camps`) a lane shop is gone once its guardian falls.
     if (k.startsWith("shop:")) return m.shopClosed() ? "Hidden" : undefined;
-    // A scene shows the status it stores: `down` there also means a rift or urn point that's off.
-    if (!frame.player()) return m.status();
+    // In a scene, stored status wins over baseline detail (map-state spec §5, plan §4).
+    if (!frame.player()) {
+      const own = m.status();
+      if (own !== undefined) return own;
+      const site = m.site();
+      if (site) return site;
+      const c = m.camp();
+      if (c) return c.state === "alive" ? "Active" : "Destroyed";
+      return frame.health() && m.health()?.stage === 2 ? "Stage2" : undefined;
+    }
     // Player shows only the match at t (spec §6b): what was down, and from a replay
     // the rifts and powerups; never the scene's states. Without a replay, rifts are off.
     const site = m.site();
@@ -49,9 +57,18 @@ export function markerStates(frame: MarkerFrame, keys: () => readonly string[]) 
     return out;
   };
   const statuses = createMemo(() => new Map(keys().map((k) => [k, statusNow(k)] as const)), undefined, { equals: sameEntries });
-  const health = createMemo(() => valuesOf((m) => (frame.health() ? m.health()?.pct : undefined)), undefined, { equals: sameEntries });
-  const camps = createMemo(() => valuesOf((m) => m.camp()?.state), undefined, { equals: sameEntries });
+  const health = createMemo(() => valuesOf((m) => (frame.health() && !m.down() ? m.health()?.pct : undefined)), undefined, { equals: sameEntries });
+  const camps = createMemo(() => valuesOf((m) => {
+    // Status override wins over baseline camp state (plan §4).
+    const own = m.status();
+    if (own === "Active") return m.camp() ? "alive" : undefined;
+    if (own !== undefined) return undefined;
+    return m.camp()?.state;
+  }), undefined, { equals: sameEntries });
   const buffs = createMemo(() => valuesOf((m) => {
+    // Status override to Destroyed/Hidden suppresses stale baseline buff icon (plan §4).
+    const own = m.status();
+    if (own === "Destroyed" || own === "Hidden") return undefined;
     const b = m.powerup();
     return b?.state === "up" ? b.buff : undefined;
   }), undefined, { equals: sameEntries });

@@ -105,6 +105,22 @@ export function splitAt(l: LaneLine, t: number, gap: number): { amber: Pt[]; sap
 }
 
 /**
+ * Shift stored zipline edges `[amber, sapphire]` to follow an edited or dragged `split`, keeping
+ * the gap width `w = max - min` centred on `split` and clamped to `[0, 1000]`. At
+ * `split = Math.round((a0 + b0) / 2)`, returns `{ amber: a0, sapphire: b0 }` identically for
+ * every integer pair `0 <= a0 <= b0 <= 1000` (even and odd widths alike).
+ */
+export function shiftEdges(edges: { amber: number; sapphire: number }, split: number): { amber: number; sapphire: number } {
+  const a0 = Math.min(edges.amber, edges.sapphire);
+  const b0 = Math.max(edges.amber, edges.sapphire);
+  const w = b0 - a0;
+  return {
+    amber: Math.max(0, Math.min(T_MAX, split - Math.ceil(w / 2))),
+    sapphire: Math.max(0, Math.min(T_MAX, split + Math.floor(w / 2))),
+  };
+}
+
+/**
  * Amber's part over `[0, amber]`, Sapphire's over `[sapphire, 1000]` (the zipline colours), the
  * gap between uncoloured and never narrower than `gap` map units of arc length, which then
  * centres on the two edges' middle.

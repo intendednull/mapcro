@@ -51,11 +51,13 @@ import { Layers, calloutOrder } from "./Layers";
 import type { TokenFrame } from "./Tokens";
 import { FRESH_BOARD, randomRosterOps, sceneMatchName } from "./roster";
 import { fromScene, sceneRecords } from "../mapstate/scene";
+import { decodeEdges } from "../mapstate/codec";
 import { pickHeroOps } from "../mapstate/edit";
 import { captured } from "../mapstate/build";
+import type { More } from "../gen/More";
 import type { SceneState } from "../gen/SceneState";
 import { HeroPicker } from "./HeroPicker";
-import { defaultSplit, project } from "../map/lanes";
+import { defaultSplit, project, shiftEdges } from "../map/lanes";
 import { FIT_VIEW, worldToMap, worldToView } from "../map/transform";
 import type { WorldPos } from "../gen/WorldPos";
 import { slotKey } from "../match/save";
@@ -595,7 +597,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const hasRecap = (slot: string, t: number) => !!recapOf(player.tl()?.players.find((q) => slotKey(q.team, q.slot) === slot), t);
   /** In a scene, the open match's in-game name for a slot (spec §6b "Names"); a typed one wins. */
   const matchName = (team: string, n: number) => sceneMatchName(player.tl(), scene()?.scene.source, player.playerName, team, n);
-  // The scene's state behind the interface Player's has (mapstate/scene.ts; map-state phase 4).
+  // The scene's state behind the interface Player's has (mapstate/scene.ts; map-state phases 4–5).
   const sceneState = fromScene(
     sceneRecords(
       state,
@@ -605,6 +607,8 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
         return matchName(team!, Number(n));
       },
       () => scene()?.scene.source?.tier,
+      () => scene()?.scene.source?.t,
+      () => p.art.model.markers,
     ),
   );
   /** The frame the map draws (map-state spec §6): Player's, computed from the match at t, or the
@@ -797,8 +801,9 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     });
   });
   const waves = createMemo(() => {
-    const m = new Map<string, { id: RecordId; t: number }>();
-    for (const [id, r] of state.inScene("Wave", scene()?.id)) if ("Wave" in r) m.set(r.Wave.lane, { id, t: r.Wave.t });
+    const m = new Map<string, { id: RecordId; t: number; more?: More }>();
+    for (const [id, r] of state.inScene("Wave", scene()?.id))
+      if ("Wave" in r) m.set(r.Wave.lane, { id, t: r.Wave.t, ...(r.Wave.more ? { more: r.Wave.more } : {}) });
     return m;
   });
   const [waveDrag, setWaveDrag] = createSignal<{ key: string; t: number; id: RecordId }>();
@@ -829,17 +834,21 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     }
     return m;
   });
-  /** Player, replay tier: each lane's zipline colours, easing to each second's edges (changing
-   *  values ease, spec §4a). In the map's own units, so a zoom isn't eased. */
+  /** Player (replay tier): each lane's zipline colours, easing to each second's edges.
+   *  Scene (when `has("lanes")`): stored raw edges shifted by the effective split (local drag,
+   *  remote drag, or committed `Wave.t`, Q7). */
   const laneEdges = createMemo(() => {
     const m = new Map<string, () => { amber: number; sapphire: number } | undefined>();
     for (const l of p.art.model.lanes) {
-      // The lane's own field: it changes when the colours move, not each frame. A scene holds
-      // no colours yet (`has("lanes")` is false there): its split draws instead.
-      const edges = () => mapState().lane(l.key).edges();
-      const amber = easedNumber(() => edges()?.amber);
-      const sapphire = easedNumber(() => edges()?.sapphire);
+      const playerEdges = () => (inPlayer() ? matchState.lane(l.key).edges() : undefined);
+      const amber = easedNumber(() => playerEdges()?.amber);
+      const sapphire = easedNumber(() => playerEdges()?.sapphire);
       m.set(l.key, () => {
+        if (!inPlayer()) {
+          if (!sceneState.has("lanes")) return undefined;
+          const raw = decodeEdges(waves().get(l.key)?.more?.edges);
+          return raw ? shiftEdges(raw, splitOf(l.key)) : undefined;
+        }
         const a = amber();
         const s = sapphire();
         return a == null || s == null ? undefined : { amber: a, sapphire: s };
@@ -1407,6 +1416,8 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
                 onHeroMenu={(id, at) => heroMenu?.(id, at)}
                 svg={overlay}
                 objectives={objectives}
+                markerStatus={markerStatus}
+                laneEdges={(k) => laneEdges().get(k)?.()}
                 k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)}
                 selection={selection}
                 setSelection={setSelection}
@@ -1428,13 +1439,17 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
                 onPan={(dx, dy) => userView({ ...view(), x: view().x - dx, y: view().y - dy }, "panned the map")}
                 onZoom={(at, factor) => userView(zoomAt(view(), at, factor), "zoomed the map")}
               />
-              <Show when={inPlayer()}>
+              <Show when={inPlayer() || mapState().has("rifts")}>
                 <RiftRings art={p.art} vp={viewpoint()} frame={tokenFrame} mk={Math.min(1, view().w / 1000)} />
+              </Show>
+              <Show when={inPlayer() || mapState().has("urn")}>
                 <UrnMark art={p.art} vp={viewpoint()} frame={tokenFrame} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} mk={Math.min(1, view().w / 1000)} />
-                <DeathSkulls art={p.art} vp={viewpoint()} frame={tokenFrame} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} hit={phone ? 26 * view().w / mapPx() / (Math.min(1, view().w / 1000) * 1.4) : undefined} hasRecap={hasRecap} onOpenRecap={(slot, t) => setSkullRecap({ slot, t })} />
+              </Show>
+              <Show when={inPlayer() || mapState().has("skulls")}>
+                <DeathSkulls art={p.art} vp={viewpoint()} frame={tokenFrame} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} hit={phone ? 26 * view().w / mapPx() / (Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)) : undefined} hasRecap={inPlayer() ? hasRecap : undefined} onOpenRecap={inPlayer() ? (slot, t) => setSkullRecap({ slot, t }) : undefined} />
               </Show>
               <TeleporterLink art={p.art} vp={viewpoint()} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
-              <MarkerTips art={p.art} vp={viewpoint()} hidden={(k) => markerStatus(k) === "Hidden"} shown={() => ({ heals: heals(), crates: crates() })} frame={tokenFrame} t={player.t} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
+              <MarkerTips art={p.art} vp={viewpoint()} hidden={(k) => markerStatus(k) === "Hidden"} shown={() => ({ heals: heals(), crates: crates() })} frame={tokenFrame} t={() => (inPlayer() ? player.t() : (scene()?.scene.source?.t ?? 0))} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
               <Highlight at={inPlayer() ? player.ring() : undefined} vp={viewpoint()} />
               <Show when={inPlayer()}>
                 <EventPings host={player} art={p.art} vp={viewpoint()} />
