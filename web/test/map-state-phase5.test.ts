@@ -518,6 +518,7 @@ describe("FNV-1a hashes, collision fallback, over-length caps & byte-cap drop or
       obj_health: "has_obj_health",
       lanes: "has_lanes",
       sight: "has_sight",
+      camps: "has_camps",
     };
 
     const saveAt = (txBudget?: number) => {
