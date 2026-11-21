@@ -154,3 +154,28 @@ test("the jump ring sits on its hero until the event, then on the event's place"
   const [r2, h2] = [await centre(ring), await centre(hero)];
   expect(Math.hypot(r2.x - h2.x, r2.y - h2.y)).toBeLessThan(6);
 });
+
+test("Map layers popover stays inside viewport and above TopBar at 1024×600", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 1024, height: 600 } });
+  const a = await ctx.newPage();
+  await a.goto(await newBoardUrl(server, "Layers narrow"));
+  await a.locator("#join-name").fill("Coach");
+  await a.keyboard.press("Enter");
+  await expect(a.getByTestId("join-card")).toBeHidden();
+  await openMatch(a);
+  await a.getByTestId("map-layers-toggle").click();
+  const pop = a.locator(".map-layers-pop");
+  await expect(pop).toBeVisible();
+  const box = (await pop.boundingBox())!;
+  expect(box.y, "Map layers popover top >= 0").toBeGreaterThanOrEqual(0);
+  expect(box.y + box.height, "Map layers popover bottom <= 600").toBeLessThanOrEqual(600);
+  const pings = a.getByTestId("pings-toggle");
+  await pings.scrollIntoViewIfNeeded();
+  const hit = await pings.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return { inside: !!top && el.contains(top), topTestId: top?.closest("[data-testid]")?.getAttribute("data-testid") ?? top?.tagName };
+  });
+  expect(hit.inside, `Event pings occluded by ${hit.topTestId}`).toBe(true);
+  await ctx.close();
+});

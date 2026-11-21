@@ -714,3 +714,31 @@ for (const [width, height] of [[1366, 650], [1280, 600], [1024, 600], [800, 600]
     await p.context().close();
   });
 }
+
+test("tablet 1024×768 touch header fits with presenter active and Full replay loaded", async ({ browser }) => {
+  const url = await newBoardUrl(server, "Tablet presenter header");
+  const presenter = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
+  await presenter.goto(url);
+  await presenter.locator("#join-name").fill("Coach A");
+  await presenter.keyboard.press("Enter");
+  await open(presenter, "129007001");
+
+  const ctx = await phoneContext(browser, { width: 1024, height: 768 });
+  const tablet = await ctx.newPage();
+  await tablet.goto(url);
+  await tablet.locator("#join-name").fill("Tablet");
+  await tablet.keyboard.press("Enter");
+  await expect(tablet.getByTestId("match-tier")).toHaveText("Full replay");
+  await expect(tablet.getByTestId("follow-presenter")).toBeVisible();
+
+  const metrics = await tablet.evaluate(() => {
+    const top = document.querySelector(".p-top")!;
+    const btn = document.querySelector("[data-testid=follow-presenter]")!.getBoundingClientRect();
+    return { sw: top.scrollWidth, cw: top.clientWidth, btnLeft: btn.left, btnRight: btn.right, iw: innerWidth };
+  });
+  expect(metrics.sw, ".p-top scrollWidth <= clientWidth").toBeLessThanOrEqual(metrics.cw);
+  expect(metrics.btnLeft, "Follow button left >= 0").toBeGreaterThanOrEqual(0);
+  expect(metrics.btnRight, "Follow button right <= 1024").toBeLessThanOrEqual(1024);
+  await ctx.close();
+  await presenter.context().close();
+});

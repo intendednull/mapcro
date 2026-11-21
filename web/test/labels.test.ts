@@ -37,4 +37,9 @@ describe("labels are tags (spec §4b)", () => {
     const prose = files(SRC).flatMap((f) => labels(readFileSync(f, "utf8")).filter((l) => /\.\s|\.$|:\s+\w+\s+\w+/.test(l.replace(/\$\{[^}]*\}/g, "X"))).map((l) => `${f.slice(SRC.length + 1)}: ${l}`));
     expect(prose).toEqual([]);
   });
+  it("match-tier hover text carries no provenance prose (spec §4b)", () => {
+    const player = readFileSync(join(SRC, "player/Player.tsx"), "utf8");
+    expect(player).not.toMatch(/Parsed from the replay file/);
+    expect(player).not.toMatch(/const OLDER_PARSE\b/);
+  });
 });

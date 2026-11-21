@@ -98,6 +98,20 @@ test("saving a scene from the replay says so, its drawing in it, and the toast g
   await expect(strokes(a)).toHaveCount(1);
 });
 
+test("returning to Replay via the scene tree dismisses the stale Back to replay toast", async ({ browser }) => {
+  const url = await newBoardUrl(server, "Stale toast");
+  const a = await joinNew(browser, url, "Coach");
+  await openMatch(a);
+  await scrubTo(a, 300);
+  await a.getByTestId("match-save").click();
+  await expect(bar(a)).toHaveAttribute("data-state", "scene");
+  await expect(a.getByTestId("toast")).toContainText("Saved scene 2");
+  await expect(a.getByTestId("toast-action")).toHaveText("Back to replay");
+  await a.getByTestId("replay-entry").click();
+  await expect(bar(a)).toHaveAttribute("data-state", "match");
+  await expect(a.getByTestId("toast")).toHaveCount(0);
+});
+
 test("viewing a scene keeps the bar; Back returns to the match where it was", async ({ browser }) => {
   const { a } = await boardWithScene(browser);
   await scrubTo(a, 640);
