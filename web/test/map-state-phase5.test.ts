@@ -304,7 +304,9 @@ describe("Phase 5 R1: exhaustive §9 round-trip property (Groups A & B)", () => 
       obj_health: ({ p, s, written }) => {
         if (written < WRITTEN_B) return;
         for (const m of markers) {
-          expect(s.marker(m.key).health(), m.key).toEqual(p.marker(m.key).health());
+          // A down objective (including cleared Mid-Boss) has no shown health in either renderer.
+          const want = p.marker(m.key).down() ? undefined : p.marker(m.key).health();
+          expect(s.marker(m.key).health(), m.key).toEqual(want);
         }
       },
       has_rifts: ({ p, s, written }) => {
