@@ -15,7 +15,7 @@ Ground-truth map of mapcro's user-facing features, seeded by auditing `web/src/`
 
 | ID | Area | Feature & Entry Flow | Interactive Depth | Last Pass | Automated Tests | Issues / Notes |
 |---|---|---|---|---|---|---|
-| FM-001 | Landing | Landing page (`/`): wordmark, New board creation, navigation to `/b/<id>#<tok>` | `auto-only` | — | `e2e/home.spec.ts` | |
+| FM-001 | Landing | Landing page (`/`): wordmark, New board creation, navigation to `/b/<id>#<tok>` | `smoke` | Pass 001 (2026-11-21, 8c6ec5e) | `e2e/home.spec.ts` | |
 | FM-002 | Landing | Recent/known boards list, rename/remove with Undo toast | `auto-only` | — | `e2e/boards-list.spec.ts`, `test/known-boards.test.ts` | Duplicate toast markup (TD-38) |
 | FM-003 | Landing | Open link dialog / keyboard shortcut (`OpenLinkKeys`) & dead/malformed `/b/` or `/s/` link (`DeadLink`) | `auto-only` | — | `e2e/open-link.spec.ts`, `test/applink.test.ts` | |
 | FM-004 | Landing | Desktop app download link/dialog from web (`AppDownload`) | `auto-only` | — | `e2e/app-download.spec.ts`, `test/desktop-release.test.ts` | |
@@ -25,10 +25,10 @@ Ground-truth map of mapcro's user-facing features, seeded by auditing `web/src/`
 
 | ID | Area | Feature & Entry Flow | Interactive Depth | Last Pass | Automated Tests | Issues / Notes |
 |---|---|---|---|---|---|---|
-| FM-010 | Header | Board header: inline board title edit, mode switcher (Scenes / Player), status indicator | `auto-only` | — | `e2e/header.spec.ts`, `e2e/status.spec.ts`, `test/status.test.ts` | |
-| FM-011 | Header | Top bar (`TopBar.tsx` / `TopBarParts.tsx`): 6v6 hero portraits, team names, Rejuvenator indicator, souls/clock | `auto-only` | — | `e2e/topbar.spec.ts`, `e2e/topbar-rejuv-builds.spec.ts`, `e2e/team-names.spec.ts` | Scene & Player top bars partially duplicated (TD-11) |
+| FM-010 | Header | Board header: inline board title edit, mode switcher (Scenes / Player), status indicator | `deep` | Pass 001 (2026-11-21, 8c6ec5e) | `e2e/header.spec.ts`, `e2e/status.spec.ts`, `test/status.test.ts` | Pass 001 #1: overflows at `800×600` (`headerOverflow: true`), clipping `More` (`⋯`) off-screen |
+| FM-011 | Header | Top bar (`TopBar.tsx` / `TopBarParts.tsx`): 6v6 hero portraits, team names, Rejuvenator indicator, souls/clock | `smoke` | Pass 001 (2026-11-21, 8c6ec5e) | `e2e/topbar.spec.ts`, `e2e/topbar-rejuv-builds.spec.ts`, `e2e/team-names.spec.ts` | Scene & Player top bars partially duplicated (TD-11); Pass 001 #6: souls banners illegible at `1024×600`/`800×600` |
 | FM-012 | Header | Portrait context menu (`portrait-menu`): focus hero, toggle alive/dead, open build/stat panel | `auto-only` | — | `e2e/portrait-menu.spec.ts`, `e2e/hero-focus.spec.ts` | |
-| FM-013 | Header | More menu (`MoreMenu.tsx`): clone board, export/import board file, feedback, session promotion | `auto-only` | — | `e2e/board-file.spec.ts`, `e2e/clone-replay.spec.ts`, `e2e/feedback.spec.ts` | |
+| FM-013 | Header | More menu (`MoreMenu.tsx`): clone board, export/import board file, feedback, session promotion | `smoke` | Pass 001 (2026-11-21, 8c6ec5e) | `e2e/board-file.spec.ts`, `e2e/clone-replay.spec.ts`, `e2e/feedback.spec.ts` | Pass 001 #1: `More` button clipped off-screen at `800×600` when Presenting + Full replay shown |
 | FM-014 | Header | Feedback button & GitHub issue submission dialog (`Feedback.tsx`) | `auto-only` | — | `e2e/feedback.spec.ts`, `test/feedback.test.ts` | |
 | FM-015 | Header | Dialog focus management & modal scrim (`ModalScrim.tsx`, Esc to close, focus trap) | `auto-only` | — | `e2e/dialog-focus.spec.ts` | |
 
@@ -82,12 +82,12 @@ Ground-truth map of mapcro's user-facing features, seeded by auditing `web/src/`
 
 | ID | Area | Feature & Entry Flow | Interactive Depth | Last Pass | Automated Tests | Issues / Notes |
 |---|---|---|---|---|---|---|
-| FM-060 | Player | Entering/leaving Player mode, dock layout, mode persistence (`Player.tsx`) | `auto-only` | — | `e2e/player-mode.spec.ts`, `e2e/player-dock.spec.ts`, `e2e/player.spec.ts` | |
-| FM-061 | Transport | Play/pause, speed controls (−/+ and list), step/scrub bar drag, ease interpolation | `auto-only` | — | `e2e/player-scrub-drag.spec.ts`, `e2e/player-ease.spec.ts`, `e2e/player-sidebar-speed.spec.ts`, `e2e/player-transport-fit.spec.ts`, `test/player-clock.test.ts`, `test/scrub-drag.test.ts` | Scrubber squeezes to 36px near 820px width (backlog 2026-11-14) |
-| FM-062 | Transport | Player keyboard shortcuts (Space, arrows, speed, layer/vision keys) | `auto-only` | — | `e2e/player-keys.spec.ts` | |
-| FM-063 | Player | Events sidebar (`Events.tsx`): event list, category filters, search, search-by-names, click to jump | `auto-only` | — | `e2e/player-events-click.spec.ts`, `e2e/player-events-follow.spec.ts`, `e2e/player-events-cost.spec.ts`, `test/player-events.test.ts` | |
+| FM-060 | Player | Entering/leaving Player mode, dock layout, mode persistence (`Player.tsx`) | `deep` | Pass 001 (2026-11-21, 8c6ec5e) | `e2e/player-mode.spec.ts`, `e2e/player-dock.spec.ts`, `e2e/player.spec.ts` | Pass 001 #6: narrow desktop (`1024×600`/`800×600`) wraps dock to 5 rows, crushing map to `170×170`/`164×164` |
+| FM-061 | Transport | Play/pause, speed controls (−/+ and list), step/scrub bar drag, ease interpolation | `deep` | Pass 001 (2026-11-21, 8c6ec5e) | `e2e/player-scrub-drag.spec.ts`, `e2e/player-ease.spec.ts`, `e2e/player-sidebar-speed.spec.ts`, `e2e/player-transport-fit.spec.ts`, `test/player-clock.test.ts`, `test/scrub-drag.test.ts` | Scrubber squeezes to 36px near 820px width (backlog 2026-11-14); verified desktop + narrow + tablet in Pass 001 |
+| FM-062 | Transport | Player keyboard shortcuts (Space, arrows, speed, layer/vision keys) | `smoke` | Pass 001 (2026-11-21, 8c6ec5e) | `e2e/player-keys.spec.ts` | Space, `1`/`2`/`3`, Escape verified in Pass 001 |
+| FM-063 | Player | Events sidebar (`Events.tsx`): event list, category filters, search, search-by-names, click to jump | `deep` | Pass 001 (2026-11-21, 8c6ec5e) | `e2e/player-events-click.spec.ts`, `e2e/player-events-follow.spec.ts`, `e2e/player-events-cost.spec.ts`, `test/player-events.test.ts` | Pass 001 #5: `Ults` shows raw internal ability slugs (`unicorn dazzlingorb`, `fencer ultimate`, etc.) and includes non-ult abilities (`sleep dagger`, `ratking ratnibble`) |
 | FM-064 | Player | Pings on minimap during replay playback (`player-pings`) | `auto-only` | — | `e2e/player-pings.spec.ts` | |
-| FM-065 | Player | Save/snapshot replay moment into a Scene ("Play from here" / handoff) | `auto-only` | — | `e2e/player-handoff.spec.ts`, `e2e/player-review.spec.ts`, `test/from-scene.test.ts` | Ensure + copy op ordering edge case (TD-35) |
+| FM-065 | Player | Save/snapshot replay moment into a Scene ("Play from here" / handoff) | `smoke` | Pass 001 (2026-11-21, 8c6ec5e) | `e2e/player-handoff.spec.ts`, `e2e/player-review.spec.ts`, `test/from-scene.test.ts` | Ensure + copy op ordering edge case (TD-35); Pass 001 #8: `Saved scene · Back to replay` toast stays visible after returning to Replay |
 | FM-066 | Player | Player top bar health HUD, ult rings, death timers, names toggle | `auto-only` | — | `e2e/player-health.spec.ts`, `e2e/player-names.spec.ts`, `e2e/player-topbar-writes.spec.ts` | |
 | FM-067 | Player | Frozen-board / viewer write guard in Player mode | `auto-only` | — | `e2e/frozen-write-guard.spec.ts` | |
 
@@ -95,7 +95,7 @@ Ground-truth map of mapcro's user-facing features, seeded by auditing `web/src/`
 
 | ID | Area | Feature & Entry Flow | Interactive Depth | Last Pass | Automated Tests | Issues / Notes |
 |---|---|---|---|---|---|---|
-| FM-070 | Replays | Load match by ID (summary tier vs Full replay tier, auto-fetch, format refresh/upgrade) | `auto-only` | — | `e2e/match.spec.ts`, `e2e/player-tier.spec.ts`, `e2e/player-autofetch.spec.ts`, `e2e/player-format-refresh.spec.ts`, `e2e/player-format7.spec.ts`, `e2e/caddy-timeline.spec.ts` | |
+| FM-070 | Replays | Load match by ID (summary tier vs Full replay tier, auto-fetch, format refresh/upgrade) | `smoke` | Pass 001 (2026-11-21, 8c6ec5e) | `e2e/match.spec.ts`, `e2e/player-tier.spec.ts`, `e2e/player-autofetch.spec.ts`, `e2e/player-format-refresh.spec.ts`, `e2e/player-format7.spec.ts`, `e2e/caddy-timeline.spec.ts` | Pass 001 #7: `match-tier` `title="Parsed from the replay file"` violates §4b |
 | FM-071 | Replays | Upload `.dem` replay: drag-and-drop, file picker, reserve/queue wait UX, honest error messages | `auto-only` | — | `e2e/replay.spec.ts`, `e2e/upload-ux.spec.ts`, `e2e/replay-queue.spec.ts`, `e2e/replay-prompt.spec.ts`, `test/queue-label.test.ts` | |
 | FM-072 | Replays | Replay picker & local replays folder (desktop app integration, preview cards, reparse) | `auto-only` | — | `e2e/replay-picker.spec.ts`, `e2e/replays-folder.spec.ts`, `e2e/desktop-reparse.spec.ts`, `test/picker.test.ts`, `test/folder.test.ts`, `test/reparse.test.ts` | Outdated app parser detected only after parse (TD-48) |
 | FM-073 | Replays | Board clone carrying over replay reference (`clone-replay`) | `auto-only` | — | `e2e/clone-replay.spec.ts` | |
@@ -104,19 +104,19 @@ Ground-truth map of mapcro's user-facing features, seeded by auditing `web/src/`
 
 | ID | Area | Feature & Entry Flow | Interactive Depth | Last Pass | Automated Tests | Issues / Notes |
 |---|---|---|---|---|---|---|
-| FM-080 | Vision | Vision team filter (Both / Amber / Sapphire) & Show last seen location ghost | `auto-only` | — | `e2e/player-vision.spec.ts`, `test/vision.test.ts`, `test/shown.test.ts` | |
-| FM-081 | Layers | Map layers toggles (camps, lanes, troopers, shops, crates, pings, etc.) & visibility | `auto-only` | — | `e2e/player-visible.spec.ts`, `e2e/follow-matrix.spec.ts`, `test/follow-layers.test.ts` | |
+| FM-080 | Vision | Vision team filter (Both / Amber / Sapphire) & Show last seen location ghost | `deep` | Pass 001 (2026-11-21, 8c6ec5e) | `e2e/player-vision.spec.ts`, `test/vision.test.ts`, `test/shown.test.ts` | Keys `1`/`2`/`3`, dropdown, and two-user Follow verified in Pass 001 |
+| FM-081 | Layers | Map layers toggles (camps, lanes, troopers, shops, crates, pings, etc.) & visibility | `deep` | Pass 001 (2026-11-21, 8c6ec5e) | `e2e/player-visible.spec.ts`, `e2e/follow-matrix.spec.ts`, `test/follow-layers.test.ts` | Pass 001 #3: popover clips off top & renders behind TopBar portraits at `1024×600` |
 | FM-082 | Layers | K-preview (hold `K` to preview alternate layer/key state) | `auto-only` | — | `e2e/k-preview.spec.ts` | |
 
 ## 10. Builds, Tooltips, Stats & Recaps
 
 | ID | Area | Feature & Entry Flow | Interactive Depth | Last Pass | Automated Tests | Issues / Notes |
 |---|---|---|---|---|---|---|
-| FM-090 | Builds | Tab / All builds overlay (`BuildColumn.tsx`, `BuildOrder.tsx`), hero inspect card (`HeroCard.tsx`) | `auto-only` | — | `e2e/player-inspect.spec.ts`, `e2e/panels.spec.ts`, `test/builds.test.ts`, `test/panels.test.ts` | Hidden columns stay mounted (TD-52) |
-| FM-091 | Tooltips | Game tooltips (`GameTooltip.tsx`): item & ability stats, upgrades, imbues, active effects (`ActiveEffects.tsx`) | `auto-only` | — | `e2e/player-tooltips.spec.ts`, `test/tooltips.test.ts`, `test/effects.test.ts`, `test/cc.test.ts` | Hand-ported HUD CSS (TD-27); peak stacks on target effects (TD-47) |
-| FM-092 | Stats | Calculated hero stat panel (`StatPanel.tsx`) at timestamp `t` | `auto-only` | — | `e2e/player-stats.spec.ts`, `test/stats.test.ts` | |
-| FM-093 | Recaps | Death skulls on map (`Skulls.tsx`), Skull recap (`SkullRecap.tsx`) & Death recap (`DeathRecap.tsx`) | `auto-only` | — | `e2e/player-death-skull.spec.ts`, `test/skulls.test.ts`, `test/recap.test.ts` | Recap z-index fixed below hero panels (TD-37) |
-| FM-094 | Panels | Movable/draggable floating panels (`panelPlace.ts`), z-order front-bring, pane clearance | `auto-only` | — | `e2e/panels.spec.ts`, `test/panels.test.ts` | `.map-controls > *` DOM query clearance (TD-37) |
+| FM-090 | Builds | Tab / All builds overlay (`BuildColumn.tsx`, `BuildOrder.tsx`), hero inspect card (`HeroCard.tsx`) | `deep` | Pass 001 (2026-11-21, 8c6ec5e) | `e2e/player-inspect.spec.ts`, `e2e/panels.spec.ts`, `test/builds.test.ts`, `test/panels.test.ts` | Hidden columns stay mounted (TD-52); Pass 001 #4: `All builds` collides horizontally & overlaps map controls at `1024×600`/`800×600` |
+| FM-091 | Tooltips | Game tooltips (`GameTooltip.tsx`): item & ability stats, upgrades, imbues, active effects (`ActiveEffects.tsx`) | `smoke` | Pass 001 (2026-11-21, 8c6ec5e) | `e2e/player-tooltips.spec.ts`, `test/tooltips.test.ts`, `test/effects.test.ts`, `test/cc.test.ts` | Hand-ported HUD CSS (TD-27); peak stacks on target effects (TD-47); known `#62` blank tier-1 box observed in Pass 001 |
+| FM-092 | Stats | Calculated hero stat panel (`StatPanel.tsx`) at timestamp `t` | `smoke` | Pass 001 (2026-11-21, 8c6ec5e) | `e2e/player-stats.spec.ts`, `test/stats.test.ts` | Verified in desktop build column & tablet Build panel in Pass 001 |
+| FM-093 | Recaps | Death skulls on map (`Skulls.tsx`), Skull recap (`SkullRecap.tsx`) & Death recap (`DeathRecap.tsx`) | `deep` | Pass 001 (2026-11-21, 8c6ec5e) | `e2e/player-death-skull.spec.ts`, `test/skulls.test.ts`, `test/recap.test.ts` | Recap z-index fixed below hero panels (TD-37); Pass 001 #8: stays open across large scrubs & Scene↔Replay switch (and mirrors to follower) |
+| FM-094 | Panels | Movable/draggable floating panels (`panelPlace.ts`), z-order front-bring, pane clearance | `smoke` | Pass 001 (2026-11-21, 8c6ec5e) | `e2e/panels.spec.ts`, `test/panels.test.ts` | `.map-controls > *` DOM query clearance (TD-37); `skull-recap` drag & clearance verified in Pass 001 |
 
 ## 11. Sessions & Multi-Tab Follow
 
@@ -130,10 +130,10 @@ Ground-truth map of mapcro's user-facing features, seeded by auditing `web/src/`
 
 | ID | Area | Feature & Entry Flow | Interactive Depth | Last Pass | Automated Tests | Issues / Notes |
 |---|---|---|---|---|---|---|
-| FM-110 | Collab | Join card (`JoinCard.tsx`): display name entry, seat persistence, presence list (`Presence.tsx`) | `auto-only` | — | `e2e/presence.spec.ts`, `e2e/board.spec.ts` | |
+| FM-110 | Collab | Join card (`JoinCard.tsx`): display name entry, seat persistence, presence list (`Presence.tsx`) | `smoke` | Pass 001 (2026-11-21, 8c6ec5e) | `e2e/presence.spec.ts`, `e2e/board.spec.ts` | 3 isolated contexts joined cleanly in Pass 001 |
 | FM-111 | Collab | Two-user real-time sync: tokens, strokes, objectives, scenes, notes converge across peers | `auto-only` | — | `e2e/board.spec.ts`, `e2e/playtest.spec.ts`, `test/session.test.ts`, `test/soak-regressions.test.ts` | |
-| FM-112 | Collab | Follow mode: follow presenter across scene, viewport, playback clock, jumps, and every view-state key | `auto-only` | — | `e2e/follow-matrix.spec.ts`, `e2e/player-follow-view.spec.ts`, `e2e/player-follow-jump.spec.ts`, `test/follow.test.ts`, `test/view-state.test.ts` | Fixed reconnect waits (TD-36); follow-matrix runtime (TD-34) |
-| FM-113 | Collab | Undo / Redo (`Ctrl+Z` / `Ctrl+Shift+Z`) in single-user and multi-user sessions | `auto-only` | — | `e2e/board.spec.ts`, `e2e/playtest.spec.ts`, `test/session.test.ts` | Needs deeper interactive multi-user undo testing |
+| FM-112 | Collab | Follow mode: follow presenter across scene, viewport, playback clock, jumps, and every view-state key | `deep` | Pass 001 (2026-11-21, 8c6ec5e) | `e2e/follow-matrix.spec.ts`, `e2e/player-follow-view.spec.ts`, `e2e/player-follow-jump.spec.ts`, `test/follow.test.ts`, `test/view-state.test.ts` | Fixed reconnect waits (TD-36); follow-matrix runtime (TD-34); Pass 001: scrub/vision/zoom/builds/Scene↔Replay mirrored cleanly; Pass 001 #2: tablet Follow button clipped |
+| FM-113 | Collab | Undo / Redo (`Ctrl+Z` / `Ctrl+Shift+Z`) in single-user and multi-user sessions | `smoke` | Pass 001 (2026-11-21, 8c6ec5e) | `e2e/board.spec.ts`, `e2e/playtest.spec.ts`, `test/session.test.ts` | Single-user draw undo/redo verified in Pass 001; needs deeper interactive multi-user undo testing |
 
 ## 13. Sharing, Roles & Board Files
 
@@ -149,7 +149,7 @@ Ground-truth map of mapcro's user-facing features, seeded by auditing `web/src/`
 |---|---|---|---|---|---|---|
 | FM-130 | Phone | Phone portrait layout (`390x844` touch): board chrome, sheets, scene switching, map gestures | `auto-only` | — | `e2e/phone.spec.ts`, `e2e/touch.spec.ts`, `e2e/touch-menu.spec.ts`, `test/long-press.test.ts` | |
 | FM-131 | Phone | Phone Player layout: transport grid, speed list (<=480px), events/builds sheets | `auto-only` | — | `e2e/phone-player.spec.ts`, `e2e/player-dock.spec.ts` | Upright phone speed list vs buttons (backlog 2026-11-14) |
-| FM-132 | Tablet | Tablet & narrow desktop layouts (`1024x768` touch, `1024x600`, `800x600`) | `unmapped` | — | — | Narrow desktop `800x600`–`1024x600` has no dedicated e2e; prime candidate for Pass 1 |
+| FM-132 | Tablet | Tablet & narrow desktop layouts (`1024x768` touch, `1024x600`, `800x600`) | `deep` | Pass 001 (2026-11-21, 8c6ec5e) | — (`test-gap` logged in Pass 001) | Pass 001 #1 (`800×600` header overflow clipping `More`), #2 (`1024×768` touch `.p-top` clipping `Follow`), #3 (`1024×600` `Map layers` clip & TopBar z-index clash), #4 (`All builds` collision), #6 (`170×170`/`164×164` squished map), #9 (tablet `Scenes` `▶` overlap) |
 
 ## 15. Offline, Reconnect & Updates
 
@@ -160,10 +160,10 @@ Ground-truth map of mapcro's user-facing features, seeded by auditing `web/src/`
 
 ---
 
-## Summary Counts (2026-11-21 Seed)
+## Summary Counts (Updated 2026-11-21, Pass 001)
 
 - **Total rows:** 72 across 15 domains
-- **`deep`:** 0
-- **`smoke`:** 0
-- **`auto-only`:** 71
-- **`unmapped`:** 1 (`FM-132`: Tablet & narrow desktop layouts)
+- **`deep`:** 10 (`FM-010`, `FM-060`, `FM-061`, `FM-063`, `FM-080`, `FM-081`, `FM-090`, `FM-093`, `FM-112`, `FM-132`)
+- **`smoke`:** 11 (`FM-001`, `FM-011`, `FM-013`, `FM-062`, `FM-065`, `FM-070`, `FM-091`, `FM-092`, `FM-094`, `FM-110`, `FM-113`)
+- **`auto-only`:** 51
+- **`unmapped`:** 0
