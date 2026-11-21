@@ -495,11 +495,8 @@ describe("FNV-1a hashes, collision fallback, over-length caps & byte-cap drop or
       ...base,
       rifts: [{ key: keyOf("koth", 0), start_s: 30, live_s: 30, end_s: 60 }],
       urn: {
-        spawn: [[25, keyOf("urn", 0)]],
-        pickup: [],
-        drop: [],
-        deliver: [],
-        pos: [],
+        spawns: [{ t: 25, key: keyOf("urn", 0) }],
+        at: [],
       },
       powerups: [
         { key: keyOf("powerup", 0), available: [1, 1, 1, 1, 1, 1, 1], stale: [], spawns: [{ t: 0, buff: "gun" }] },
@@ -618,17 +615,17 @@ describe("FNV-1a hashes, collision fallback, over-length caps & byte-cap drop or
     // (`builds: false`, no `has_camps`), legacy ObjectiveState records MUST NOT be dropped.
     const tl = richReplay();
     const rs = roster(tl);
-    // Measure heroes-only legacy size (written=16, builds=false) and give just enough room for heroes-only + sites,
-    // NOT enough for full/trimmed builds (~9KB).
+    // Measure heroes-only legacy size (written=16, builds=false) at t=3 (camp #3 cleared, midboss cleared,
+    // rift #0 active, urn #1 open, powerup #0 down) and give enough room for heroes-only + sites, not builds.
     let m0 = 0;
-    const legacy = matchSceneOps(rs, [], undefined, tl, 5, markers, () => `lg${m0++}`, [], {
+    const legacy = matchSceneOps(rs, [], undefined, tl, 3, markers, () => `lg${m0++}`, [], {
       source: sourceOf(tl),
       written: 16,
       builds: false,
     });
     const legacyBudget = opsBytes(legacy.ops) + 600;
     let n = 0;
-    const fallback = matchSceneOps(rs, [], undefined, tl, 5, markers, () => `fb${n++}`, [], {
+    const fallback = matchSceneOps(rs, [], undefined, tl, 3, markers, () => `fb${n++}`, [], {
       source: sourceOf(tl),
       written: WRITTEN_B,
       txBudget: legacyBudget,
@@ -641,8 +638,8 @@ describe("FNV-1a hashes, collision fallback, over-length caps & byte-cap drop or
     expect(more?.has_builds).toBeUndefined();
     expect(more?.has_camps).toBeUndefined();
     const objs = new Map(fallback.ops.flatMap((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [[o.Create.record.ObjectiveState.key, o.Create.record.ObjectiveState.status]] : [])));
-    // Camp, midboss, active rift, open urn delivery, and down powerup ObjectiveStates MUST all survive!
-    expect(objs.get(keyOf("camp", 0))).toBe("Destroyed");
+    // Camp #3, midboss, active rift, open urn delivery, and down powerup ObjectiveStates MUST all survive!
+    expect(objs.get(keyOf("camp", 3))).toBe("Destroyed");
     expect(objs.get(keyOf("midboss", 0))).toBe("Destroyed");
     expect(objs.get(keyOf("koth", 0))).toBe("Active");
     expect(objs.get(keyOf("urn", 1))).toBe("Active");
@@ -1192,17 +1189,22 @@ describe("Dormant Retake, re-picked slots, TD-145 undo & copy filter", () => {
   });
 
   it("Must-Fix #3: legacy-save ObjectiveState + Group B Retake keeps compatible timers/detail, while contradicting overrides suppress them", () => {
-    const tl = { ...richReplay(), rejuv: [] } as unknown as Timeline;
+    const base = richReplay();
+    const clearedCamp = keyOf("camp", 3);
+    const tl = {
+      ...base,
+      rejuv: [],
+      camps: (base.camps ?? []).map((c) => (c.key === clearedCamp ? { ...c, cleared: [[2, 40]] } : c)),
+    } as unknown as Timeline;
     const rs = roster(tl);
-    // Capture Group B baseline at t=5:
-    // - camp 0 is cleared ([2, 40])
+    // Capture Group B baseline at t=4:
+    // - camp 3 is cleared ([2, 40])
     // - midboss 0 is cleared ([3, 400])
     // - camp 1 is alive
-    // - rift 0 is active ([1, 8])
-    // - powerup 0 is down (available[5]=0, next spawn t=10), powerup 1 is up ("casting")
+    // - rift 0 is active ([2, 5))
+    // - powerup 0 is down (available[4]=0), powerup 1 is up ("casting")
     // - urn delivery is urn 1
-    const cap = captureToScene(tl, 5, WRITTEN_B, rs);
-    const clearedCamp = keyOf("camp", 0);
+    const cap = captureToScene(tl, 4, WRITTEN_B, rs);
     const aliveCamp = keyOf("camp", 1);
     const bossKey = keyOf("midboss", 0);
     const activeRift = keyOf("koth", 0);
