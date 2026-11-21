@@ -52,3 +52,23 @@ or broke against our predictions, and log concrete upgrades here.
    - a `upload` command (to set files on `<input type="file">` for `.dem` and `.mapcro` testing),
    - or a `network` / `ws` inspection helper for offline/reconnect exploration.
    We intentionally kept v1 small and will add these only when Pass Meta-Notes confirm the need.
+
+---
+
+## 2026-11-21 — v1.1: Pass 001 Retro & Driver Upgrades
+
+### Pass 001 evaluation against v1 predictions
+Pass 001 (`passes/2026-11-21-pass-001-player-narrow-tablet.md`, Neon medium on `8c6ec5e`) moved 21 rows (`0 unmapped`, `10 deep`, `11 smoke`) and surfaced **10 findings** (`5 bug-minor`, `1 label-violation`, `3 ux-rough`, `1 test-gap`) with zero console/page errors:
+1. **Prediction #1 (narrow desktop & tablet visual overlaps) — strongly confirmed:** 4 visual/overflow bugs missed by ~570 automated e2e tests (`800×600` header pushing `More` off-screen, `1024×768 --touch` `.p-top` 138 px overflow clipping `Follow`, `1024×600` `Map layers` popover clipping and rendering behind TopBar portraits, `1024×600`/`800×600` `All builds` column collision).
+2. **Prediction #2 (cross-feature state transitions) — confirmed + bonus data bug:** Stale skull recap across large scrubs/Scene flips, stale `Back to replay` toast inside Replay, plus a high-visibility desktop Player data bug in Events `Ults` (raw internal ability slugs + non-ult abilities listed as ults) and a §4b label violation (`title="Parsed from the replay file"`).
+3. **Visual screenshot inspection (`read_file` on `/tmp/qa-pass-001/*.png`)** proved essential — DOM metrics alone would have missed `Map layers` z-index occlusion behind TopBar portraits, `All builds` text collisions, and the tablet `Scenes` drawer overlap.
+
+### Driver upgrades applied (`tools/qa-browser/` v1.1, from Pass 001 Meta-Notes)
+1. **Visible-first locators:** `click`, `rclick`, `dblclick`, `hover`, and `fill` now default to `locator(sel).filter({ visible: true }).first()` (opt-out with `--any`), eliminating repeated 10 s timeouts on hidden desktop/phone duplicate elements.
+2. **Accurate `snapshot` visibility + `<summary>`:** `vis()` now walks ancestors so elements inside closed popovers (`opacity: 0` / `visibility: hidden` on a parent) are no longer falsely listed as visible, and `<summary>` elements (e.g. `Match source ▲`) are included in the interactive list.
+3. **`upload <tab> <selector> <file>` command:** Added ahead of Pass 002 to drive `<input type="file">` for `.mapcro` board file import and `.dem` upload flows without requiring visible inputs.
+
+### Feedback loop triggered
+- Spawned `qa-p1-fixes` (Neon medium) to fix the 5 non-design bugs (`.p-top` tablet overflow, `Map layers` z-index/max-height, `800×600` header overflow, Events `Ults` localization + non-ult filtering, `match-tier` §4b title, stale `Back to replay` toast) with automated e2e/unit regression tests proven to fail before each fix.
+- Routed narrow-desktop sidebar auto-collapse and `All builds` narrow-width redesign (`#4`, `#6`) to approved design models per `ui-design-model.md`.
+- Next: Pass 002 on Sessions, Multi-Tab Follow, Sharing/Roles, Board Files (`.mapcro` export/import), and Multi-User Undo/Redo using v1.1.

@@ -333,13 +333,15 @@ function parseViewport(spec) {
 function buildSnapshotInPage(maxInteractive) {
   const vis = (el) => {
     if (!el || !(el instanceof Element)) return false;
-    const style = window.getComputedStyle(el);
-    if (
-      style.display === "none" ||
-      style.visibility === "hidden" ||
-      Number(style.opacity) === 0
-    ) {
-      return false;
+    for (let cur = el; cur; cur = cur.parentElement) {
+      const style = window.getComputedStyle(cur);
+      if (
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        Number(style.opacity) === 0
+      ) {
+        return false;
+      }
     }
     const r = el.getBoundingClientRect();
     return r.width > 0 && r.height > 0;
@@ -381,6 +383,7 @@ function buildSnapshotInPage(maxInteractive) {
 
   const interSel = [
     "button",
+    "summary",
     "a[href]",
     "input",
     "select",
@@ -404,6 +407,7 @@ function buildSnapshotInPage(maxInteractive) {
     const testid = el.getAttribute("data-testid") || undefined;
     const isNativeInteractive =
       tag === "button" ||
+      tag === "summary" ||
       tag === "a" ||
       tag === "input" ||
       tag === "select" ||
@@ -697,36 +701,55 @@ async function main() {
       case "click": {
         const entry = requireTab(args.tab);
         const sel = normalizeSelector(args.selector);
-        await entry.page.locator(sel).first().click({ timeout });
+        const loc = args.any ? entry.page.locator(sel).first() : entry.page.locator(sel).filter({ visible: true }).first();
+        await loc.click({ timeout });
         return { ok: true, tab: args.tab, action: "click", selector: sel };
       }
 
       case "rclick": {
         const entry = requireTab(args.tab);
         const sel = normalizeSelector(args.selector);
-        await entry.page.locator(sel).first().click({ button: "right", timeout });
+        const loc = args.any ? entry.page.locator(sel).first() : entry.page.locator(sel).filter({ visible: true }).first();
+        await loc.click({ button: "right", timeout });
         return { ok: true, tab: args.tab, action: "rclick", selector: sel };
       }
 
       case "dblclick": {
         const entry = requireTab(args.tab);
         const sel = normalizeSelector(args.selector);
-        await entry.page.locator(sel).first().dblclick({ timeout });
+        const loc = args.any ? entry.page.locator(sel).first() : entry.page.locator(sel).filter({ visible: true }).first();
+        await loc.dblclick({ timeout });
         return { ok: true, tab: args.tab, action: "dblclick", selector: sel };
       }
 
       case "hover": {
         const entry = requireTab(args.tab);
         const sel = normalizeSelector(args.selector);
-        await entry.page.locator(sel).first().hover({ timeout });
+        const loc = args.any ? entry.page.locator(sel).first() : entry.page.locator(sel).filter({ visible: true }).first();
+        await loc.hover({ timeout });
         return { ok: true, tab: args.tab, action: "hover", selector: sel };
       }
 
       case "fill": {
         const entry = requireTab(args.tab);
         const sel = normalizeSelector(args.selector);
-        await entry.page.locator(sel).first().fill(String(args.value ?? ""), { timeout });
+        const loc = args.any ? entry.page.locator(sel).first() : entry.page.locator(sel).filter({ visible: true }).first();
+        await loc.fill(String(args.value ?? ""), { timeout });
         return { ok: true, tab: args.tab, action: "fill", selector: sel };
+      }
+
+      case "upload": {
+        const entry = requireTab(args.tab);
+        const sel = normalizeSelector(args.selector);
+        const files = Array.isArray(args.files) ? args.files : [args.file];
+        const resolved = files.map((f) => {
+          const p = resolve(String(f));
+          if (!existsSync(p)) throw new Error(`upload file not found: ${p}`);
+          return p;
+        });
+        // File inputs are often visually hidden behind styled buttons, so do not require visible.
+        await entry.page.locator(sel).first().setInputFiles(resolved, { timeout });
+        return { ok: true, tab: args.tab, action: "upload", selector: sel, files: resolved };
       }
 
       case "type": {

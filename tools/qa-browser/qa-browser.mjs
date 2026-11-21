@@ -31,8 +31,9 @@ Tabs & navigation (each tab is an isolated BrowserContext):
 
 Inspection & interaction:
   snapshot <tab> [--max N] [--json] [--id <name>]
-  click | rclick | dblclick | hover <tab> <selector> [--id <name>]
-  fill <tab> <selector> <value> [--id <name>]
+  click | rclick | dblclick | hover <tab> <selector> [--any] [--id <name>]
+  fill <tab> <selector> <value> [--any] [--id <name>]
+  upload <tab> <selector> <file> [--id <name>]
   type <tab> <text> [--id <name>]
   press <tab> <key> [--id <name>]
   drag <tab> <x1> <y1> <x2> <y2> [--steps N] [--id <name>]
@@ -71,6 +72,7 @@ function parseArgs(argv) {
     "clear",
     "json",
     "touch",
+    "any",
     "help",
   ]);
 
@@ -407,12 +409,20 @@ async function main() {
       if (rest.length < 2) throw new Error(`${cmd} requires <tab> <selector>`);
       args.tab = rest[0];
       args.selector = rest[1];
+      if (flags.any) args.any = true;
       break;
     case "fill":
       if (rest.length < 3) throw new Error("fill requires <tab> <selector> <value>");
       args.tab = rest[0];
       args.selector = rest[1];
       args.value = rest.slice(2).join(" ");
+      if (flags.any) args.any = true;
+      break;
+    case "upload":
+      if (rest.length < 3) throw new Error("upload requires <tab> <selector> <file>");
+      args.tab = rest[0];
+      args.selector = rest[1];
+      args.files = rest.slice(2);
       break;
     case "type":
       if (rest.length < 2) throw new Error("type requires <tab> <text>");
