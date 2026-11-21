@@ -4,6 +4,61 @@ Ideas the operator wants kept but not built yet. Newest first. Each entry record
 what it is, and what it depends on.
 
 
+## Exploratory QA Pass 003 findings (2026-11-21)
+
+Found during [QA Pass 003](qa/passes/2026-11-21-pass-003-world-import-phone-player.md) on `8c6ec5e`
+(reference replay `129738985`) — **all 4 resolved** on `qa-p3-fixes` (2026-11-21, pending Cycle 2 live check):
+
+- ~~**Player→Scene handoff bar shows `Scene “”` (empty quotes) on unnamed scenes** (`bug-minor`,
+  `FM-065`, `FM-130`).~~ **Fixed** (`fdd49b2`, `Player.tsx` uses `sceneName(s.scene.name, idx)`; regression in `player-handoff.spec.ts`).
+- ~~**Landing `.dem` upload reports `"Invalid id"` instead of `"Not a replay"` for corrupt
+  non-numeric filenames** (`bug-minor`, `FM-071`).~~ **Fixed** (`cb155db`, `Landing.tsx` + `AddGame.tsx` run `looksLikeDemo(f)` before id validation; regression in `upload-ux.spec.ts` + `upload-validation.test.ts`).
+- ~~**Player `host.ts` `take()` silently no-ops when `matchId()` is empty and leaves stale error
+  notice** (`bug-minor`, `FM-071`).~~ **Fixed** (`cb155db`, `host.ts` guards `if (gone || !id) return;` before & after `looksLikeDemo`; regression in `upload-validation.test.ts`).
+- ~~**Phone (`390×844 --touch`) `Vision` `<select>` displays desktop keyboard-shortcut brackets
+  (`Vision: All [3]`)** (`ux-rough`, `FM-131`, `FM-130`).~~ **Fixed** (`fdd49b2`, phone omits `[1]`/`[2]`/`[3]` brackets while desktop keeps them; regression in `phone-player.spec.ts`).
+
+
+## Exploratory QA Pass 002 findings (2026-11-21)
+
+Found during [QA Pass 002](qa/passes/2026-11-21-pass-002-sessions-sharing-editing.md) on `8c6ec5e` —
+**all 4 confirmed findings resolved** on `qa-p2-fixes` + `qa-responsive-design` (2026-11-21, pending Cycle 2 live check):
+
+- ~~**Landing inline board rename navigates into the board on `Enter`** (`bug-minor`, `FM-002`).~~
+  **Working as designed** (verified 2026-11-21 against `Landing.tsx:56-60` and `web/e2e/boards-list.spec.ts:130`):
+  clicking `known-rename` intentionally opens `/b/<id>#<tok>` with `board-title-input` focused because
+  board titles live in CRDT `BoardMeta` (no REST rename endpoint).
+- ~~**`HeroPicker` disabled tiles use sentence-style `title` tooltips violating spec §4b**
+  (`label-violation`, `FM-025`).~~ **Fixed** (`d1ce85d`, `HeroPicker.tsx` uses `title={h.name}`; `labels.test.ts` extended to scan conditional `{...}` expressions).
+- ~~**`ShareDialog` keeps `Copy` active on revoked rows** (`bug-minor`, `FM-120`).~~ **Fixed** (`d1ce85d`, `ShareDialog.tsx` hides `Copy` when `r.link.revoked`; omitting Revoke UI stays per spec §11).
+- ~~**Live-revoked viewer overlay says `"Invalid link"` (contradicting header `"Link revoked"`) and
+  leaves board DOM visible behind the scrim** (`bug-minor`, `FM-121`).~~ **Fixed** (`d1ce85d`, `DeadLink.tsx` shows `"Link revoked"`, `Board.tsx` unmounts board content behind the scrim; regression in `share.spec.ts`).
+- ~~**Phone (`390×844 --touch`) Scene shell layout roughness** (`ux-rough`, `FM-130`).~~ **Fixed** (`ae49ea6`, Argon responsive polish: separated `"Scene 1"` above portraits, centered `.p-tools`, hid redundant `.role-side` suffix when compact header controls appear; regression in `phone.spec.ts`).
+
+
+## Exploratory QA Pass 001 findings (2026-11-21, FM-132 / Player)
+
+Found during [QA Pass 001](qa/passes/2026-11-21-pass-001-player-narrow-tablet.md) on `8c6ec5e`
+(reference replay `129738985`) — **resolved** on `qa-p1-fixes` + `qa-responsive-design` (2026-11-21, pending Cycle 2 live check; 1 low-priority open question left on skull recap across scrubs):
+
+- ~~**Desktop header overflows at `800×600`, clipping `More` (`⋯`) off-screen** (`bug-minor`, `FM-010`,
+  `FM-013`, `FM-132`).~~ **Fixed** (`3a9dec5`, `board.css` `@media (max-width: 1024px)/(max-width: 900px)`; regression in `header.spec.ts`).
+- ~~**Tablet `1024×768 --touch` header (`.p-top`) overflows by 138 px, clipping `Follow`** (`bug-minor`,
+  `FM-132`, `FM-112`).~~ **Fixed** (`686f528`, `.phone.phone-player > .p-top` flex shrinking + landscape compacting; regression in `phone-player.spec.ts`).
+- ~~**`Map layers` popover clips off top of map pane and renders behind TopBar portraits at `1024×600`**
+  (`bug-minor`, `FM-081`, `FM-132`).~~ **Fixed** (`3a9dec5`, `.mapfit:has(.map-layers[open])` `z-index: 30` + dynamic `--pop-max` scroll cap; regression in `player-visible.spec.ts`).
+- ~~**`All builds` overlay collides horizontally and overlaps map controls at `1024×600` and `800×600`**
+  (`bug-minor`, `FM-090`, `FM-132`).~~ **Fixed** (`ae49ea6`, Argon narrow desktop polish: `--map-free-h` ResizeObserver height cap, widened build tracks, `2×2` ability grid `<= 960px`; regression in `player-transport-fit.spec.ts`).
+- ~~**Events sidebar `Ults` shows raw internal ability slugs and includes non-ult abilities**
+  (`bug-minor`, `FM-063`).~~ **Fixed** (`3a9dec5`/`686f528`, `events.ts` `abilityRecord` + `isUltEvent` via pack `buildCatalog`; documented in `docs/research/README.md`; regression in `player-events.test.ts`).
+- ~~**Narrow desktop (`1024×600` / `800×600`) crushes minimap to `170×170 px` / `164×164 px`**
+  (`ux-rough`, `FM-060`, `FM-061`, `FM-132`).~~ **Fixed** (`ae49ea6`, Argon narrowed sidebars/dock padding at `<= 1080px`/`<= 960px`, growing stage width to `592px` / `432px`).
+- ~~**`[data-testid="match-tier"]` `title="Parsed from the replay file"` violates spec §4b**
+  (`label-violation`, `FM-070`).~~ **Fixed** (`3a9dec5`/`91be83f`, removed provenance prose + `OLDER_PARSE`; guarded in `labels.test.ts`, updated `player-tier.spec.ts` + `player-format-refresh.spec.ts`).
+- ~~**Stale `Saved scene · Back to replay` toast inside Replay & tablet `Scenes` drawer overlap** (`FM-065`, `FM-132`).~~ **Fixed** (`3a9dec5` dismisses `"Back to replay"` toast when entering Player, regression in `player-handoff.spec.ts`; `ae49ea6` adds 48 px row height + 4 px gap in `.scenes.drawer`).
+- **Skull death recap remains open across large scrubs and Scene↔Replay flips** (`ux-rough`, `FM-093`, open design question). Left open to confirm whether auto-dismissing a followed skull recap on scrub/mode flip is desired.
+
+
 ## Follow across tabs: what phase 4 left (2026-11-14, from sessions-p4)
 
 - ~~**Someone on another tab whom nobody follows yet can't be followed from where you are.**~~

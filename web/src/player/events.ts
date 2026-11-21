@@ -1,7 +1,7 @@
 // Match events for Player's list (spec §6b): labels, search, filters, where each happened, when
 // what it marks began, and the jump time. Pure.
 
-import type { BuildCatalog } from "../map/pack";
+import type { Art, BuildCatalog, BuildRecord } from "../map/pack";
 import { buffInfo, buffLabel } from "../match/buffs";
 import { type Marker, teamName } from "../map/model";
 import { type Pt, worldToMap } from "../map/transform";
@@ -46,20 +46,57 @@ export function abilityName(raw: string | null | undefined, hero = ""): string {
   return s.replace(/_/g, " ").trim();
 }
 
+/** Internal ability name (lower-cased) → catalog record, built once per catalog. */
+const BY_NAME = new WeakMap<Map<number, BuildRecord>, Map<string, BuildRecord>>();
+
+/** Resolve a replay ability slug (`citadel_ability_unicorn_dazzlingorb`) to its pack record. */
+export function abilityRecord(catalog: BuildCatalog | undefined, raw: string | null | undefined): BuildRecord | undefined {
+  if (!catalog || !raw) return undefined;
+  let index = BY_NAME.get(catalog.records);
+  if (!index) {
+    index = new Map();
+    for (const r of catalog.records.values()) {
+      const k = r.name.toLowerCase();
+      if (r.kind === "ability" || !index.has(k)) index.set(k, r);
+    }
+    BY_NAME.set(catalog.records, index);
+  }
+  return index.get(raw.toLowerCase());
+}
+
+/**
+ * Whether an `ult` event is an actual ultimate cast. Valve's `ImportantAbilityUsed` (msg 365) also
+ * fires for non-ult signature abilities (e.g. Sleep Dagger, Radiant Blast); when a pack catalog is
+ * loaded, exclude known non-ult abilities while failing open without a pack or for unknown slugs.
+ */
+export function isUltEvent(e: MatchEvent, art?: Pick<Art, "buildCatalog" | "heroes">): boolean {
+  if (e.kind !== "ult" || !e.ability || !art?.buildCatalog) return true;
+  const rec = abilityRecord(art.buildCatalog, e.ability);
+  if (!rec) return true;
+  const ultId = e.hero_id != null ? art.heroes?.get(e.hero_id)?.abilities?.[3] : undefined;
+  if (rec.ability_type != null) return rec.ability_type === "ultimate" || (ultId != null && rec.id === ultId);
+  return ultId == null || rec.id === ultId;
+}
+
 const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 
 export interface Named {
   hero: (id: number | null | undefined) => string;
   /** The player's in-game name, if the timeline has one. */
   player: (team: string | null | undefined, slot: number | null | undefined) => string | undefined;
+  /** Localized ability name from the loaded pack, if known. */
+  ability?: (raw: string | null | undefined) => string | undefined;
+  /** Whether an `ult` event is actually an ultimate. */
+  isUlt?: (e: MatchEvent) => boolean;
 }
 
 /** `player` overrides the timeline's own names (Player's host, which hides them while Names is
  * off: then no label, and no search, finds a player by name). */
-export function namesFor(tl: Timeline, heroName: (id: number) => string, player?: Named["player"]): Named {
+export function namesFor(tl: Timeline, heroName: (id: number) => string, player?: Named["player"], art?: Pick<Art, "buildCatalog" | "heroes">): Named {
   return {
     hero: (id) => (id == null ? "" : heroName(id)),
     player: player ?? ((t, s) => tl.players.find((p) => p.team === t && p.slot === s)?.name ?? undefined),
+    ...(art?.buildCatalog ? { ability: (raw) => abilityRecord(art.buildCatalog, raw)?.label, isUlt: (e) => isUltEvent(e, art) } : {}),
   };
 }
 
@@ -94,7 +131,7 @@ export function label(e: MatchEvent, n: Named): string {
       return `Souls swing ${team(e.team)} +${k(e.amount ?? 0)}`;
     case "ult": {
       const who = n.hero(e.hero_id) || "A hero";
-      const what = abilityName(e.ability, n.hero(e.hero_id));
+      const what = n.ability?.(e.ability) || abilityName(e.ability, n.hero(e.hero_id));
       return what ? `${who} ult (${what})` : `${who} ult`;
     }
     case "urn_pickup":
@@ -191,7 +228,7 @@ export function haystack(e: MatchEvent, n: Named): string {
 /** Events matching every word of `query`, in the groups `on` (all when empty). */
 export function search(events: MatchEvent[], n: Named, query: string, on: Set<EventGroup>): MatchEvent[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  return events.filter((e) => (on.size === 0 || on.has(groupOf(e))) && words.every((w) => haystack(e, n).includes(w)));
+  return events.filter((e) => (!n.isUlt || e.kind !== "ult" || n.isUlt(e)) && (on.size === 0 || on.has(groupOf(e))) && words.every((w) => haystack(e, n).includes(w)));
 }
 
 /** A key that names an event across timeline tiers and reloads: when, what, and about whom. */

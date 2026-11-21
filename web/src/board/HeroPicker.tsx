@@ -98,7 +98,7 @@ export function HeroPicker(p: {
                     aria-selected={i() === at()}
                     aria-disabled={p.takenBy.has(h.id)}
                     disabled={p.takenBy.has(h.id)}
-                    title={p.takenBy.has(h.id) ? `${h.name}: ${p.takenBy.get(h.id)} has this hero` : h.name}
+                    title={h.name}
                     data-i={i()}
                     data-hero={h.name}
                     onPointerEnter={() => setAt(i())}

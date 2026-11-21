@@ -122,7 +122,7 @@ test("a stale upload stays, and offers Upload replay file as the way up", async 
   const chip = a.getByTestId("match-tier");
   await expect(chip).toHaveAttribute("data-tier", "replay");
   await expect(chip).toHaveAttribute("data-stale", "true");
-  await expect(chip).toHaveAttribute("title", /An older parse/);
+  await expect(chip).toHaveAttribute("title", "Older parse");
   await expect(a.getByTestId("match-upload")).toHaveText("Upload replay file");
   // At most the first open's lookup: a free read and, with no row, one Steam read.
   expect(hits.filter((h) => h === `/v1/matches/${UP}/salts?disable_steam=true`).length).toBeLessThanOrEqual(1);

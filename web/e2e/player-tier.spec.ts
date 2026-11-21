@@ -104,10 +104,10 @@ test("the chip names the tier; an upload upgrades it in place, keeping the time,
   writeFileSync(join(queue, "outbox", job.replace(/\.dem$/, ".json")), JSON.stringify(replayTimeline()));
   await expect(chip(a)).toHaveText("Full replay");
   await expect(chip(a)).toHaveClass(/\breplay\b/);
-  // At the full replay a press opens nothing (#36): a tag with its hover hint, not a button.
+  // At the full replay a press opens nothing (#36): a tag with no redundant hover prose (spec §4b).
   const tag = await chip(a).evaluate((el) => ({ tag: el.tagName, role: el.getAttribute("role"), tabIndex: el.tabIndex, cursor: getComputedStyle(el).cursor }));
   expect(tag).toEqual({ tag: "SPAN", role: null, tabIndex: -1, cursor: "default" });
-  await expect(chip(a)).toHaveAttribute("title", "Parsed from the replay file");
+  await expect(chip(a)).not.toHaveAttribute("title");
   await chip(a).click();
   await expect(a.getByTestId("tier-why")).toHaveCount(0);
   await expect(a.getByTestId("replay-prompt")).toHaveCount(0);

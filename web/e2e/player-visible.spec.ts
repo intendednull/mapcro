@@ -3,14 +3,16 @@
 // go to shots/ for a person to look at.
 
 import { createServer } from "node:http";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Locator, type Page, expect, test } from "./fixtures";
-import { joinNew, revealControls } from "./helpers";
-import { ROOT, Server, newBoardUrl } from "./server";
+import { joinNew, revealControls, useSummary } from "./helpers";
+import { ROOT, Server, TIMELINE_FORMAT, newBoardUrl } from "./server";
 
 const ID = "130816395";
 const fixture = readFileSync(join(ROOT, `crates/server/tests/fixtures/match-${ID}-trimmed.json`));
+const queue = mkdtempSync(join(tmpdir(), "mapcro-e2e-visible-"));
 let upstream: ReturnType<typeof createServer>;
 let server: Server;
 
@@ -26,7 +28,7 @@ test.beforeAll(async () => {
   });
   await new Promise<void>((ok) => upstream.listen(0, "127.0.0.1", ok));
   const port = (upstream.address() as { port: number }).port;
-  server = new Server(undefined, { MATCH_API_BASE: `http://127.0.0.1:${port}` });
+  server = new Server(undefined, { MATCH_API_BASE: `http://127.0.0.1:${port}`, REPLAY_DIR: queue });
   await server.start();
 });
 test.afterAll(() => {
@@ -153,4 +155,54 @@ test("the jump ring sits on its hero until the event, then on the event's place"
   await scrubTo(a, 381);
   const [r2, h2] = [await centre(ring), await centre(hero)];
   expect(Math.hypot(r2.x - h2.x, r2.y - h2.y)).toBeLessThan(6);
+});
+
+test("Map layers popover stays inside viewport and above TopBar at 1024×600", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const a = await ctx.newPage();
+  await a.goto(await newBoardUrl(server, "Layers narrow"));
+  await a.locator("#join-name").fill("Coach");
+  await a.keyboard.press("Enter");
+  await expect(a.getByTestId("join-card")).toBeHidden();
+  await openMatch(a);
+  await useSummary(a);
+  // Upgrade to a full-replay timeline with every optional layer so all 8 Map layers rows appear.
+  await revealControls(a, "match-file");
+  await a.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]) });
+  let job = "";
+  await expect.poll(() => (job = readdirSync(join(queue, "inbox")).find((f) => f.startsWith(`${ID}-`) && f.endsWith(".dem")) ?? "")).not.toBe("");
+  const range = <T,>(f: (s: number) => T) => Array.from({ length: 61 }, (_, s) => f(s));
+  writeFileSync(join(queue, "outbox", job.replace(/\.dem$/, ".json")), JSON.stringify({
+    match_id: Number(ID), start_time: 0, duration_s: 60, source: "replay", tier: "replay", build: 6839, reanchored: 0, format: TIMELINE_FORMAT,
+    players: (["amber", "sapphire"] as const).flatMap((team) =>
+      Array.from({ length: 6 }, (_, slot) => ({
+        team, slot, hero_id: slot + 1, name: `P${slot}`,
+        x: range(() => (team === "amber" ? -2000 : 2000) + slot * 400),
+        y: range(() => (team === "amber" ? -5000 : 5000)),
+        health: range(() => 100), deaths: [], souls: [[0, 500]],
+        ult: range(() => 0),
+        cc: slot === 0 ? [[10, 20, 14, 6, 100]] : [],
+        height: slot === 0 ? [[10, 1]] : [],
+      })),
+    ),
+    troopers: { every_s: 1, amber: Array(61).fill(""), sapphire: Array(61).fill("") },
+    objectives: [], mid_boss: [], rifts: [], powerups: [], waves: [], events: [],
+  }));
+  await expect(a.getByTestId("match-tier")).toHaveText("Full replay");
+  await a.setViewportSize({ width: 1024, height: 600 });
+  await a.getByTestId("map-layers-toggle").click();
+  const pop = a.locator(".map-layers-pop");
+  await expect(pop).toBeVisible();
+  const box = (await pop.boundingBox())!;
+  expect(box.y, "Map layers popover top >= 0").toBeGreaterThanOrEqual(0);
+  expect(box.y + box.height, "Map layers popover bottom <= 600").toBeLessThanOrEqual(600);
+  const pings = a.getByTestId("pings-toggle");
+  await pings.scrollIntoViewIfNeeded();
+  const hit = await pings.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return { inside: !!top && el.contains(top), topTestId: top?.closest("[data-testid]")?.getAttribute("data-testid") ?? top?.tagName };
+  });
+  expect(hit.inside, `Event pings occluded by ${hit.topTestId}`).toBe(true);
+  await ctx.close();
 });

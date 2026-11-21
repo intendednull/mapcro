@@ -624,13 +624,16 @@ export function createPlayerHost(board: string, token: string, via?: Via, rememb
   };
   /** A replay file picked or dropped for the open match (spec §6b): checked, then uploaded. */
   const take = async (f: File) => {
+    const id = matchId();
+    if (gone || !id) return;
     if (!isDem(f.name)) return setStatus(NOT_DEM);
     // The game names a replay after its match: refuse another match's file.
     const named = idFromName(f.name);
-    const id = matchId();
-    if (named && id && named !== id) return setStatus(`That file is match ${named}, not ${id}`);
+    if (named && named !== id) return setStatus(`That file is match ${named}, not ${id}`);
     setStatus("");
-    if (!(await looksLikeDemo(f))) return refuse("not_a_replay");
+    const ok = await looksLikeDemo(f);
+    if (gone || matchId() !== id) return;
+    if (!ok) return refuse("not_a_replay");
     void upload(f);
   };
   /**

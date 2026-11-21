@@ -3,6 +3,35 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Deployed 8c6ec5e: TD-145, hero undo/redo coherence (2026-11-21, lead 2a42cd74)
+
+- **Prod `web` runs 8c6ec5e** (infra `ed63e47`, bundle `/assets/index-DYYoqXbF.js`). Store unchanged
+  (v14, floor 12; `rows.lock` unchanged). Only `mapcro.service` and `mapcro-replay.service`
+  restarted (+12.5 KiB on `mapcro-web`, zero downtime for other services on `web`).
+- **What a coach gets:** undoing or redoing a hero pick or Retake across another editor's pick,
+  Retake, or scene delete/restore keeps every hero slot whole with its own build, via replica-local
+  `undo_as`/`redo_as` and `decideStep` (`web/src/mapstate/undo.ts`), with no wire or store change.
+  TD-159 and TD-160 are logged for the `undo.ts` import cycle and silent no-op undo drops.
+- **Verification:** prior merge gate (`8d7b834`: 571 e2e, Firefox 51, VM, reader-check) + two-person
+  walkthrough on the clean merge (`c579a20`: all 6 UI sequences `(1)`, `(2)`, `(3)`, `(B1.1)`,
+  `(B1.2)`, `(B1.3)` passed, 0 page errors, screenshot verified).
+- **Live check & stats:** `/healthz` `ok rooms=2`; live browser check (create board, join, pick
+  hero, undo, redo, switch to Player) passed with 0 console/page/network errors; `mapcro-stats` 0
+  5xx, 0 failures, 0 OOM kills, server RSS peak 20.7 MB / anon 9.6 MB, op ack p50 0.50 ms.
+- **In flight (Neon workers):**
+  - **Map-state Phase 5:** plan revised & approved (`fd75dcd` on `map-state-p5`, Neon high
+    `c9f973c3`); R1 (both readers A+B `Ahead`, store v15 additive, TD-108/140/141/163, marker
+    clicks, dormant capture/Retake) is actively finishing on `map-state-p5` (Neon high `7957a71a`,
+    revived after Paseo 0.17 restart at `24ba263`).
+  - **Exploratory QA Loop** (new operator standing process, 2026-11-21): `tools/qa-browser/` v1.1,
+    `docs/qa/README.md`, living `docs/qa/feature-map.md`, and `docs/qa/process-log.md`. Passes 001
+    and 002 explored **48/72 rows** (`25 deep`, `23 smoke`, `24 auto-only`, `0 unmapped`) and found
+    16 issues missed by automated e2e. `qa-p1-fixes` (Neon medium `a86939af`, revived after Paseo
+    0.17 restart) is finishing the 6 non-design fixes + regression tests from Pass 001.
+  - **Next:** merge & gate `qa-p1-fixes`, adversarial review & gate Phase 5 R1, apply `qa-browser`
+    v1.2 + Pass 002 fixes + Pass 003, TD-117 (session Open in app), and GitHub feedback #62
+    (405 blank ability upgrade tiers across 206 heroes; root-caused, awaiting operator OK).
+
 ## Paused (2026-11-19, operator: weekly usage at 97%)
 
 - **Prod runs 04545be** (infra 064667d), store v14 floor 12, healthy. Nothing in flight; no heavy

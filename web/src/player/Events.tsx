@@ -11,7 +11,7 @@ import { slotKey } from "../match/save";
 import { cx } from "../ui/cx";
 import { type MatchEvent, type Timeline, clockLabel } from "../match/timeline";
 import { VIEW_STATE } from "../gen/viewState";
-import { type EventGroup, GROUPS, type Named, eventKey, eventStart, groupOf, labelParts, search, majorPurchases } from "./events";
+import { type EventGroup, GROUPS, type Named, abilityRecord, eventKey, eventStart, groupOf, isUltEvent, labelParts, search, majorPurchases } from "./events";
 
 export function EventsList(p: {
   tl: Timeline;
@@ -47,7 +47,12 @@ export function EventsList(p: {
   // A purchase's item, or an ult's ability, shows its tooltip on hover (GameTooltip.tsx).
   const tips = useTooltips(() => p.art, () => p.tl.build);
   const tipId = (e: MatchEvent): number | undefined => {
-    const id = e.kind === "item_buy" ? Number(e.key) : e.kind === "ult" && e.hero_id != null ? p.art.heroes.get(e.hero_id)?.abilities?.[3] : undefined;
+    const id =
+      e.kind === "item_buy"
+        ? Number(e.key)
+        : e.kind === "ult"
+          ? (abilityRecord(p.art.buildCatalog, e.ability)?.id ?? (e.hero_id != null ? p.art.heroes.get(e.hero_id)?.abilities?.[3] : undefined))
+          : undefined;
     return id && Number.isFinite(id) && tips()?.tip(id) ? id : undefined;
   };
   const query = () => p.query();
@@ -56,7 +61,7 @@ export function EventsList(p: {
   const setLead = (n: number) => p.setLead(n);
   // Ticked events by a stable key, not a position: a replay arriving reorders the list.
   const [picked, setPicked] = createSignal(new Set<string>());
-  const all = createMemo(() => [...(p.tl.events ?? []), ...majorPurchases(p.tl, p.art.buildCatalog)].sort((a, b) => a.t - b.t));
+  const all = createMemo(() => [...(p.tl.events ?? []).filter((e) => isUltEvent(e, p.art)), ...majorPurchases(p.tl, p.art.buildCatalog)].sort((a, b) => a.t - b.t));
   const shown = createMemo(() => search(all().filter(e => e.kind !== "item_buy" || on().has("purchase")), p.searchNames ?? p.names, query(), on()));
   createEffect(() => p.onShown?.(shown()));
   onCleanup(() => p.onShown?.(undefined));

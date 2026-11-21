@@ -87,6 +87,12 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 800 }
     await phone.keyboard.press("Enter");
     await expect(phone.getByTestId("board")).toHaveAttribute("data-layout", "phone");
     await checkPhoneLayout(phone);
+    // Scene title heading stays clear above the first row of hero portraits, and bottom tools are centered.
+    const h1Box = (await phone.locator(".p-title h1").boundingBox())!;
+    const discBox = (await phone.locator(".tb-host .tb-disc").first().boundingBox())!;
+    expect(h1Box.y + h1Box.height).toBeLessThanOrEqual(discBox.y);
+    const toolsBox = (await phone.locator(".p-tools").boundingBox())!;
+    expect(Math.abs(toolsBox.x + toolsBox.width / 2 - viewport.width / 2)).toBeLessThanOrEqual(2);
     await phone.getByTestId("phone-edit").tap();
     await phone.getByTestId("tool-select").tap();
     await phone.getByTestId("map").scrollIntoViewIfNeeded();
@@ -155,6 +161,8 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 344, height: 615 }
     const open = phone.getByTestId("games-open");
     await expect(open).toContainText("Scrim review");
     await expect(open.locator(".games-count")).toHaveText("3");
+    // In a session on a phone, the role chip displays cleanly without ellipsis truncation.
+    expect(await phone.getByTestId("role-chip").evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
     await checkPhoneLayout(phone);
     // The sheet: every tab, the open one marked, each with its details.
     await open.tap();

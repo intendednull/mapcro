@@ -79,6 +79,44 @@ describe("player events", () => {
     expect([...sceneName(astral)].length).toBe(48);
     expect(sceneName("😀".repeat(48))).toBe("😀".repeat(48));
   });
+
+  it("resolves localized ult ability names from the pack catalog and excludes non-ult casts", () => {
+    const catalog = {
+      records: new Map([
+        [101, { id: 101, kind: "ability" as const, name: "citadel_ability_unicorn_dazzlingorb", label: "Shining Wonder", ability_type: "ultimate" }],
+        [102, { id: 102, kind: "ability" as const, name: "citadel_ability_unicorn_radiantblast", label: "Radiant Blast", ability_type: "signature" }],
+        [201, { id: 201, kind: "ability" as const, name: "citadel_ability_priest_weaponswap", label: "Sacred Arsenal", ability_type: "ultimate" }],
+        [301, { id: 301, kind: "ability" as const, name: "citadel_ability_sleep_dagger", label: "Sleep Dagger", ability_type: "signature" }],
+        [302, { id: 302, kind: "ability" as const, name: "citadel_ability_haze_bullet_dance", label: "Bullet Dance", ability_type: "ultimate" }],
+      ]),
+    };
+    const art = {
+      buildCatalog: catalog,
+      heroes: new Map([
+        [10, { id: 10, name: "Celeste", portrait: undefined, topbar: undefined, playable: true, abilities: [102, 103, 104, 101] }],
+        [20, { id: 20, name: "Venator", portrait: undefined, topbar: undefined, playable: true, abilities: [202, 203, 204, 201] }],
+        [2, { id: 2, name: "Haze", portrait: undefined, topbar: undefined, playable: true, abilities: [301, 303, 304, 302] }],
+      ]),
+    };
+    const heroName = (id: number) => art.heroes.get(id)?.name ?? `Hero ${id}`;
+    const named = namesFor(tl, heroName, undefined, art);
+    const ultEvents: MatchEvent[] = [
+      { t: 100, kind: "ult", team: "amber", slot: 0, hero_id: 10, ability: "citadel_ability_unicorn_dazzlingorb" },
+      { t: 110, kind: "ult", team: "amber", slot: 0, hero_id: 10, ability: "citadel_ability_unicorn_radiantblast" },
+      { t: 120, kind: "ult", team: "sapphire", slot: 1, hero_id: 20, ability: "citadel_ability_priest_weaponswap" },
+      { t: 130, kind: "ult", team: "sapphire", slot: 2, hero_id: 2, ability: "citadel_ability_sleep_dagger" },
+      { t: 140, kind: "ult", team: "sapphire", slot: 2, hero_id: 2, ability: "citadel_ability_haze_bullet_dance" },
+      { t: 150, kind: "ult", team: "amber", slot: 3, hero_id: 99, ability: "citadel_ability_unknown_cast" },
+    ];
+    expect(label(ultEvents[0]!, named)).toBe("Celeste ult (Shining Wonder)");
+    expect(label(ultEvents[2]!, named)).toBe("Venator ult (Sacred Arsenal)");
+    expect(label(ultEvents[4]!, named)).toBe("Haze ult (Bullet Dance)");
+    // Unknown ability falls back cleanly to slug formatting.
+    expect(label(ultEvents[5]!, named)).toBe("Hero 99 ult (unknown cast)");
+    // Search matches localized name and excludes non-ult signature casts from Ults.
+    expect(search(ultEvents, named, "shining wonder", new Set(["ult"])).map((e) => e.t)).toEqual([100]);
+    expect(search(ultEvents, named, "", new Set(["ult"])).map((e) => e.t)).toEqual([100, 120, 140, 150]);
+  });
 });
 
 import { matchSceneOps, matchScenesOps, sourceOf } from "../src/match/save";

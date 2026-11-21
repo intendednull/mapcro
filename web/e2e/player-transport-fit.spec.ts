@@ -129,3 +129,69 @@ for (const [w, h] of [[1280, 768], [1440, 900], [1920, 1080]] as const) {
     await check("scene");
   });
 }
+
+test("narrow desktop All builds columns never overlap each other or map controls, and tablet Scenes drawer ▶ stays inside its row", async ({ browser }) => {
+  type Box = { x: number; y: number; width: number; height: number };
+  const box = async (l: import("./fixtures").Locator) => (await l.boundingBox())!;
+  const overlap = (a: Box, b: Box) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+  const rid = "129000099";
+
+  const url = await newBoardUrl(server, "Responsive builds and scenes");
+  const a = await (await browser.newContext({ viewport: { width: 1024, height: 600 } })).newPage();
+  await a.goto(url);
+  await a.locator("#join-name").fill("Coach");
+  await a.keyboard.press("Enter");
+  await expect(a.getByTestId("join-card")).toBeHidden();
+  await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
+  await a.getByTestId("match-id").fill(rid);
+  await a.getByTestId("match-load").click();
+  await a.getByTestId("match-file").setInputFiles({ name: `${rid}.dem`, mimeType: "application/octet-stream", buffer: Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]) });
+  let job = "";
+  await expect.poll(() => (job = readdirSync(join(queue, "inbox")).find((f) => f.startsWith(`${rid}-`) && f.endsWith(".dem")) ?? "")).not.toBe("");
+  writeFileSync(join(queue, "outbox", job.replace(/\.dem$/, ".json")), JSON.stringify({ ...timeline(), match_id: Number(rid) }));
+  await expect(a.getByTestId("match-tier")).toHaveText("Full replay");
+
+  for (const [w, h] of [[1024, 600], [800, 600]] as const) {
+    await a.setViewportSize({ width: w, height: h });
+    await a.locator(".tb-all-builds").click();
+    const cols = a.locator(".tb-host [data-testid=hero-build]:visible");
+    await expect(cols).toHaveCount(12);
+    const colBoxes = (await Promise.all(Array.from({ length: 12 }, (_, i) => box(cols.nth(i))))).sort((p, q) => p.x - q.x);
+    const controls = await box(a.locator(".map-controls"));
+    const allBtn = await box(a.locator(".tb-all-builds"));
+    for (let i = 0; i < colBoxes.length; i++) {
+      const c = colBoxes[i]!;
+      expect(c.y + c.height, `${w}×${h} col ${i} above map-controls`).toBeLessThanOrEqual(controls.y + 0.5);
+      expect(overlap(c, allBtn), `${w}×${h} col ${i} clear of All builds button`).toBe(false);
+      if (i > 0) expect(colBoxes[i - 1]!.x + colBoxes[i - 1]!.width, `${w}×${h} col ${i - 1}..${i} no horizontal overlap`).toBeLessThanOrEqual(c.x + 0.5);
+    }
+    await a.locator(".tb-all-builds").click();
+  }
+
+  // Save a scene from the match so the Scenes drawer has a Play from here (▶) chip on row 2.
+  await a.getByTestId("match-save").click();
+  await a.getByTestId("replay-entry").click();
+
+  const tabletCtx = await browser.newContext({ viewport: { width: 1024, height: 768 }, hasTouch: true, isMobile: true });
+  const tablet = await tabletCtx.newPage();
+  await tablet.goto(url);
+  await tablet.locator("#join-name").fill("Tablet");
+  await tablet.keyboard.press("Enter");
+  await expect(tablet.getByTestId("join-card")).toBeHidden();
+  await tablet.getByTestId("dock-scenes").tap();
+  const rows = tablet.locator(".scenes.drawer [data-testid=scene-card]");
+  await expect(rows).toHaveCount(2);
+  const row0 = await box(rows.nth(0));
+  const row1 = await box(rows.nth(1));
+  const chip = await box(rows.nth(1).getByTestId("scene-chip"));
+  const cloneBtn = await box(rows.nth(1).getByTestId("scene-clone"));
+  expect(row1.y).toBeGreaterThanOrEqual(row0.y + row0.height - 0.5);
+  expect(chip.y).toBeGreaterThanOrEqual(row1.y - 0.5);
+  expect(chip.y + chip.height).toBeLessThanOrEqual(row1.y + row1.height + 0.5);
+  expect(overlap(chip, row0)).toBe(false);
+  expect(overlap(chip, cloneBtn)).toBe(false);
+
+  await tabletCtx.close();
+  await a.context().close();
+});

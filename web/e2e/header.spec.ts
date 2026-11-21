@@ -438,3 +438,19 @@ test("seven people: five avatars and +2 above 1440, three and +4 at 1440", async
   await expect(discs.first()).toHaveClass(/\bring\b/);
   await expect(avatars.getByTestId("avatars-more")).not.toHaveAttribute("tabindex");
 });
+
+test("the header fits at 800×600 with match tier and presenting pill, keeping More on screen", async ({ browser }) => {
+  const url = await newBoardUrl(server, "QA Pass 001");
+  const coach = await enter(browser, url, "Coach A", { width: 1280 });
+  await loadMatch(coach);
+  const viewer = await enter(browser, await viewLink(server.url, url), "Coach B");
+  await follow(viewer, "Coach A");
+  await expect(coach.getByTestId("presenting")).toContainText("1 following");
+  await coach.setViewportSize({ width: 800, height: 600 });
+  const h = await header(coach);
+  expect(h.sw, "header scrollWidth at 800×600").toBeLessThanOrEqual(h.cw);
+  expect(h.doc, "page scrollWidth at 800×600").toBeLessThanOrEqual(h.iw);
+  const more = h.kids.find((k) => k.id === "more");
+  expect(more, "more button visible").toBeDefined();
+  expect(more!.right, "more button right edge within 800 px").toBeLessThanOrEqual(800);
+});
