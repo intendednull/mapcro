@@ -100,13 +100,14 @@ export function Landing() {
     const typed = picked ? "" : matchId().trim().replace(/^0+/, "");
     if (typed && fromFile && typed !== fromFile) return fail(`That file is match ${fromFile}, not ${typed}`);
     const id = typed || fromFile || "";
-    if (!/^[1-9]\d{0,11}$/.test(id)) return fail("Invalid id");
+    if (!f && !/^[1-9]\d{0,11}$/.test(id)) return fail("Invalid id");
     setMatchError("");
     setNotice(undefined);
     setOpening("Opening");
     try {
       if (f && !(await looksLikeDemo(f))) return fail(noticeFor("not_a_replay", "upload")!.text);
       if (left) return;
+      if (!/^[1-9]\d{0,11}$/.test(id)) return fail("Invalid id");
       // A Brawl (or other non-standard) match gets no board (2026-11-08).
       const code = await lookup(id);
       if (left) return;

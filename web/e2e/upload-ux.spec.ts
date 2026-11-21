@@ -214,6 +214,14 @@ test("a .dem dropped anywhere on the landing opens its match; anything else is r
   await expect(p.getByTestId("match-credit")).toHaveText("Replay: uploaded");
 });
 
+test("a corrupt .dem with no match id in its name is refused as not a replay", async ({ browser }) => {
+  const p = await landing(browser);
+  await p.getByTestId("open-match-file").setInputFiles({ name: "bad.dem", mimeType: "application/octet-stream", buffer: Buffer.from("not a demo") });
+  await p.getByTestId("open-match-go").click();
+  await expect(p.getByTestId("open-match-error")).toHaveText("Not a replay. Pick the match's .dem file.");
+  await expect(p).toHaveURL(`${server.url}/`);
+});
+
 test("Player: a replay Valve hasn't got says so, Try again asks again, and a dropped file uploads", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "No replay"), "Coach");
   await a.getByTestId("mode-player").click();
