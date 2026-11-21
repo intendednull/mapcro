@@ -1717,6 +1717,11 @@ fields it changed, with their before and after values:
   edits others made, rather than re-creating it from the client's possibly stale copy.
 - Redo is symmetric. The stack lives per tab, survives reconnect, and is cleared on scene reset or
   when a migration reloads the board.
+- **One exception, a hero's record in a scene that holds its heroes** (map-state spec §4.5,
+  TD-145): its `hero` and build rows must hold or fall together, which a per-field `set_if` can't
+  say. The client re-decides that record's part of the step from its view (the replica's
+  `undo_as`/`redo_as`): left out if someone gave it another hero since, else written whole with
+  plain sets, so in a race the later writer takes the record.
 
 ## 8. Presence
 
