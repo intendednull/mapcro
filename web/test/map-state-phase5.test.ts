@@ -71,6 +71,7 @@ function richReplay(): Timeline {
     });
   return {
     ...base,
+    objectives: base.objectives.map((o) => ({ ...o, key: markerKey(o.key, markers) ?? o.key })),
     players: base.players.map((p, i) => ({
       ...p,
       items: [[0, 9000 + i, 1]],
