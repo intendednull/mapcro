@@ -428,7 +428,7 @@ mod admission_tests {
     //! What a client may submit while a map-state row or record kind is `Ahead` (map-state spec
     //! §4.3). The rest of the authority is covered by the simulation and the server's tests.
     use super::*;
-    use mapcro_schema::{FieldValue, More, MoreValue, Op, Record, RecordId, RowId, SceneState, Status, TxKind, WorldPos, genesis};
+    use mapcro_schema::{FieldValue, LaneKey, More, MoreValue, Op, Record, RecordId, RowId, SceneState, Status, TxKind, Wave, WorldPos, genesis};
 
     const CLIENT: ClientId = ClientId(7);
     const CONN: ConnId = ConnId(1);
@@ -452,10 +452,6 @@ mod admission_tests {
 
     fn scene(doc: &Doc) -> RecordId {
         doc.iter_live().find(|(_, r)| matches!(r, Record::Scene(_))).map(|(id, _)| id).expect("scene")
-    }
-
-    fn wave(doc: &Doc) -> RecordId {
-        doc.iter_live().find(|(_, r)| matches!(r, Record::Wave(_))).map(|(id, _)| id).expect("wave")
     }
 
     fn row(key: &str) -> RowId {
@@ -521,7 +517,7 @@ mod admission_tests {
     #[test]
     fn by_default_a_row_is_admitted_by_its_own_status() {
         let doc = board();
-        let (p, s, w) = (player(&doc), scene(&doc), wave(&doc));
+        let (p, s) = (player(&doc), scene(&doc));
         let mut a = serving(Authority::new(doc));
         // The scene's rows live on its `SceneState`: made first, when this build admits it.
         let state_id = RecordId(900);
@@ -532,14 +528,17 @@ mod admission_tests {
         } else {
             assert_eq!(refused(&mut a, state), Reject::Immutable);
         }
-        let (mut cseq, mut visited) = (1, Vec::new());
+        // A lane's rows live on a `Wave`: create one so `Entity::Lane` rows can be tested too.
+        let wave_id = RecordId(901);
+        logged(&mut a, tx(1, vec![Op::Create { id: wave_id, record: Record::Wave(Wave { scene: s, lane: LaneKey("mid".into()), t: 500, more: More::default() }) }]));
+        let (mut cseq, mut visited) = (2, Vec::new());
         // Every row, on a record of its own entity: the scene's (`has_heroes`) and lanes'
         // (`edges`) as much as a hero's.
         for r in RowId::all() {
             let id = match r.row().entity {
                 mapcro_schema::Entity::Hero => p,
                 mapcro_schema::Entity::Scene => state_id,
-                mapcro_schema::Entity::Lane => w,
+                mapcro_schema::Entity::Lane => wave_id,
                 other => panic!("a row of {other:?}: give this test a record of that entity"),
             };
             let write = tx(cseq, vec![Op::Set { id, value: FieldValue::More { key: r, value: None } }]);
