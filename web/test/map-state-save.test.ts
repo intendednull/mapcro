@@ -246,4 +246,57 @@ describe("Retake", () => {
     expect(heroBuildAt(tl, tl.players[0]!, 2, "metadata").health).toBeNull();
     expect(heroBuildAt(metadata, tl.players[0]!, 2, "replay").health).toBeNull();
   });
+
+  it("characterisation: canRetake matrix over scene source, state watermark, and timeline tier", () => {
+    const metadata = { ...tl, tier: undefined, source: "metadata" } as unknown as Timeline;
+    const states: Array<[string, More | undefined]> = [
+      ["none", undefined],
+      ["empty", {}],
+      ["no-builds", { rows: WRITTEN, has_heroes: true }],
+      ["old-rows", { rows: 11, has_builds: true }],
+      ["v14-full", { rows: 16, has_builds: true, has_heroes: true }],
+      ["v15-retake-rows", { rows: 15, has_builds: true }],
+    ];
+    const sources: Array<[string, { source?: { match_id: number; t: number; tier: string } }]> = [
+      ["no-source", {}],
+      ["other-match", { source: { match_id: 999, t: 2, tier: "replay" } }],
+      ["replay-scene", { source: { match_id: 9, t: 2, tier: "replay" } }],
+      ["meta-scene", { source: { match_id: 9, t: 2, tier: "metadata" } }],
+    ];
+    const timelines: Array<[string, Timeline | undefined]> = [["none", undefined], ["replay", tl], ["metadata", metadata]];
+    const got: Record<string, boolean> = {};
+    for (const [sn, src] of sources) {
+      for (const [stn, st] of states) {
+        for (const [tn, m] of timelines) {
+          got[`${sn}|${stn}|${tn}`] = canRetake(src, st, m);
+        }
+      }
+    }
+    expect(got).toEqual({
+      "no-source|none|none": false, "no-source|none|replay": false, "no-source|none|metadata": false,
+      "no-source|empty|none": false, "no-source|empty|replay": false, "no-source|empty|metadata": false,
+      "no-source|no-builds|none": false, "no-source|no-builds|replay": false, "no-source|no-builds|metadata": false,
+      "no-source|old-rows|none": false, "no-source|old-rows|replay": false, "no-source|old-rows|metadata": false,
+      "no-source|v14-full|none": false, "no-source|v14-full|replay": false, "no-source|v14-full|metadata": false,
+      "no-source|v15-retake-rows|none": false, "no-source|v15-retake-rows|replay": false, "no-source|v15-retake-rows|metadata": false,
+      "other-match|none|none": false, "other-match|none|replay": false, "other-match|none|metadata": false,
+      "other-match|empty|none": false, "other-match|empty|replay": false, "other-match|empty|metadata": false,
+      "other-match|no-builds|none": false, "other-match|no-builds|replay": false, "other-match|no-builds|metadata": false,
+      "other-match|old-rows|none": false, "other-match|old-rows|replay": false, "other-match|old-rows|metadata": false,
+      "other-match|v14-full|none": false, "other-match|v14-full|replay": false, "other-match|v14-full|metadata": false,
+      "other-match|v15-retake-rows|none": false, "other-match|v15-retake-rows|replay": false, "other-match|v15-retake-rows|metadata": false,
+      "replay-scene|none|none": false, "replay-scene|none|replay": true, "replay-scene|none|metadata": false,
+      "replay-scene|empty|none": false, "replay-scene|empty|replay": true, "replay-scene|empty|metadata": false,
+      "replay-scene|no-builds|none": false, "replay-scene|no-builds|replay": true, "replay-scene|no-builds|metadata": false,
+      "replay-scene|old-rows|none": false, "replay-scene|old-rows|replay": true, "replay-scene|old-rows|metadata": false,
+      "replay-scene|v14-full|none": false, "replay-scene|v14-full|replay": false, "replay-scene|v14-full|metadata": false,
+      "replay-scene|v15-retake-rows|none": false, "replay-scene|v15-retake-rows|replay": false, "replay-scene|v15-retake-rows|metadata": false,
+      "meta-scene|none|none": false, "meta-scene|none|replay": true, "meta-scene|none|metadata": true,
+      "meta-scene|empty|none": false, "meta-scene|empty|replay": true, "meta-scene|empty|metadata": true,
+      "meta-scene|no-builds|none": false, "meta-scene|no-builds|replay": true, "meta-scene|no-builds|metadata": true,
+      "meta-scene|old-rows|none": false, "meta-scene|old-rows|replay": true, "meta-scene|old-rows|metadata": true,
+      "meta-scene|v14-full|none": false, "meta-scene|v14-full|replay": false, "meta-scene|v14-full|metadata": false,
+      "meta-scene|v15-retake-rows|none": false, "meta-scene|v15-retake-rows|replay": false, "meta-scene|v15-retake-rows|metadata": false,
+    });
+  });
 });
