@@ -1029,6 +1029,13 @@ kbd {
 /* Phone: a drawer from the left. */
 .drawer-scrim { position: fixed; inset: 0; z-index: 60; background: #0008; }
 .scenes.drawer { position: fixed; z-index: 61; left: 0; top: 0; bottom: 0; width: min(300px, 86vw); background: var(--bg-deep, #0b1714); box-shadow: 8px 0 24px #000a; }
+.scenes.drawer .scene-rows { display: flex; flex-direction: column; gap: 4px; padding: 4px 6px; }
+.scenes.drawer .scene-row {
+  grid-template-columns: 16px auto minmax(0, 1fr) auto auto auto 54px;
+  min-height: 48px; height: auto; padding-top: 2px; padding-bottom: 2px;
+}
+.scenes.drawer .scene-row .row-act { min-width: 24px; min-height: 24px; width: 24px; height: 24px; }
+.scenes.drawer .scene-chip { display: inline-flex; align-items: center; justify-content: center; padding: 0 10px; }
 .p-nav .p-scenes { margin-top: 6px; width: 100%; }
 
 /* A deploy happened under this tab: one line, one button. */
@@ -1076,6 +1083,14 @@ kbd {
 .phone .wordmark { min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; }
 .phone .p-callouts b, .phone .map-layers-pop h3, .phone .pl-tier { font-size: 12px; }
 .phone .p-top { height: auto; min-height: 52px; gap: 6px; padding: 4px 8px; }
+.phone .p-top > .games-open { flex: 0 1 auto; }
+.phone .p-top:has(.games-open, .pl-tier-wrap, [data-testid="feedback-open"]) .viewonly .role-side { display: none; }
+@media (max-width: 420px) {
+  .phone .p-top .viewonly .role-side { display: none; }
+}
+@media (max-width: 360px) {
+  .phone .p-top:has(.games-open) .wordmark span { display: none; }
+}
 .phone .p-top .viewonly, .phone .p-top .save, .phone .ord, .phone .where { font-size: 12px; }
 /* The board's map is square, as everywhere (the art is drawn at 100% x 100%: a 50dvh-tall pane
    stretched it, 3:1 in landscape): the full width, or most of the height where that is less. */
@@ -1085,16 +1100,17 @@ kbd {
 .phone .map-layers-pop { max-width: calc(100vw - 24px); max-height: 45dvh; overflow-y: auto; }
 
 /* Sandbox keeps a read-only roster; edits are on the map behind Edit. */
-.phone .tb-host { height: 100px; --u: .6px !important; }
+.phone .tb-host { height: 116px; margin-top: 8px; --u: .6px !important; }
 .phone .tb-host .tb-bar { position: static; width: 100%; height: 100%; }
-.phone .tb-host .tb-team { position: absolute; width: 100%; height: 48px; left: 0; right: auto; gap: 4px; }
-.phone .tb-host .tb-team.enemy { top: 52px; }
+.phone .tb-host .tb-team { position: absolute; top: 15px; width: 100%; height: 46px; left: 0; right: auto; gap: 4px; }
+.phone .tb-host .tb-team.enemy { top: 68px; }
 .phone .tb-host .tb-player { flex: 1; width: auto; min-width: 0; height: 44px; }
 .phone .tb-host .tb-focus { inset: 0; width: 100%; height: 44px; transform: none; }
 .phone .tb-host .tb-souls, .phone .tb-host .tb-ult, .phone .tb-host .tb-clock,
 .phone .tb-host .tb-scores, .phone .tb-host .tb-vis { display: none; }
 .phone .tb-host .tb-disc, .phone-roster .tb-disc { top: 0; left: 50%; transform: translateX(-50%); font-size: 12px; }
 .phone .tb-host .tb-img, .phone-roster .tb-img { top: -20px; left: 50%; transform: translateX(-50%); }
+.phone .tb-host .tb-img.hero-card { top: -15px; }
 .phone .tb-host .tb-respawn { font-size: 12px; }
 /* The roster's cell with the pack's hero card: the HUD's badge (card over its disc, topbar.css)
    cut at the cell's foot, so the head shows over the souls. A hero whose art is missing keeps its

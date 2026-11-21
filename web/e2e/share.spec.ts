@@ -76,3 +76,46 @@ test("mint, share onward, see the tree, clone", async ({ browser }) => {
   await expect(v.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
   expect(await tokenAt(a, "Amber-0")).toEqual(moved);
 });
+
+test("revoking a live view link hides Copy on the revoked row, tells the viewer Link revoked, and unmounts the board", async ({ browser }) => {
+  const url = await newBoardUrl(server, "Revoke check");
+  const [, board, ownerToken] = /\/b\/([^#]+)#(.+)$/.exec(url)!;
+  const a = await joinNew(browser, url, "Coach");
+
+  // Mint a View only link from ShareDialog so this device keeps its token.
+  await a.getByTestId("share").click();
+  const dlg = a.getByTestId("share-dialog");
+  await dlg.getByLabel("Label").fill("Spectator");
+  await dlg.getByTestId("mint").click();
+  const viewUrl = (await dlg.getByTestId("minted-url").textContent())!;
+  await a.keyboard.press("Escape");
+  await expect(dlg).toHaveCount(0);
+
+  // Viewer opens the board and sees the live map.
+  const v = await joinNew(browser, viewUrl, "Guest");
+  await expect(v.getByTestId("map")).toBeVisible();
+
+  // Revoke the Spectator link via the API while the viewer is connected.
+  const links = (await fetch(`${server.url}/api/boards/${board}/links`, {
+    headers: { authorization: `Bearer ${ownerToken}` },
+  }).then((r) => r.json())) as Array<{ link_id: string; label: string }>;
+  const spec = links.find((l) => l.label === "Spectator")!;
+  const del = await fetch(`${server.url}/api/boards/${board}/links/${spec.link_id}`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${ownerToken}` },
+  });
+  expect(del.status).toBe(204);
+
+  // Viewer sees "Link revoked" (not "Invalid link") and the board DOM is unmounted behind it.
+  await expect(v.getByTestId("dead-link")).toContainText("Link revoked");
+  await expect(v.getByTestId("dead-link")).not.toContainText("Invalid link");
+  await expect(v.getByTestId("save-status")).toHaveText("Link revoked");
+  await expect(v.getByTestId("map")).toHaveCount(0);
+  await expect(v.locator(".main")).toHaveCount(0);
+
+  // Reopening ShareDialog shows the revoked row with no Copy button.
+  await a.getByTestId("share").click();
+  const row = dlg.locator('[data-link="Spectator"]');
+  await expect(row).toHaveClass(/revoked/);
+  await expect(row.getByRole("button", { name: "Copy" })).toHaveCount(0);
+});

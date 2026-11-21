@@ -109,9 +109,10 @@ export async function loadGame(o: { id: string; file?: File | undefined; picked?
   const typed = o.picked ? "" : o.id.trim().replace(/^0+/, "");
   if (typed && fromFile && typed !== fromFile) return { error: `That file is match ${fromFile}, not ${typed}` };
   const id = typed || fromFile || "";
-  if (!/^[1-9]\d{0,11}$/.test(id)) return { error: "Invalid id" };
+  if (!f && !/^[1-9]\d{0,11}$/.test(id)) return { error: "Invalid id" };
   try {
     if (f && !(await looksLikeDemo(f))) return { error: noticeFor("not_a_replay", "upload")!.text };
+    if (!/^[1-9]\d{0,11}$/.test(id)) return { error: "Invalid id" };
     // A Brawl (or other non-standard) match gets no board (2026-11-08).
     const code = await lookup(id);
     if (code && MODE_CODES.has(code)) return { error: noticeFor(code, "load")!.text };
