@@ -1765,7 +1765,7 @@ mod tests {
     /// refuses them from outside.
     #[tokio::test]
     async fn v15_opens_on_v12_to_v14_and_stored_phase5_rows_load() {
-        use mapcro_schema::{FieldValue, LaneKey, More, MoreValue, Op, Record, RecordId, RowId, SceneState, TxKind, Wave, WorldPos};
+        use mapcro_schema::{FieldValue, LaneKey, MoreValue, Op, Record, RecordId, RowId, SceneState, TxKind, Wave, WorldPos};
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("db.sqlite");
         Store::open(&path).expect("create v15");
