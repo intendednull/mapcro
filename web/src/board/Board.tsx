@@ -1322,7 +1322,8 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const mapControls = () => (<MapControls host={player} heals={heals()} crates={crates()}
               toggleHeals={() => player.setShowHeals(!heals())}
               toggleCrates={() => player.setShowCrates(!crates())}
-              flip={flipSide} />);
+              flip={flipSide}
+              phone={phone()} />);
   /** The death recap and the hero panels (#35, #37): placed relative to the pane they are in
    * (panelPlace.ts `movable`, their offset parent). On a desktop that is the board area round
    * the map, so they move anywhere in it (#40); on a phone, the map pane (it has no room

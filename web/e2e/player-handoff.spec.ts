@@ -108,9 +108,10 @@ test("viewing a scene keeps the bar; Back returns to the match where it was", as
   await expect(a.getByTestId("mode-player")).toHaveText("↩ Back to 10:40");
   await expect(strokes(a)).toHaveCount(1); // the scene's drawing
   await a.screenshot({ path: "shots/handoff-scene.png" });
-  // A scene with no source for this match: no Play from here.
+  // A scene with no source for this match: no Play from here, and an unnamed scene falls back to "Scene 1".
   await a.getByTestId("scene-card").nth(0).click();
   await expect(bar(a)).toHaveAttribute("data-state", "scene");
+  await expect(a.getByTestId("pl-scene")).toHaveText("Scene “Scene 1”");
   await expect(a.getByTestId("play-from-here")).toHaveCount(0);
   await a.getByTestId("mode-player").click();
   await expect(bar(a)).toHaveAttribute("data-state", "match");
@@ -196,6 +197,7 @@ test("on a phone the bar shows in both states", async ({ browser }) => {
   await revealControls(phone, "mode-sandbox");
   await phone.getByTestId("mode-sandbox").tap();
   await expect(bar(phone)).toHaveAttribute("data-state", "scene");
+  await expect(phone.getByTestId("pl-scene")).toHaveText("Scene “Scene 1”");
   await expect(phone.getByTestId("mode-player")).toBeVisible();
   await phone.screenshot({ path: "shots/handoff-phone-scene.png" });
   await phone.getByTestId("mode-player").tap();

@@ -8,7 +8,7 @@ import { Dynamic } from "solid-js/web";
 import { cx } from "../ui/cx";
 import { boardKeys } from "../core/keys";
 import type { BoardState } from "../board/state";
-import type { SceneRow } from "../board/scenes";
+import { type SceneRow, sceneName } from "../board/scenes";
 import type { RecordId } from "../gen/RecordId";
 import type { Op } from "../gen/Op";
 import { type MatchEvent, clockLabel, playersAt, tierOf } from "../match/timeline";
@@ -342,7 +342,12 @@ export function Player(p: {
         <Show when={!watching()}>
           <div class="pl-scene-row">
             <span class="pl-scene-label" data-testid="pl-scene">
-              Scene “{p.scene?.scene.name ?? ""}”
+              Scene “{(() => {
+                const s = p.scene;
+                if (!s) return "";
+                const idx = p.state.scenes().findIndex((x) => x.id === s.id);
+                return sceneName(s.scene.name, idx < 0 ? 0 : idx);
+              })()}”
               <Show when={sourceHere()}>{(src) => <> · {clockLabel(src().t)}</>}</Show>
             </span>
             <span class="spacer" />
@@ -647,6 +652,7 @@ export function MapControls(p: {
   host: PlayerHost; heals: boolean; crates: boolean;
   toggleHeals: () => void; toggleCrates: () => void;
   flip: () => void;
+  phone?: boolean;
 }) {
   const h = p.host;
   let layers: HTMLDetailsElement | undefined;
@@ -724,12 +730,12 @@ export function MapControls(p: {
                     class="input pl-vision"
                     data-testid="vision-select"
                     aria-label="Vision"
-                    aria-keyshortcuts="1 2 3"
-                    title="Vision [1 2 3]"
+                    aria-keyshortcuts={p.phone ? undefined : "1 2 3"}
+                    title={p.phone ? undefined : "Vision [1 2 3]"}
                     value={h.vision()}
                     onChange={(e) => h.setVision(e.currentTarget.value as Vision)}
                   >
-                    <For each={VISIONS}>{(v) => <option value={v} aria-keyshortcuts={visionKey(v)}>Vision: {v === "all" ? "All" : teamName(v)} [{visionKey(v)}]</option>}</For>
+                    <For each={VISIONS}>{(v) => <option value={v} aria-keyshortcuts={p.phone ? undefined : visionKey(v)}>Vision: {v === "all" ? "All" : teamName(v)}{p.phone ? "" : ` [${visionKey(v)}]`}</option>}</For>
                   </select>
                   <Show when={h.vision() !== "all"}>
                     <button

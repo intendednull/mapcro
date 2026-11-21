@@ -416,6 +416,8 @@ for (const viewport of [...PHONES, ...TABLETS]) {
     // Map layers and Vision: a sheet from the transport.
     await phone.getByTestId("phone-layers").tap();
     await expect(phone.getByTestId("vision-select")).toBeVisible();
+    await expect(phone.getByTestId("vision-select").locator("option")).toHaveText(["Vision: Hidden King", "Vision: Archmother", "Vision: All"]);
+    await expect(phone.getByTestId("vision-select")).not.toHaveAttribute("title");
     await phone.getByTestId("vision-select").selectOption("amber");
     await expect(phone.getByTestId("vision-mark")).toHaveAttribute("data-team", "amber");
     await phone.getByTestId("troopers-toggle").tap();
