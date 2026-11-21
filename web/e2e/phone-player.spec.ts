@@ -723,6 +723,14 @@ test("tablet 1024×768 touch header fits with presenter active and Full replay l
   await presenter.keyboard.press("Enter");
   await open(presenter, "129007001");
 
+  // A peer becomes a presenter once someone is following them.
+  const follower = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
+  await follower.goto(url);
+  await follower.locator("#join-name").fill("Coach B");
+  await follower.keyboard.press("Enter");
+  await follower.getByTestId("follow-Coach A").click();
+  await expect(follower.getByTestId("follow-chip")).toContainText("Following Coach A");
+
   const ctx = await phoneContext(browser, { width: 1024, height: 768 });
   const tablet = await ctx.newPage();
   await tablet.goto(url);
@@ -740,5 +748,6 @@ test("tablet 1024×768 touch header fits with presenter active and Full replay l
   expect(metrics.btnLeft, "Follow button left >= 0").toBeGreaterThanOrEqual(0);
   expect(metrics.btnRight, "Follow button right <= 1024").toBeLessThanOrEqual(1024);
   await ctx.close();
+  await follower.context().close();
   await presenter.context().close();
 });

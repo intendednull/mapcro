@@ -41,6 +41,7 @@ export const MODULE_STATE: Record<string, Entries> = {
     appSource: ["device", "the Windows app's replay source, asked once"],
     art: ["immutable-cache", "the asset pack's art, loaded once"],
   },
+  "player/events.ts": { BY_NAME: ["immutable-cache", "a per-catalog name index keyed by immutable BuildCatalog record maps (WeakMap; holds nothing past the pack)"] },
   "player/troopers.ts": {
     cache: ["immutable-cache", "a WeakMap keyed by the timeline object: goes with it"],
     pairCache: ["immutable-cache", "a WeakMap keyed by the timeline object: goes with it"],
