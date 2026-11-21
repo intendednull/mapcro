@@ -4,6 +4,30 @@ Ideas the operator wants kept but not built yet. Newest first. Each entry record
 what it is, and what it depends on.
 
 
+## Exploratory QA Pass 003 findings (2026-11-21)
+
+Found during [QA Pass 003](qa/passes/2026-11-21-pass-003-world-import-phone-player.md) on `8c6ec5e`
+(reference replay `129738985`):
+
+- **Player→Scene handoff bar shows `Scene “”` (empty quotes) on unnamed scenes** (`bug-minor`,
+  `FM-065`, `FM-130`). Switching from Player to the default unnamed `Scene 1` on either desktop
+  (`1440×900`) or phone (`390×844`) renders `Scene “”` next to `↩ Back to <time>` instead of falling
+  back to `Scene “Scene 1”` like the stage header and scene tree. Add a regression check in
+  `web/e2e/player-handoff.spec.ts`.
+- **Landing `.dem` upload reports `"Invalid id"` instead of `"Not a replay"` for corrupt
+  non-numeric filenames** (`bug-minor`, `FM-071`). Picking a corrupt `.dem` whose filename lacks a
+  match ID (e.g. `bad.dem`) via `[data-testid="open-match-file"]` and clicking `Open match` checks
+  `idFromName(f.name)` before `looksLikeDemo(f)` in `Landing.tsx`, showing `"Invalid id"` instead of
+  `"Not a replay. Pick the match's .dem file."`.
+- **Player `host.ts` `take()` silently no-ops when `matchId()` is empty and leaves stale error
+  notice** (`bug-minor`, `FM-071`). On a board with no match loaded, `take()` runs `looksLikeDemo(f)`
+  (setting `"Not a replay..."` on invalid input) then calls `upload(f)`, which early-returns on
+  `!matchId()` without clearing `problem` or using `idFromName(f.name)`.
+- **Phone (`390×844 --touch`) `Vision` `<select>` displays desktop keyboard-shortcut brackets
+  (`Vision: All [3]`)** (`ux-rough`, `FM-131`, `FM-130`). Shown in both Phone Player's `Map layers`
+  sheet and Phone Scene mode even though touch controls omit keyboard shortcut hints elsewhere.
+
+
 ## Exploratory QA Pass 002 findings (2026-11-21)
 
 Found during [QA Pass 002](qa/passes/2026-11-21-pass-002-sessions-sharing-editing.md) on `8c6ec5e`:
