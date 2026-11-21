@@ -225,7 +225,7 @@ export function fromScene(src: SceneRecords): MapState {
           }
           return undefined;
         }),
-        shopClosed: memo(() => CAPTURED.camps(snap()) && kind() === "shop" && closedShops().has(key)),
+        shopClosed: memo(() => kind() === "shop" && closedShops().has(key)),
         camp,
         powerup,
         health: memo(() => {
