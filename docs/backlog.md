@@ -4,6 +4,32 @@ Ideas the operator wants kept but not built yet. Newest first. Each entry record
 what it is, and what it depends on.
 
 
+## Exploratory QA Pass 002 findings (2026-11-21)
+
+Found during [QA Pass 002](qa/passes/2026-11-21-pass-002-sessions-sharing-editing.md) on `8c6ec5e`:
+
+- **Landing inline board rename navigates into the board on `Enter`** (`bug-minor`, `FM-002`). On `/`,
+  clicking `[data-testid="known-rename"]`, editing the title, and pressing `Enter` saves the new
+  title AND immediately navigates to `/b/<id>#<tok>`. `Enter` should commit the inline rename and
+  stay on `/`. Add a regression assertion in `web/e2e/boards-list.spec.ts`.
+- **`HeroPicker` disabled tiles use sentence-style `title` tooltips violating spec §4b**
+  (`label-violation`, `FM-025`). Already-picked heroes in `[data-testid="hero-picker"]` carry
+  `title="<Hero>: <Slot> has this hero"` — full prose repeating text already shown on the tile.
+  Remove or shorten and guard in `web/test/labels.test.ts`.
+- **`ShareDialog` lacks a Revoke button for minted links and keeps `Copy` active on revoked rows**
+  (`ux-rough`, `FM-120`). Server `DELETE /api/{boards,sessions}/{id}/links/{link}`, `api.revoke()`,
+  and `.link-row.revoked` CSS exist, but `ShareDialog.tsx` renders an empty `<span />` placeholder
+  in column 3 and still shows an active `Copy` button on revoked rows.
+- **Live-revoked viewer overlay says `"Invalid link"` (contradicting header `"Link revoked"`) and
+  leaves board DOM visible behind the scrim** (`bug-minor`, `FM-121`). On `CloseReason::Revoked`,
+  align `[data-testid="dead-link"]` copy to `"Link revoked"`, clear/unmount sensitive board contents,
+  and add live-revocation e2e coverage in `web/e2e/share.spec.ts`.
+- **Phone (`390×844 --touch`) Scene shell layout roughness** (`ux-rough`, `FM-130`). In a Session on
+  phone, `h1` `"Scene 1"` touches/overlaps the top of the first Amber portrait, the bottom toolbar
+  (`Look`/`Laser`/`Edit`/`Colour`) sits flush-right while `Player` below is centered, and header
+  `role-chip` truncates to `"Can edit..."`. Route visual adjustments to an approved design model.
+
+
 ## Exploratory QA Pass 001 findings (2026-11-21, FM-132 / Player)
 
 Found during [QA Pass 001](qa/passes/2026-11-21-pass-001-player-narrow-tablet.md) on `8c6ec5e`
