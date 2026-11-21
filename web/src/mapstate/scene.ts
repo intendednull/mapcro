@@ -249,7 +249,13 @@ export function fromScene(src: SceneRecords): MapState {
       }, sameValue),
     }));
 
-  const facts: SceneFacts = { urn: urnDecoded, rejuv: rejuvDecoded, deaths: deathsDecoded };
+  const bossKey = memo(() => markerList().find((m) => m.kind === "midboss")?.key);
+  const bossCamp = memo(() => {
+    if (!CAPTURED.camps(snap())) return undefined;
+    const k = bossKey();
+    return k ? (campsMap().get(k) ?? { state: "alive" as const }) : undefined;
+  }, sameValue);
+  const facts: SceneFacts = { urn: urnDecoded, rejuv: rejuvDecoded, bossCamp, deaths: deathsDecoded };
   return { hero, marker, lane, scene: () => facts, has: (f) => CAPTURED[f](snap()) };
 }
 

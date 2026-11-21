@@ -77,12 +77,8 @@ export function PlayerTopBar(p: {
   const rejuv = createMemo(() => p.ms.scene().rejuv() ?? []);
   const held = (t: "Amber" | "Sapphire") => rejuv().find((r) => r.team === t.toLowerCase());
   // The centre timer when no Rejuvenator is held: the Mid-Boss's respawn while it's dead (TD-141:
-  // read from MapState rather than the timeline directly).
-  const bossKey = () => p.art.model.markers.find((m) => m.kind === "midboss")?.key;
-  const centre = createMemo(() => {
-    const k = bossKey();
-    return centreTimer(rejuv(), k ? p.ms.marker(k).camp() : undefined);
-  });
+  // read from MapState's scene().bossCamp() so it works even if the pack lacks a midboss marker).
+  const centre = createMemo(() => centreTimer(rejuv(), p.ms.scene().bossCamp()));
   const respawnAt = () => { const c = centre(); return c.kind === "respawn" ? c.at : undefined; };
   // Changing values ease (spec §4a): the totals count to each new value.
   // Memos: the totals change with a sample, not every frame (#39).

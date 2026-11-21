@@ -22,6 +22,7 @@ import type { Op } from "../src/gen/Op";
 import type { PlayerState } from "../src/gen/PlayerState";
 import type { Record as Rec } from "../src/gen/Record";
 import type { RecordId } from "../src/gen/RecordId";
+import { LIMITS } from "../src/gen/limits";
 import { ROWS, type RowKey } from "../src/gen/rows";
 import { FALLBACK } from "../src/map/fallback-data";
 import { shiftEdges } from "../src/map/lanes";
@@ -29,7 +30,7 @@ import { modelFromFallback } from "../src/map/model";
 import { groupToggleOps, isOn, toggleOps } from "../src/board/objectives";
 import { addSceneOps } from "../src/board/scenes";
 import type { BoardState, Player, Slot } from "../src/board/state";
-import { WRITTEN, captured } from "../src/mapstate/build";
+import { WRITTEN, captured, heroBuildAt, readBuild } from "../src/mapstate/build";
 import {
   MAX_CAMPS, MAX_OBJ_HEALTH, MAX_POWERUPS,
   decodeEdges, decodeUrn, encodeCamps, encodeObjHealth, encodePowerups, encodeRift, encodeUrn, fnv1a32, markerHashIndex,
@@ -41,7 +42,7 @@ import { FEATURES, type MapState, fromTimeline } from "../src/mapstate/state";
 import { decideStep } from "../src/mapstate/undo";
 import { DROP_ORDER, canRetake, matchSceneOps, opsBytes, retakeOps, sourceOf } from "../src/match/save";
 import { type CampAt, type PowerupAt, type Timeline, markerKey, sitesAt, slotKey } from "../src/match/timeline";
-import { tipFacts, urnItemTip } from "../src/player/Camps";
+import { centreTimer, effectiveCamp, effectivePowerup, effectiveRift, effectiveUrn, tipFacts, urnItemTip } from "../src/player/Camps";
 import { markerStates } from "../src/player/markerStates";
 import { keyOf, markers, metadata, replay } from "./support/synthetic-match";
 
@@ -177,6 +178,11 @@ describe("Phase 5 R1: exhaustive §9 round-trip property (Groups A & B)", () => 
 
     // Exhaustive per-row check table: adding a row to ROWS without checking it here is a type error.
     type Ctx = { p: MapState; s: MapState; second: number; cap: ReturnType<typeof captureToScene>; written: number };
+    const decodedBuilds = (cap: ReturnType<typeof captureToScene>, second: number, written: number) =>
+      tl.players.map((pl, idx) => ({
+        got: readBuild(cap.heroes[idx]!.state.more, written, pl.hero_id),
+        want: heroBuildAt(tl, pl, second, cap.tier),
+      }));
     const ROW_CHECKS: { [K in RowKey]-?: (c: Ctx) => void } = {
       hero: ({ p, s }) => {
         for (const sl of rs) {
@@ -197,17 +203,17 @@ describe("Phase 5 R1: exhaustive §9 round-trip property (Groups A & B)", () => 
       build: ({ cap }) => {
         expect(cap.sceneState?.build).toBe(tl.build);
       },
-      items: ({ cap }) => {
-        expect(cap.heroes.some((h) => Array.isArray(h.state.more?.items))).toBe(true);
+      items: ({ cap, second, written }) => {
+        for (const { got, want } of decodedBuilds(cap, second, written)) expect(got.items).toEqual(want.items);
       },
-      abilities: ({ cap }) => {
-        expect(cap.heroes.some((h) => Array.isArray(h.state.more?.abilities))).toBe(true);
+      abilities: ({ cap, second, written }) => {
+        for (const { got, want } of decodedBuilds(cap, second, written)) expect(got.abilities).toEqual(want.abilities);
       },
-      build_order: ({ cap }) => {
-        expect(cap.heroes.some((h) => h.state.more?.build_order === undefined || Array.isArray(h.state.more?.build_order))).toBe(true);
+      build_order: ({ cap, second, written }) => {
+        for (const { got, want } of decodedBuilds(cap, second, written)) expect(got.order).toEqual(want.order);
       },
-      level: ({ cap }) => {
-        expect(cap.heroes.every((h) => h.state.more?.level === undefined || typeof h.state.more?.level === "number")).toBe(true);
+      level: ({ cap, second, written }) => {
+        for (const { got, want } of decodedBuilds(cap, second, written)) expect(got.level).toEqual(want.level);
       },
       health: ({ p, s }) => {
         for (const sl of rs) {
@@ -215,20 +221,20 @@ describe("Phase 5 R1: exhaustive §9 round-trip property (Groups A & B)", () => 
           expect(s.hero(k).health()).toBe(p.hero(k).health());
         }
       },
-      pickups: ({ cap }) => {
-        expect(cap.heroes.some((h) => Array.isArray(h.state.more?.pickups))).toBe(true);
+      pickups: ({ cap, second, written }) => {
+        for (const { got, want } of decodedBuilds(cap, second, written)) expect(got.pickups).toEqual(want.pickups);
       },
-      kills: ({ cap }) => {
-        expect(cap.heroes.every((h) => typeof h.state.more?.kills === "number")).toBe(true);
+      kills: ({ cap, second, written }) => {
+        for (const { got, want } of decodedBuilds(cap, second, written)) expect(got.kills).toEqual(want.kills);
       },
-      deaths: ({ cap }) => {
-        expect(cap.heroes.every((h) => typeof h.state.more?.deaths === "number")).toBe(true);
+      deaths: ({ cap, second, written }) => {
+        for (const { got, want } of decodedBuilds(cap, second, written)) expect(got.deaths).toEqual(want.deaths);
       },
-      assists: ({ cap }) => {
-        expect(cap.heroes.every((h) => h.state.more?.assists === undefined || typeof h.state.more?.assists === "number")).toBe(true);
+      assists: ({ cap, second, written }) => {
+        for (const { got, want } of decodedBuilds(cap, second, written)) expect(got.assists).toEqual(want.assists);
       },
-      max_health: ({ cap }) => {
-        expect(cap.heroes.every((h) => h.state.more?.max_health === undefined || typeof h.state.more?.max_health === "number")).toBe(true);
+      max_health: ({ cap, second, written }) => {
+        for (const { got, want } of decodedBuilds(cap, second, written)) expect(got.max_health).toEqual(want.max_health);
       },
       has_heroes: ({ cap }) => {
         expect(cap.sceneState?.has_heroes).toBe(true);
@@ -480,33 +486,190 @@ describe("FNV-1a hashes, collision fallback, over-length caps & byte-cap drop or
     expect(objOps.length).toBeGreaterThanOrEqual(205);
   });
 
-  it("drops optional features in DROP_ORDER when txBudget is tight, never dropping camps", () => {
+  it("drops optional features one by one in DROP_ORDER when txBudget tightens, never dropping camps", () => {
+    // Build a frame where every feature in DROP_ORDER has non-empty baseline data AND strictly
+    // shrinks tx bytes when dropped (rifts/urn waiting so dropping them adds no ObjectiveState,
+    // powerups up so dropping them adds no ObjectiveState).
+    const base = richReplay();
+    const dropTl = {
+      ...base,
+      rifts: [{ key: keyOf("koth", 0), start_s: 30, live_s: 30, end_s: 60 }],
+      urn: {
+        spawn: [[25, keyOf("urn", 0)]],
+        pickup: [],
+        drop: [],
+        deliver: [],
+        pos: [],
+      },
+      powerups: [
+        { key: keyOf("powerup", 0), available: [1, 1, 1, 1, 1, 1, 1], stale: [], spawns: [{ t: 0, buff: "gun" }] },
+        { key: keyOf("powerup", 1), available: [1, 1, 1, 1, 1, 1, 1], stale: [], spawns: [{ t: 0, buff: "casting" }] },
+      ],
+    } as unknown as Timeline;
+    const rs = roster(dropTl);
+    const flagOf: Record<(typeof DROP_ORDER)[number], keyof More> = {
+      skulls: "has_skulls",
+      movement: "has_movement",
+      cc: "has_cc",
+      rejuv: "has_rejuv",
+      urn: "has_urn",
+      rifts: "has_rifts",
+      powerups: "has_powerups",
+      obj_health: "has_obj_health",
+      lanes: "has_lanes",
+      sight: "has_sight",
+    };
+
+    const saveAt = (txBudget?: number) => {
+      let n = 0;
+      const saved = matchSceneOps(rs, [], undefined, dropTl, 5, markers, () => `d${n++}`, [], {
+        source: sourceOf(dropTl),
+        written: WRITTEN_B,
+        ...(txBudget !== undefined ? { txBudget } : {}),
+      });
+      const st = saved.ops.find((o) => "Create" in o && "SceneState" in o.Create.record);
+      const more = st && "Create" in st && "SceneState" in st.Create.record ? st.Create.record.SceneState.more : undefined;
+      return { saved, more, bytes: opsBytes(saved.ops) };
+    };
+
+    const full = saveAt();
+    expect(full.saved.builds).toBe(true);
+    expect(full.more?.has_camps).toBe(true);
+    for (const f of DROP_ORDER) expect(full.more?.[flagOf[f]], f).toBe(true);
+
+    // Step txBudget down just below each previous step: every single DROP_ORDER transition fires
+    // in exact order, keeping `camps` and decoding all surviving features accurately.
+    let budget = full.bytes;
+    const droppedInOrder: string[] = [];
+    for (let step = 0; step < DROP_ORDER.length; step++) {
+      const next = saveAt(budget - 1);
+      expect(next.saved.builds, `step ${step} (${DROP_ORDER[step]})`).toBe(true);
+      expect(next.more?.has_camps, `step ${step} keeps camps`).toBe(true);
+      const expected = DROP_ORDER[step]!;
+      expect(next.more?.[flagOf[expected]], `step ${step} drops ${expected}`).toBeUndefined();
+      // Every earlier feature stays dropped; every later feature is still captured!
+      for (let i = 0; i <= step; i++) expect(next.more?.[flagOf[DROP_ORDER[i]!]], `dropped ${DROP_ORDER[i]}`).toBeUndefined();
+      for (let i = step + 1; i < DROP_ORDER.length; i++) expect(next.more?.[flagOf[DROP_ORDER[i]!]], `kept ${DROP_ORDER[i]}`).toBe(true);
+      droppedInOrder.push(expected);
+      expect(next.bytes).toBeLessThan(budget);
+      budget = next.bytes;
+    }
+    expect(droppedInOrder).toEqual([...DROP_ORDER]);
+
+    // Verify decoded surviving `camps` after all 10 optional features dropped!
+    const campOnly = saveAt(budget);
+    const heroes = campOnly.saved.ops.flatMap((o) => ("Create" in o && "PlayerState" in o.Create.record ? [{ id: o.Create.id, state: o.Create.record.PlayerState as PlayerState }] : []));
+    const objs = new Map(campOnly.saved.ops.flatMap((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [[o.Create.record.ObjectiveState.key, { status: o.Create.record.ObjectiveState.status }]] : [])));
+    const waves = new Map(campOnly.saved.ops.flatMap((o) => ("Create" in o && "Wave" in o.Create.record ? [[o.Create.record.Wave.lane, { t: o.Create.record.Wave.t, ...(o.Create.record.Wave.more ? { more: o.Create.record.Wave.more } : {}) }]] : [])));
+    createRoot((dispose) => {
+      const p = fromTimeline({ tl: () => dropTl, t: () => 5, markers: () => markers });
+      const s = fromScene({
+        heroes: () => heroes, roster: () => rs, objectives: () => objs, waves: () => waves,
+        state: () => campOnly.more, tier: () => "replay", frame: () => 5, markers: () => markers,
+      });
+      expect(s.has("camps")).toBe(true);
+      expect(s.has("sight")).toBe(false);
+      expect(s.marker(keyOf("camp", 0)).camp()).toEqual(p.marker(keyOf("camp", 0)).camp());
+      expect(s.scene().bossCamp()).toEqual(p.scene().bossCamp());
+      dispose();
+    });
+  });
+
+  it("overflow (>256 potential ops) caps optional site fallbacks so Save still succeeds within max_ops_per_tx", () => {
+    // Must-Fix #5 Hazard A: 250 cleared camps overflows MAX_CAMPS (200) AND 250 + 17 > max_ops_per_tx (256).
+    const tl = richReplay();
+    const fakeMarkers = [
+      ...markers.filter((m) => m.kind === "t1" || m.kind === "t2"),
+      ...Array.from({ length: 250 }, (_, i) => ({
+        key: `camp:neutral:lane1:${i}`,
+        kind: "camp" as const,
+        team: "neutral" as const,
+        lane: "yellow" as const,
+        at: { x: 100 + i, y: 200 },
+      })),
+    ];
+    const bigTl = {
+      ...tl,
+      camps: fakeMarkers
+        .filter((m) => m.kind === "camp")
+        .map((m) => ({ key: m.key, first_s: 0, cleared: [[0, 200]] as Array<[number, number]> })),
+    } as unknown as Timeline;
+    let n = 0;
+    const saved = matchSceneOps(roster(bigTl), [], undefined, bigTl, 6, fakeMarkers, () => `ov${n++}`, [], {
+      source: sourceOf(bigTl),
+      written: WRITTEN_B,
+    });
+    expect(saved.ops.length).toBeGreaterThan(0);
+    expect(saved.ops.length).toBeLessThanOrEqual(LIMITS.max_ops_per_tx);
+    expect(saved.builds).toBe(true);
+    const st = saved.ops.find((o) => "Create" in o && "SceneState" in o.Create.record);
+    expect(st).toBeDefined();
+    const more = st && "Create" in st && "SceneState" in st.Create.record ? st.Create.record.SceneState.more : undefined;
+    expect(more?.has_camps).toBeUndefined();
+    // Mandatory destroyed lane objectives from frame.down MUST still be present!
+    const objKeys = new Set(saved.ops.flatMap((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [o.Create.record.ObjectiveState.key] : [])));
+    expect(objKeys.has(markerKey("walker:amber:lane1:1", fakeMarkers)!)).toBe(true);
+    expect(objKeys.has(markerKey("guardian:sapphire:lane4", fakeMarkers)!)).toBe(true);
+  });
+
+  it("tight txBudget heroes-only fallback preserves legacy ObjectiveState records for camps and sites", () => {
+    // Must-Fix #5 Hazard B: when builds don't fit txBudget and Save falls back to heroes-only
+    // (`builds: false`, no `has_camps`), legacy ObjectiveState records MUST NOT be dropped.
     const tl = richReplay();
     const rs = roster(tl);
-    const full = captureToScene(tl, 5, WRITTEN_B, rs);
-    const fullBytes = opsBytes(full.saved.ops);
-    expect(full.sceneState?.has_skulls).toBe(true);
-    expect(full.sceneState?.has_camps).toBe(true);
-
-    // Tighten budget just below fullBytes: drops `skulls` first, keeps `sight` & `camps`!
+    // Measure heroes-only legacy size (written=16, builds=false) and give just enough room for heroes-only + sites,
+    // NOT enough for full/trimmed builds (~9KB).
+    let m0 = 0;
+    const legacy = matchSceneOps(rs, [], undefined, tl, 5, markers, () => `lg${m0++}`, [], {
+      source: sourceOf(tl),
+      written: 16,
+      builds: false,
+    });
+    const legacyBudget = opsBytes(legacy.ops) + 600;
     let n = 0;
-    const tight = matchSceneOps(rs, [], undefined, tl, 5, markers, () => `d${n++}`, [], {
+    const fallback = matchSceneOps(rs, [], undefined, tl, 5, markers, () => `fb${n++}`, [], {
       source: sourceOf(tl),
       written: WRITTEN_B,
-      txBudget: fullBytes - 10,
+      txBudget: legacyBudget,
     });
-    expect(tight.builds).toBe(true);
-    const st = tight.ops.find((o) => "Create" in o && "SceneState" in o.Create.record);
+    expect(fallback.ops.length).toBeGreaterThan(0);
+    expect(fallback.builds).toBe(false);
+    const st = fallback.ops.find((o) => "Create" in o && "SceneState" in o.Create.record);
     const more = st && "Create" in st && "SceneState" in st.Create.record ? st.Create.record.SceneState.more : undefined;
-    expect(more?.has_skulls).toBeUndefined();
-    expect(more?.skulls).toBeUndefined();
-    expect(more?.has_camps).toBe(true);
-    expect(more?.has_sight).toBe(true);
+    expect(more?.has_heroes).toBe(true);
+    expect(more?.has_builds).toBeUndefined();
+    expect(more?.has_camps).toBeUndefined();
+    const objs = new Map(fallback.ops.flatMap((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [[o.Create.record.ObjectiveState.key, o.Create.record.ObjectiveState.status]] : [])));
+    // Camp, midboss, active rift, open urn delivery, and down powerup ObjectiveStates MUST all survive!
+    expect(objs.get(keyOf("camp", 0))).toBe("Destroyed");
+    expect(objs.get(keyOf("midboss", 0))).toBe("Destroyed");
+    expect(objs.get(keyOf("koth", 0))).toBe("Active");
+    expect(objs.get(keyOf("urn", 1))).toBe("Active");
+    expect(objs.get(keyOf("powerup", 0))).toBe("Destroyed");
+  });
 
-    // Verify DROP_ORDER matches plan §3 verbatim.
-    expect(DROP_ORDER).toEqual([
-      "skulls", "movement", "cc", "rejuv", "urn", "rifts", "powerups", "obj_health", "lanes", "sight",
-    ]);
+  it("covered only omits camps/midboss actually tracked in sec.camps (Mid-Boss kill without camp track keeps ObjectiveState)", () => {
+    // Must-Fix #4: replay has neutral camps (`has_camps = true`) AND a Mid-Boss kill in `tl.mid_boss`,
+    // but NO `mid_boss:` camp track in `tl.camps` -> Mid-Boss must NOT be omitted from ObjectiveState!
+    const base = richReplay();
+    const noBossCamp = {
+      ...base,
+      camps: (base.camps ?? []).filter((c) => !c.key.startsWith("mid_boss:")),
+      mid_boss: [{ destroyed_s: 3 }],
+    } as unknown as Timeline;
+    const cap = captureToScene(noBossCamp, 5, WRITTEN_B);
+    expect(cap.sceneState?.has_camps).toBe(true);
+    expect(cap.objectives.get(keyOf("midboss", 0))?.status).toBe("Destroyed");
+    // Neutral camp that IS tracked in sec.camps is still omitted!
+    expect(cap.objectives.has(keyOf("camp", 0))).toBe(false);
+    createRoot((dispose) => {
+      const s = fromScene({
+        heroes: () => cap.heroes, roster: () => cap.rs, objectives: () => cap.objectives, waves: () => cap.waves,
+        state: () => cap.sceneState, tier: () => cap.tier, frame: () => cap.frameT, markers: () => markers,
+      });
+      expect(s.marker(keyOf("midboss", 0)).down()).toBe(true);
+      dispose();
+    });
   });
 
   it("Group B Save omits ObjectiveState for covered baseline sites but keeps destroyed lane/base objectives", () => {
@@ -974,5 +1137,165 @@ describe("Dormant Retake, re-picked slots, TD-145 undo & copy filter", () => {
     }
     expect(sawRows).toBe(27);
     expect(sawEdges).toBe(true);
+  });
+
+  it("Must-Fix #1: Mid-Boss respawn timer works in MapState even when pack lacks a midboss marker", () => {
+    const tl = { ...richReplay(), rejuv: [] } as unknown as Timeline;
+    const withoutBoss = markers.filter((m) => m.kind !== "midboss");
+    expect(withoutBoss.length).toBeGreaterThan(0);
+    expect(withoutBoss.some((m) => m.kind === "midboss")).toBe(false);
+    createRoot((dispose) => {
+      const ms = fromTimeline({ tl: () => tl, t: () => 5, markers: () => withoutBoss });
+      // Mid-Boss was cleared [3, 400] on richReplay: scene().bossCamp() exposes it without a midboss marker!
+      expect(ms.scene().bossCamp()).toEqual({ state: "cleared", at: 400 });
+      expect(centreTimer(ms.scene().rejuv() ?? [], ms.scene().bossCamp())).toEqual({ kind: "respawn", at: 400 });
+      dispose();
+    });
+  });
+
+  it("Must-Fix #2: R3 Retake never re-writes Group A hero rows for already-captured features (preserves coach sight edits)", () => {
+    const tl = richReplay();
+    const rs = roster(tl);
+    // R2 save (`written = 27`, `has_sight = true`) at t=3 where at least one hero is match-unseen.
+    const cap = captureToScene(tl, 3, WRITTEN_A, rs);
+    expect(cap.sceneState?.has_sight).toBe(true);
+    const unseenIdx = cap.heroes.findIndex((h) => h.state.more?.unseen === true);
+    expect(unseenIdx).toBeGreaterThanOrEqual(0);
+
+    // Coach marks that hero back in vision: clears `unseen` (`have.unseen === undefined`).
+    const editedHeroes: Player[] = cap.heroes.map((h, i) => {
+      if (i !== unseenIdx) return h;
+      const { unseen: _cleared, ...restMore } = h.state.more ?? {};
+      return { id: h.id, state: { ...h.state, more: restMore } };
+    });
+    const waves = new Map(
+      [...cap.waves.entries()].map(([lane, w], idx) => [lane, { id: `w${idx}`, t: w.t, ...(w.more ? { more: w.more } : {}) }]),
+    );
+    const scRow = { id: cap.saved.id, scene: { name: "t3", order: "a0", clock: 3, source: { ...sourceOf(tl), t: 3 }, live: false, parent: null } };
+
+    // Later on R3 (`written = 40`), coach clicks Retake to add Group B.
+    let n = 0;
+    const txs = retakeOps(scRow, { id: "st0", more: cap.sceneState }, editedHeroes, rs, tl, () => `rt3_${n++}`, WRITTEN_B, markers, waves);
+    expect(txs).toHaveLength(1);
+    const ops = txs[0]!;
+    // ZERO Group A hero ops (and specifically NO `unseen` re-write on the coach-edited hero)!
+    const heroOps = ops.filter((o) => "SetIf" in o && o.SetIf.id !== "st0");
+    expect(heroOps).toEqual([]);
+    // Group B flags and rows:40 ARE written to SceneState!
+    const stateKeys = ops.flatMap((o) => ("SetIf" in o && o.SetIf.id === "st0" && "More" in o.SetIf.value ? [o.SetIf.value.More.key] : []));
+    expect(stateKeys).toContain("has_camps");
+    expect(stateKeys).toContain("rows");
+    // Already-captured Group A SceneState flags are NOT re-written.
+    expect(stateKeys).not.toContain("has_sight");
+    expect(stateKeys).not.toContain("has_skulls");
+  });
+
+  it("Must-Fix #3: legacy-save ObjectiveState + Group B Retake keeps compatible timers/detail, while contradicting overrides suppress them", () => {
+    const tl = { ...richReplay(), rejuv: [] } as unknown as Timeline;
+    const rs = roster(tl);
+    // Capture Group B baseline at t=5:
+    // - camp 0 is cleared ([2, 40])
+    // - midboss 0 is cleared ([3, 400])
+    // - camp 1 is alive
+    // - rift 0 is active ([1, 8])
+    // - powerup 0 is down (available[5]=0, next spawn t=10), powerup 1 is up ("casting")
+    // - urn delivery is urn 1
+    const cap = captureToScene(tl, 5, WRITTEN_B, rs);
+    const clearedCamp = keyOf("camp", 0);
+    const aliveCamp = keyOf("camp", 1);
+    const bossKey = keyOf("midboss", 0);
+    const activeRift = keyOf("koth", 0);
+    const waitingRift = keyOf("koth", 1);
+    const downPwr = keyOf("powerup", 0);
+    const upPwr = keyOf("powerup", 1);
+    const openUrn = keyOf("urn", 1);
+    const closedUrn = keyOf("urn", 0);
+
+    // 1. Legacy-save → Group B Retake: scene ALREADY holds matching ObjectiveState records from R1/R2 save!
+    const legacyObjectives = new Map<string, { status: ObjectiveStatus }>([
+      [clearedCamp, { status: "Destroyed" }],
+      [bossKey, { status: "Destroyed" }],
+      [activeRift, { status: "Active" }],
+      [downPwr, { status: "Destroyed" }],
+      [openUrn, { status: "Active" }],
+    ]);
+    createRoot((dispose) => {
+      const s = fromScene({
+        heroes: () => cap.heroes, roster: () => rs, objectives: () => legacyObjectives, waves: () => cap.waves,
+        state: () => cap.sceneState, tier: () => cap.tier, frame: () => cap.frameT, markers: () => markers,
+      });
+      const ms = markerStates({ ms: () => s, player: () => false, health: () => true }, () => markers.map((m) => m.key));
+      const urn = s.scene().urn();
+      // Compatible legacy `Destroyed` on cleared camp & Mid-Boss KEEPS respawn timers + camp state!
+      expect(tipFacts(s, clearedCamp, true, urn).camp).toEqual({ state: "cleared", at: 40 });
+      expect(ms.camp(clearedCamp)).toBe("cleared");
+      expect(tipFacts(s, bossKey, true, urn).camp).toEqual({ state: "cleared", at: 400 });
+      expect(centreTimer([], effectiveCamp(s.marker(bossKey).status(), s.marker(bossKey).camp()))).toEqual({ kind: "respawn", at: 400 });
+      // Compatible legacy `Active` on active rift & open urn KEEPS detail!
+      expect(tipFacts(s, activeRift, true, urn).rift?.state).toBe("active");
+      expect(effectiveRift(s.marker(activeRift).status(), s.marker(activeRift).rift())?.state).toBe("active");
+      expect(tipFacts(s, openUrn, true, urn).urn?.delivery).toBe(openUrn);
+      // Compatible legacy `Destroyed` on down powerup KEEPS respawn timer (and shows no buff icon)!
+      expect(tipFacts(s, downPwr, true, urn).powerup?.state).toBe("down");
+      expect(ms.buff(downPwr)).toBeUndefined();
+      dispose();
+    });
+
+    // 2. Contradicting coach overrides MUST suppress baseline detail!
+    const contradicting = new Map<string, { status: ObjectiveStatus }>([
+      [clearedCamp, { status: "Active" }],   // revived cleared camp -> no respawn timer
+      [bossKey, { status: "Active" }],       // revived cleared Mid-Boss -> no bar or hover respawn timer
+      [aliveCamp, { status: "Destroyed" }],  // manually killed live camp -> no match respawn timer
+      [activeRift, { status: "Destroyed" }], // turned off active rift -> no fade timer / rings
+      [waitingRift, { status: "Active" }],   // forced inactive rift on -> no "opens in" timer
+      [downPwr, { status: "Active" }],       // revived down powerup -> no respawn timer
+      [upPwr, { status: "Destroyed" }],      // killed up powerup -> no buff icon or hover
+      [openUrn, { status: "Destroyed" }],    // turned off open urn -> no delivery tip
+      [closedUrn, { status: "Active" }],     // forced non-delivery urn point on -> no urn tip
+    ]);
+    createRoot((dispose) => {
+      const s = fromScene({
+        heroes: () => cap.heroes, roster: () => rs, objectives: () => contradicting, waves: () => cap.waves,
+        state: () => cap.sceneState, tier: () => cap.tier, frame: () => cap.frameT, markers: () => markers,
+      });
+      const ms = markerStates({ ms: () => s, player: () => false, health: () => true }, () => markers.map((m) => m.key));
+      const urn = s.scene().urn();
+      expect(tipFacts(s, clearedCamp, true, urn).camp).toBeUndefined();
+      expect(ms.camp(clearedCamp)).toBe("alive");
+      expect(tipFacts(s, bossKey, true, urn).camp).toBeUndefined();
+      expect(centreTimer([], effectiveCamp(s.marker(bossKey).status(), s.marker(bossKey).camp()))).toEqual({ kind: "none" });
+      expect(tipFacts(s, aliveCamp, true, urn).camp).toBeUndefined();
+      expect(ms.camp(aliveCamp)).toBeUndefined();
+      expect(tipFacts(s, activeRift, true, urn).rift).toBeUndefined();
+      expect(effectiveRift(s.marker(activeRift).status(), s.marker(activeRift).rift())).toBeUndefined();
+      expect(tipFacts(s, waitingRift, true, urn).rift).toBeUndefined();
+      expect(tipFacts(s, downPwr, true, urn).powerup).toBeUndefined();
+      expect(tipFacts(s, upPwr, true, urn).powerup).toBeUndefined();
+      expect(ms.buff(upPwr)).toBeUndefined();
+      expect(tipFacts(s, openUrn, true, urn).urn).toBeUndefined();
+      expect(effectiveUrn(s.marker(closedUrn).status(), closedUrn, urn)).toBeUndefined();
+      expect(effectivePowerup("Active", { state: "up", buff: "gun" })).toEqual({ state: "up", buff: "gun" });
+      dispose();
+    });
+  });
+
+  it("Should-Fix #3: canRetake returns false when markers are absent and only marker-keyed Group B features are missing", () => {
+    const tl = richReplay();
+    const sc = { source: { ...sourceOf(tl), t: 5 } };
+    // All Group A + rejuv already captured; only marker-keyed Group B features remain missing.
+    const state: More = {
+      rows: 40,
+      has_builds: true,
+      has_heroes: true,
+      has_sight: true,
+      has_cc: true,
+      has_movement: true,
+      has_lanes: true,
+      has_skulls: true,
+      has_rejuv: true,
+    };
+    expect(canRetake(sc, state, tl, WRITTEN_B, undefined)).toBe(false);
+    expect(canRetake(sc, state, tl, WRITTEN_B, [])).toBe(false);
+    expect(canRetake(sc, state, tl, WRITTEN_B, markers)).toBe(true);
   });
 });

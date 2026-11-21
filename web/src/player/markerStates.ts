@@ -6,6 +6,7 @@
 import { createMemo } from "solid-js";
 import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { MapState } from "../mapstate/state";
+import { effectiveCamp, effectivePowerup } from "./Camps";
 
 /** Whether two maps hold the same values by the same keys. */
 export function sameEntries<K, V>(a: ReadonlyMap<K, V>, b: ReadonlyMap<K, V>): boolean {
@@ -59,17 +60,14 @@ export function markerStates(frame: MarkerFrame, keys: () => readonly string[]) 
   const statuses = createMemo(() => new Map(keys().map((k) => [k, statusNow(k)] as const)), undefined, { equals: sameEntries });
   const health = createMemo(() => valuesOf((m) => (frame.health() && !m.down() ? m.health()?.pct : undefined)), undefined, { equals: sameEntries });
   const camps = createMemo(() => valuesOf((m) => {
-    // Status override wins over baseline camp state (plan §4).
     const own = m.status();
-    if (own === "Active") return m.camp() ? "alive" : undefined;
-    if (own !== undefined) return undefined;
-    return m.camp()?.state;
+    const base = m.camp();
+    const eff = effectiveCamp(own, base);
+    if (eff) return eff.state;
+    return own === "Active" && base ? "alive" : undefined;
   }), undefined, { equals: sameEntries });
   const buffs = createMemo(() => valuesOf((m) => {
-    // Status override to Destroyed/Hidden suppresses stale baseline buff icon (plan §4).
-    const own = m.status();
-    if (own === "Destroyed" || own === "Hidden") return undefined;
-    const b = m.powerup();
+    const b = effectivePowerup(m.status(), m.powerup());
     return b?.state === "up" ? b.buff : undefined;
   }), undefined, { equals: sameEntries });
   return {

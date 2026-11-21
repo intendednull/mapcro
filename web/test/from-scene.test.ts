@@ -152,7 +152,7 @@ describe("a scene's MapState", () => {
     expect(values(s.ms.marker("shop:x"))).toEqual(none);
     expect(values(s.ms.lane("lane1"))).toEqual({ split: 420, edges: undefined });
     expect(values(s.ms.lane("lane4"))).toEqual({ split: undefined, edges: undefined });
-    expect(values(s.ms.scene())).toEqual({ urn: undefined, rejuv: undefined, deaths: [] });
+    expect(values(s.ms.scene())).toEqual({ urn: undefined, rejuv: undefined, bossCamp: undefined, deaths: [] });
     expect(FEATURES.filter((f) => s.ms.has(f))).toEqual(["health"]);
     s.setObjectives(new Map([["a", { status: "Active" as ObjectiveStatus }]]));
     s.setWaves(new Map([["lane4", { t: 7 }]]));

@@ -290,7 +290,7 @@ export function matchSceneOps(
   const order = keyBetween(opts.after ?? scenes[i]?.scene.order, scenes[i + 1]?.scene.order);
   const name = opts.name ?? "Match moment";
   const scene = { name: sceneName(name, second), order, clock: second, ...(opts.source ? { source: { ...opts.source, t: second } } : {}) };
-  const ops: Op[] = [{ Create: { id, record: { Scene: scene } } }];
+  const sceneAndHeroes: Op[] = [{ Create: { id, record: { Scene: scene } } }];
   const written = opts.written ?? WRITTEN;
   const usePhase5 = opts.builds !== false && written > 16;
   const fd = usePhase5 ? captureFrameData(tl, second, markers, written) : undefined;
@@ -308,64 +308,89 @@ export function matchSceneOps(
     const respawn = p && p.pos === null && p.respawn != null ? Math.min(MAX_RESPAWN, Math.ceil(p.respawn)) : null;
     const record = { PlayerState: { scene: id, slot: s.id, pos, alive: p ? p.pos !== null : true, placed: !!where, souls: p?.souls ?? null, ult_cooldown: p?.ult ?? null, visible: true, ...(respawn != null ? { respawn } : {}) } as PlayerState };
     heroes.push(record);
-    ops.push({ Create: { id: mint(), record } });
-  }
-  // Save omission rule (plan §4 Q6): when Group B baseline flags are captured, omit ObjectiveState
-  // for covered sites (leaving destroyed lane/base objectives and any colliding/over-length sites).
-  const covered = new Set<string>();
-  if (fd) {
-    for (const mk of markers) {
-      if (fd.available.has("camps") && isCampKind(mk.kind) && !fd.skippedCamps.has(mk.key)) covered.add(mk.key);
-      if (fd.available.has("powerups") && mk.kind === "powerup" && fd.sec.powerups.has(mk.key) && !fd.skippedPowerups.has(mk.key)) covered.add(mk.key);
-      if (fd.available.has("rifts") && mk.kind === "koth") covered.add(mk.key);
-      if (fd.available.has("urn") && mk.kind === "urn") covered.add(mk.key);
-    }
-  }
-  for (const key of frame.down) {
-    if (!covered.has(key)) ops.push({ Create: { id: mint(), record: { ObjectiveState: { scene: id, key, status: "Destroyed" } } } });
-  }
-  // Only what differs from a new scene's defaults: the rift that's up and the open urn point
-  // (both default off), and taken powerups (they default available).
-  for (const [key, status] of frame.sites) {
-    if (covered.has(key)) continue;
-    const off = key.startsWith("rift:") || key.startsWith("urn:");
-    if ((off && status === "Active") || (!off && status === "Destroyed")) ops.push({ Create: { id: mint(), record: { ObjectiveState: { scene: id, key, status } } } });
+    sceneAndHeroes.push({ Create: { id: mint(), record } });
   }
   // A scene has one split per lane: the middle of the zipline colours' gap (spec §6b).
   const waveRecs: Array<{ lane: string; rec: { Wave: { scene: RecordId; lane: string; t: number; more?: More } } }> = [];
   for (const [lane, w] of frame.lanes) {
     if (lanes.length === 0 || lanes.includes(lane)) {
-      const rec: { Wave: { scene: RecordId; lane: string; t: number; more?: More } } = { Wave: { scene: id, lane, t: Math.round((w.amber + w.sapphire) / 2) } };
-      waveRecs.push({ lane, rec });
-      ops.push({ Create: { id: mint(), record: rec } });
+      waveRecs.push({ lane, rec: { Wave: { scene: id, lane, t: Math.round((w.amber + w.sapphire) / 2) } } });
     }
   }
   // A scene that holds its own heroes (spec D2) leaves the board's roster alone: no other
   // scene's heroes change. A build from before `has_heroes` was written set the roster to the
   // match's (`written` below the row: tests of that build pass it).
   const own = writesHeroes(written);
-  if (!own && opts.roster !== false) for (const c of rosterChanges(roster, tl)) ops.push({ Set: { id: c.id, value: { RosterHero: c.hero } } });
+  const rosterOps: Op[] = !own && opts.roster !== false ? rosterChanges(roster, tl).map((c) => ({ Set: { id: c.id, value: { RosterHero: c.hero } } })) : [];
+
+  // Save omission rule (plan §4 Q6): computed against the feature set that ACTUALLY survives into
+  // `SceneState` (so a dropped feature or heroes-only fallback keeps its legacy ObjectiveStates).
+  // Mandatory destroyed objectives (`frame.down`) come first, then optional site fallbacks
+  // (`frame.sites`), capped so an overflow never breaches `max_ops_per_tx` or cancels the save.
+  type ObjEntry = { key: string; status: "Active" | "Destroyed" };
+  const objectivesFor = (active: ReadonlySet<Phase5Feature>, maxOps: number): ObjEntry[] => {
+    const covered = new Set<string>();
+    if (fd) {
+      for (const mk of markers) {
+        if (active.has("camps") && isCampKind(mk.kind) && fd.sec.camps.has(mk.key) && !fd.skippedCamps.has(mk.key)) covered.add(mk.key);
+        if (active.has("powerups") && mk.kind === "powerup" && fd.sec.powerups.has(mk.key) && !fd.skippedPowerups.has(mk.key)) covered.add(mk.key);
+        if (active.has("rifts") && mk.kind === "koth") covered.add(mk.key);
+        if (active.has("urn") && mk.kind === "urn") covered.add(mk.key);
+      }
+    }
+    const out: ObjEntry[] = [];
+    for (const key of frame.down) {
+      if (!covered.has(key) && out.length < maxOps) out.push({ key, status: "Destroyed" });
+    }
+    // Only what differs from a new scene's defaults: the rift that's up and the open urn point
+    // (both default off), and taken powerups/camps (they default available).
+    for (const [key, status] of frame.sites) {
+      if (covered.has(key)) continue;
+      const off = key.startsWith("rift:") || key.startsWith("urn:");
+      if (((off && status === "Active") || (!off && status === "Destroyed")) && out.length < maxOps) {
+        out.push({ key, status });
+      }
+    }
+    return out;
+  };
+
+  const fixedCount = sceneAndHeroes.length + waveRecs.length + rosterOps.length;
+  const maxObjWithState = Math.max(0, LIMITS.max_ops_per_tx - fixedCount - 1);
+  // Placeholder ID for byte sizing before minting: exact length in prod (22 chars), +1 char in tests.
+  const probeId = id.length >= 22 ? id : `${id}0`;
+  const previewOps = (objs: ObjEntry[], stateMore?: More): Op[] => [
+    ...sceneAndHeroes,
+    ...objs.map((o): Op => ({ Create: { id: probeId, record: { ObjectiveState: { scene: id, key: o.key, status: o.status } } } })),
+    ...waveRecs.map(({ rec }): Op => ({ Create: { id: probeId, record: rec } })),
+    ...rosterOps,
+    ...(stateMore !== undefined ? [{ Create: { id: probeId, record: { SceneState: { scene: id, more: stateMore } } } } as Op] : []),
+  ];
+
   // The snapshot (map-state spec §4.4): every hero's build, phase 5 features (behind `written`),
   // and the scene's state, if the whole save still fits one transaction; else optional phase 5
   // features drop in DROP_ORDER before trimming `build_order`, and if still too large the scene
   // is saved without builds (Retake can add them later).
   const txBudget = opts.txBudget ?? (LIMITS.max_tx_bytes - TX_SLACK);
   let stored = false;
-  let stateId: RecordId | undefined;
-  if (opts.builds !== false && ops.length < LIMITS.max_ops_per_tx) {
-    stateId = mint();
+  let finalObjs: ObjEntry[] = objectivesFor(new Set(), Math.max(0, LIMITS.max_ops_per_tx - fixedCount));
+  let finalState: More | undefined;
+  if (opts.builds !== false && fixedCount < LIMITS.max_ops_per_tx) {
     const tier = opts.source ? opts.source.tier : null;
     if (!fd) {
-      const state: Op = { Create: { id: stateId, record: { SceneState: { scene: id, more: captureScene(tl, { written }) } } } };
-      const room = txBudget - opsBytes([...ops, state]);
-      const builds = sceneBuilds(roster, tl, second, room, tier);
-      if (builds) {
-        roster.forEach((s, idx) => {
-          const more = builds.get(s.id);
-          if (more) heroes[idx]!.PlayerState.more = more;
-        });
-        ops.push(state);
-        stored = true;
+      const baseObjs = objectivesFor(new Set(), maxObjWithState);
+      if (fixedCount + baseObjs.length < LIMITS.max_ops_per_tx) {
+        const stateMore = captureScene(tl, { written });
+        const room = txBudget - opsBytes(previewOps(baseObjs, stateMore));
+        const builds = sceneBuilds(roster, tl, second, room, tier);
+        if (builds) {
+          roster.forEach((s, idx) => {
+            const more = builds.get(s.id);
+            if (more) heroes[idx]!.PlayerState.more = more;
+          });
+          finalObjs = baseObjs;
+          finalState = stateMore;
+          stored = true;
+        }
       }
     } else {
       const active = new Set(fd.available);
@@ -376,12 +401,14 @@ export function matchSceneOps(
           else delete rec.Wave.more;
         }
       };
-      const tryFit = (allowTrim: boolean): { builds: Map<RecordId, More>; state: Op } | undefined => {
+      const tryFit = (allowTrim: boolean): { builds: Map<RecordId, More>; stateMore: More; objs: ObjEntry[] } | undefined => {
         syncWaves();
-        const state: Op = { Create: { id: stateId!, record: { SceneState: { scene: id, more: captureScene(tl, { written, ...sceneCaptureFrom(fd, active) }) } } } };
-        const room = txBudget - opsBytes([...ops, state]);
+        const objs = objectivesFor(active, maxObjWithState);
+        if (fixedCount + objs.length >= LIMITS.max_ops_per_tx) return undefined;
+        const stateMore = captureScene(tl, { written, ...sceneCaptureFrom(fd, active) });
+        const room = txBudget - opsBytes(previewOps(objs, stateMore));
         const builds = sceneBuilds(roster, tl, second, room, tier, (slot) => heroExtraFrom(fd, active, slot), allowTrim);
-        return builds ? { builds, state } : undefined;
+        return builds ? { builds, stateMore, objs } : undefined;
       };
       let fitted = tryFit(false);
       if (!fitted) {
@@ -398,7 +425,8 @@ export function matchSceneOps(
           const more = fitted!.builds.get(s.id);
           if (more) heroes[idx]!.PlayerState.more = more;
         });
-        ops.push(fitted.state);
+        finalObjs = fitted.objs;
+        finalState = fitted.stateMore;
         stored = true;
       } else {
         for (const { rec } of waveRecs) delete rec.Wave.more;
@@ -406,25 +434,38 @@ export function matchSceneOps(
     }
   }
   // Without the builds the scene still holds its heroes: each record its match's hero, and a
-  // state that says so. Both or neither, to the byte.
+  // state that says so. Both or neither, to the byte. Uses the empty active set so legacy
+  // camp/site `ObjectiveState` records are preserved when Group B baseline wasn't stored.
   let held = !own || stored;
-  if (!stored && own && ops.length < LIMITS.max_ops_per_tx) {
-    const players = new Map(tl.players.map((p) => [slotKey(p.team, p.slot), p]));
-    const mine = roster.map((s) => players.get(slotKey(s.slot.team, s.slot.slot))?.hero_id);
-    const state: Op = { Create: { id: stateId ?? mint(), record: { SceneState: { scene: id, more: captureScene(tl, { builds: false, written }) } } } };
-    const bytes = mine.reduce((n: number, hero) => n + (hero == null ? 0 : MORE_KEY + moreBytes({ hero })), 0);
-    if (opsBytes([...ops, state]) + bytes <= txBudget) {
-      mine.forEach((hero, idx) => {
-        if (hero != null) heroes[idx]!.PlayerState.more = { hero };
-      });
-      ops.push(state);
-      held = true;
+  if (!stored && own && fixedCount < LIMITS.max_ops_per_tx) {
+    const fallbackObjs = objectivesFor(new Set(), maxObjWithState);
+    if (fixedCount + fallbackObjs.length < LIMITS.max_ops_per_tx) {
+      const players = new Map(tl.players.map((p) => [slotKey(p.team, p.slot), p]));
+      const mine = roster.map((s) => players.get(slotKey(s.slot.team, s.slot.slot))?.hero_id);
+      const stateMore = captureScene(tl, { builds: false, written });
+      const bytes = mine.reduce((n: number, hero) => n + (hero == null ? 0 : MORE_KEY + moreBytes({ hero })), 0);
+      if (opsBytes(previewOps(fallbackObjs, stateMore)) + bytes <= txBudget) {
+        mine.forEach((hero, idx) => {
+          if (hero != null) heroes[idx]!.PlayerState.more = { hero };
+        });
+        finalObjs = fallbackObjs;
+        finalState = stateMore;
+        held = true;
+      }
     }
   }
   // No room even for that (the save's own records fill the transaction; not seen on a real
   // match): no scene at all, rather than one that draws the board roster's heroes, which Save
   // no longer sets. `ops` is then empty and the caller says "Not saved".
   if (!held) return { id, ops: [], order, builds: false };
+  // Assemble in canonical order (Scene, PlayerStates, ObjectiveStates, Waves, RosterHero, SceneState).
+  const ops: Op[] = [
+    ...sceneAndHeroes,
+    ...finalObjs.map((o): Op => ({ Create: { id: mint(), record: { ObjectiveState: { scene: id, key: o.key, status: o.status } } } })),
+    ...waveRecs.map(({ rec }): Op => ({ Create: { id: mint(), record: rec } })),
+    ...rosterOps,
+    ...(finalState !== undefined ? [{ Create: { id: mint(), record: { SceneState: { scene: id, more: finalState } } } } as Op] : []),
+  ];
   return { id, ops, order, builds: stored };
 }
 
@@ -501,7 +542,7 @@ export function canRetake(
   // If any Group A feature or `rejuv` is missing, it always fits (no list cap / hash collision).
   const simple = missing.some((f) => f.feature === "sight" || f.feature === "cc" || f.feature === "movement" || f.feature === "lanes" || f.feature === "skulls" || f.feature === "rejuv");
   if (simple) return true;
-  if (!markers?.length || scene.source?.t == null) return true;
+  if (!markers?.length || scene.source?.t == null) return false;
   // For list-capped / hash-checked Group B features, verify at least one actually fits at `source.t`.
   const fd = captureFrameData(full, Math.floor(scene.source.t), markers, written);
   return missing.some((f) => fd.available.has(f.feature));
@@ -561,7 +602,17 @@ export function retakeOps(
   // SceneState (Group A + Group B + watermark bump).
   const sceneGroup: Op[] = [];
   const fd = written > 16 ? captureFrameData(tl, Math.floor(second), markers ?? [], written) : undefined;
+  // Only backfill Phase 5 features NOT YET CAPTURED (`!c[f.flag]`): never re-write a row belonging
+  // to an already-captured feature whose key a coach legitimately cleared (e.g. marking a hero in vision).
+  const missingFeatures = new Set<Phase5Feature>();
   if (fd) {
+    for (const f of PHASE5_FEATURES) {
+      if (ROWS[f.lastRow].index < written && !c[f.flag] && fd.available.has(f.feature)) {
+        missingFeatures.add(f.feature);
+      }
+    }
+  }
+  if (fd && missingFeatures.size > 0) {
     // Group A hero rows: filled for EVERY matched slot (re-picked or not), never triggering `Set hero`.
     for (const h of heroes) {
       const s = slots.get(h.state.slot);
@@ -569,13 +620,13 @@ export function retakeOps(
       const key = slotKey(s.slot.team, s.slot.slot);
       if (!players.has(key)) continue;
       const have = h.state.more ?? {};
-      const extra = heroExtraFrom(fd, fd.available, key);
+      const extra = heroExtraFrom(fd, missingFeatures, key);
       for (const [k, v] of Object.entries(extra)) {
         if (have[k] === undefined && ROWS[k as RowKey].index < written) sceneGroup.push(absent(h.id, k, v));
       }
     }
     // Group A lane edges: fill absent `edges` on existing Waves, or create Wave on metadata-upgraded scenes.
-    if (fd.available.has("lanes") && !c.lanes) {
+    if (missingFeatures.has("lanes")) {
       for (const [lane, w] of fd.sec.lanes) {
         const edges = fd.laneEdges.get(lane);
         if (!edges) continue;
@@ -589,7 +640,7 @@ export function retakeOps(
     }
   }
   // Never `has_heroes`: a scene saved before it draws the board roster's heroes, and stays so.
-  const want = captureScene(tl, { heroes: false, written, ...(fd ? sceneCaptureFrom(fd, fd.available) : {}) });
+  const want = captureScene(tl, { heroes: false, written, ...(fd ? sceneCaptureFrom(fd, missingFeatures) : {}) });
   if (!state) {
     sceneGroup.push({ Create: { id: mint(), record: { SceneState: { scene: scene.id, more: want } } } });
   } else {

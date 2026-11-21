@@ -6,7 +6,7 @@
 import type { Marker } from "../map/model";
 import {
   type CampAt, type PlayerAt, type PowerupAt, type RejuvNow, type Timeline,
-  campsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, powerupAt, rejuvAt, shopsClosed, sitesAt,
+  campAt, campsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, powerupAt, rejuvAt, shopsClosed, sitesAt,
 } from "../match/timeline";
 import { type CrowdControl, crowdControlAt } from "../player/cc";
 import { movementAt } from "../player/movement";
@@ -34,6 +34,8 @@ export interface SecondPart {
   sites: Map<string, "Active" | "Destroyed">;
   lanes: Map<string, { amber: number; sapphire: number }>;
   camps: Map<string, CampAt>;
+  /** The Mid-Boss's camp state from the timeline, independent of whether the pack has a midboss marker. */
+  bossCamp: CampAt | undefined;
   powerups: Map<string, PowerupAt>;
   /** Replay tier only. */
   health: Map<string, { pct: number; stage?: number }> | undefined;
@@ -76,11 +78,13 @@ export function secondPart(m: Timeline, t: number, markers: FrameMarkers): Secon
     if (v && key) powerups.set(key, v);
   }
   const saved = savedPart(m, t, markers);
+  const boss = m.camps?.find((c) => c.key.startsWith("mid_boss:"));
   return {
     ...saved,
     movement: m.players.map((p) => (replay ? movementAt(p, t) : undefined)),
     shops: shopsClosed(saved.down, markers),
     camps: byMarker(campsAt(m, t), markers),
+    bossCamp: boss ? campAt(boss, t) : undefined,
     powerups,
     health: replay ? byMarker(objectiveHealthAt(m, t), markers) : undefined,
     rejuv: m.rejuv ? rejuvAt(m, t) : undefined,

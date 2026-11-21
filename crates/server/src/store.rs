@@ -214,7 +214,7 @@ const HEROES_WRITER: i64 = 14;
 
 /// The reader of map-state phase 5 (rows 16–39, Groups A & B; docs/specs/map-state-phase5-plan.md).
 /// All 24 rows are `Ahead` here, so v12–v14 servers still read everything in the database:
-/// additive (floor stays 12). R2 (v16) and R3 (v17) will set their floor to this version (15).
+/// additive (floor stays 12). R2 (v16) sets floor 15; R3 (v17) sets floor 16.
 const PHASE5_READER: i64 = 15;
 
 /// What the step from `from` to `from + 1` asks of an older server (spec §9, docs/deploy.md

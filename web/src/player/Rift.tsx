@@ -9,6 +9,7 @@ import { HUD_PX } from "../map/model";
 import { mapToView } from "../map/transform";
 import { easedNumber } from "../board/smooth";
 import type { TokenFrame } from "../board/Tokens";
+import { effectiveRift } from "./Camps";
 
 /** The rift's marker box (`.capture_point`, 32 × 32 HUD px); the rings sit just outside its icon. */
 const RIFT_HUD_PX = 32;
@@ -24,10 +25,9 @@ export function RiftRings(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; f
     for (const m of p.art.model.markers) {
       if (m.kind !== "koth") continue;
       const mk = p.frame.ms().marker(m.key);
-      // Status override wins: a rift the coach turned off draws no rings (plan §2, §4).
-      const own = mk.status();
-      if (own !== undefined && own !== "Active") continue;
-      const r = mk.rift();
+      // Contradicting status override wins: a rift the coach turned off draws no rings (plan §2, §4);
+      // matching `Active` from a legacy save → Retake keeps its rings.
+      const r = effectiveRift(mk.status(), mk.rift());
       if (r?.state === "active" && r.capture) return { key: m.key, at: m.at, capture: r.capture };
     }
     return undefined;

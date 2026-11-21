@@ -40,7 +40,7 @@ import { holdsBuild, sceneBuildView } from "../mapstate/buildView";
 import { canRetake, retakeOps, slotKey } from "../match/save";
 import { ladderKeyFor, loadStatTable, tableKeyFor, type LoadedTable } from "../match/stats";
 import { BuildColumn } from "../player/BuildColumn";
-import { centreTimer } from "../player/Camps";
+import { centreTimer, effectiveCamp } from "../player/Camps";
 import type { PlayerHost } from "../player/host";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { buildPanels } from "./buildPanels";
@@ -174,10 +174,11 @@ export function TopBar(p: {
   const bossKey = () => p.art.model.markers.find((m) => m.kind === "midboss")?.key;
   const centre = createMemo(() => {
     const k = bossKey();
-    const boss = k ? p.ms.marker(k) : undefined;
-    // Status override wins over baseline Mid-Boss respawn timer (plan §2, §4).
-    const camp = boss && boss.status() === undefined ? boss.camp() : undefined;
-    return centreTimer(rejuv(), camp);
+    const base = k ? p.ms.marker(k).camp() : p.ms.scene().bossCamp();
+    const own = k ? p.ms.marker(k).status() : undefined;
+    // Contradicting status override (e.g. reviving Mid-Boss) wins over baseline respawn timer (plan §2, §4);
+    // matching `Destroyed` from a legacy save → Retake keeps the baseline respawn timer.
+    return centreTimer(rejuv(), effectiveCamp(own, base));
   });
   const respawnAt = () => { const c = centre(); return c.kind === "respawn" ? c.at : undefined; };
   // Retake (spec D10): what this scene didn't capture, from its own moment of the open match.

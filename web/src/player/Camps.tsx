@@ -6,6 +6,7 @@
 // one, or tapping it on the phone, shows it; the map never stops a pointer for it.
 
 import { Show, createMemo, onCleanup, onMount } from "solid-js";
+import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { Art } from "../map/pack";
 import { HUD_MAP_PX, type Marker, type OptionalFurniture, optionalShown, teamName } from "../map/model";
 import { type Pt, mapToView, worldToView } from "../map/transform";
@@ -103,18 +104,50 @@ export interface TipFacts {
   urn?: UrnNow | undefined;
 }
 
-/** Marker `key`'s facts in the frame. Status override wins over baseline timers/buffs/rifts (plan §4). */
+/** Baseline camp compatible with a scene's stored `ObjectiveState`: suppress only when `own`
+ * contradicts the baseline (revived cleared camp or manually killed live camp). Keeps matching
+ * respawn timers on legacy-save → Retake scenes where `ObjectiveState: Destroyed` was already stored. */
+export function effectiveCamp(own: ObjectiveStatus | undefined, base: CampAt | undefined): CampAt | undefined {
+  if (!base || own === undefined) return base;
+  if (own === "Active") return base.state === "alive" ? base : undefined;
+  if (own === "Destroyed") return base.state !== "alive" ? base : undefined;
+  return undefined;
+}
+
+/** Baseline rift compatible with a scene's stored `ObjectiveState`. */
+export function effectiveRift(own: ObjectiveStatus | undefined, base: RiftAt | undefined): RiftAt | undefined {
+  if (!base || own === undefined) return base;
+  if (own === "Active") return base.state === "active" ? base : undefined;
+  return undefined;
+}
+
+/** Baseline powerup compatible with a scene's stored `ObjectiveState`. */
+export function effectivePowerup(own: ObjectiveStatus | undefined, base: PowerupAt | undefined): PowerupAt | undefined {
+  if (!base || own === undefined) return base;
+  if (own === "Active") return base.state === "up" ? base : undefined;
+  if (own === "Destroyed") return base.state === "down" ? base : undefined;
+  return undefined;
+}
+
+/** Baseline urn detail on an `urn:*` marker compatible with a scene's stored `ObjectiveState`. */
+export function effectiveUrn(own: ObjectiveStatus | undefined, key: string, urn: UrnNow | undefined): UrnNow | undefined {
+  if (!urn || own === undefined || !key.startsWith("urn:")) return urn;
+  if (own === "Active") return urn.delivery === key ? urn : undefined;
+  return undefined;
+}
+
+/** Marker `key`'s facts in the frame. Contradicting status overrides win over baseline timers/buffs/rifts (plan §4). */
 export function tipFacts(ms: MapState, key: string, health: boolean, urn: UrnNow | undefined): TipFacts {
   const m = ms.marker(key);
   const own = m.status();
   const down = own !== undefined ? own === "Destroyed" : m.down();
   return {
     down,
-    camp: own !== undefined ? undefined : m.camp(),
+    camp: effectiveCamp(own, m.camp()),
     health: health && !down ? m.health()?.pct : undefined,
-    rift: own !== undefined ? undefined : m.rift(),
-    powerup: own !== undefined ? undefined : m.powerup(),
-    urn: own !== undefined && key.startsWith("urn:") ? undefined : urn,
+    rift: effectiveRift(own, m.rift()),
+    powerup: effectivePowerup(own, m.powerup()),
+    urn: effectiveUrn(own, key, urn),
   };
 }
 

@@ -85,6 +85,8 @@ export interface SceneFacts {
   urn: Accessor<UrnNow | undefined>;
   /** The Rejuvenators held (`undefined`: no data). */
   rejuv: Accessor<RejuvNow[] | undefined>;
+  /** The Mid-Boss's camp state, independent of whether the pack has a midboss marker. */
+  bossCamp: Accessor<CampAt | undefined>;
   /** Deaths in the last seconds, every team's. */
   deaths: Accessor<Death[]>;
 }
@@ -257,6 +259,7 @@ export function fromTimeline(src: StateSource): PlayerState {
       return m && urnOf(m, src.t(), src.markers());
     }, sameValue),
     rejuv: field(() => sec()?.rejuv, sameValue),
+    bossCamp: field(() => sec()?.bossCamp, sameValue),
     deaths: field(() => {
       const m = src.tl();
       if (!m) return [];
