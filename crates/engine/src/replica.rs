@@ -1,5 +1,5 @@
 use crate::protocol::{ClientMsg, Hello, ServerMsg};
-use mapcro_schema::{ClientId, Doc, Op, Reject, Tx, TxKind, apply_tx, apply_tx_with_inverse};
+use mapcro_schema::{ClientId, Doc, Op, Reject, Tx, TxKind, apply_tx, apply_tx_with_inverse, op_target};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
@@ -174,7 +174,7 @@ impl Replica {
     /// Make an edit. It applies to the view immediately; the returned message (if connected)
     /// sends it. Invalid edits are refused locally with the same rules the server uses.
     pub fn edit(&mut self, ops: Vec<Op>) -> Result<Option<ClientMsg>, Reject> {
-        let msg = self.submit(ops, TxKind::Edit)?;
+        let msg = self.submit(ops, TxKind::Edit, Vec::new())?;
         self.redo.clear();
         Ok(msg)
     }
@@ -194,20 +194,51 @@ impl Replica {
     /// Undo this client's most recent transaction that still has an undo entry.
     pub fn undo(&mut self) -> Result<Option<ClientMsg>, UndoError> {
         let entry = self.undo.pop().ok_or(UndoError::Empty)?;
-        self.submit(entry.inverse, TxKind::Undo { of: entry.cseq }).map_err(UndoError::Invalid)
+        self.submit(entry.inverse, TxKind::Undo { of: entry.cseq }, Vec::new()).map_err(UndoError::Invalid)
     }
 
     pub fn redo(&mut self) -> Result<Option<ClientMsg>, UndoError> {
         let entry = self.redo.pop().ok_or(UndoError::Empty)?;
-        self.submit(entry.inverse, TxKind::Redo { of: entry.cseq }).map_err(UndoError::Invalid)
+        self.submit(entry.inverse, TxKind::Redo { of: entry.cseq }, Vec::new()).map_err(UndoError::Invalid)
     }
 
-    fn submit(&mut self, ops: Vec<Op>, kind: TxKind) -> Result<Option<ClientMsg>, Reject> {
+    /// Undo the step [`next_undo`](Self::next_undo) shows, as the caller re-decided it from the
+    /// view (TD-145: a hero's record in a scene that holds its heroes, whose `hero` and build
+    /// must hold or fall together). `ops` go in the step's place, as its undo
+    /// (`TxKind::Undo { of }`): on the wire an undo like any other, which the server applies as
+    /// it does every transaction. Empty `ops`: the step no longer fits anywhere, and is dropped
+    /// with nothing sent.
+    ///
+    /// `carry`: ops the redo step keeps besides the inverse of `ops`, ahead of it, for the
+    /// records that inverse touches (the caller's assertions about what the step expects, such
+    /// as a `SetIf` of a value onto itself; an inverse can't hold one, as a write that changes
+    /// nothing has none). Sent as they are, by a plain `redo`, they must change nothing.
+    pub fn undo_as(&mut self, ops: Vec<Op>, carry: Vec<Op>) -> Result<Option<ClientMsg>, UndoError> {
+        let entry = self.undo.pop().ok_or(UndoError::Empty)?;
+        if ops.is_empty() {
+            return Ok(None);
+        }
+        self.submit(ops, TxKind::Undo { of: entry.cseq }, carry).map_err(UndoError::Invalid)
+    }
+
+    /// [`undo_as`](Self::undo_as) for the step [`next_redo`](Self::next_redo) shows.
+    pub fn redo_as(&mut self, ops: Vec<Op>, carry: Vec<Op>) -> Result<Option<ClientMsg>, UndoError> {
+        let entry = self.redo.pop().ok_or(UndoError::Empty)?;
+        if ops.is_empty() {
+            return Ok(None);
+        }
+        self.submit(ops, TxKind::Redo { of: entry.cseq }, carry).map_err(UndoError::Invalid)
+    }
+
+    fn submit(&mut self, ops: Vec<Op>, kind: TxKind, carry: Vec<Op>) -> Result<Option<ClientMsg>, Reject> {
         let tx = Tx { client: self.client, cseq: self.next_cseq, kind, ops };
         // In place: a refused transaction is rolled back by `apply_tx_with_inverse` itself, so
         // an edit costs what it touches, not a copy of the board (map-state spec §6).
-        let (_, inverse) = apply_tx_with_inverse(&mut self.view, &tx)?;
+        let (_, mut inverse) = apply_tx_with_inverse(&mut self.view, &tx)?;
         self.next_cseq += 1;
+        // The carry goes with the records the step touches: none, if it has no step.
+        let kept: Vec<Op> = carry.into_iter().filter(|c| inverse.iter().any(|o| op_target(o) == op_target(c))).collect();
+        inverse.splice(0..0, kept);
         let entry = HistoryEntry { cseq: tx.cseq, inverse };
         if !entry.inverse.is_empty() {
             match kind {
@@ -395,6 +426,170 @@ mod silent_tests {
         let (ra, rb) = (a.redo().map(|_| ()), b.redo().map(|_| ()));
         assert_eq!(ra.is_ok(), rb.is_ok());
         assert_eq!(text(&a, 100), text(&b, 100));
+    }
+}
+
+/// `undo_as` and `redo_as`: a step as the caller re-decided it (TD-145).
+#[cfg(test)]
+mod as_tests {
+    use super::*;
+    use mapcro_schema::{Callout, FieldValue, Record, RecordId, WorldPos, genesis};
+
+    const SCENE: RecordId = RecordId(14);
+    const A: RecordId = RecordId(100);
+    const B: RecordId = RecordId(101);
+
+    fn replica() -> Replica {
+        let mut n = 0u128;
+        let doc = genesis(
+            || {
+                n += 1;
+                RecordId(n)
+            },
+            "t",
+        );
+        Replica::new(ClientId(7), "secret".into(), doc, 0)
+    }
+    fn text(v: &str) -> FieldValue {
+        FieldValue::CalloutText(v.into())
+    }
+    fn set(id: RecordId, v: &str) -> Op {
+        Op::Set { id, value: text(v) }
+    }
+    fn set_if(id: RecordId, from: &str, to: &str) -> Op {
+        Op::SetIf { id, expect: text(from), value: text(to) }
+    }
+    fn read(r: &Replica, id: RecordId) -> Option<String> {
+        match r.view().live(id) {
+            Some(Record::Callout(c)) => Some(c.text.clone()),
+            _ => None,
+        }
+    }
+    /// Two notes made, then both written in one edit: its undo touches both.
+    fn two_written() -> Replica {
+        let mut r = replica();
+        let note = |id| Op::Create { id, record: Record::Callout(Callout { scene: SCENE, pos: WorldPos { x: 0, y: 0 }, text: "x".into(), color: None, side: Default::default() }) };
+        r.edit(vec![note(A), note(B)]).expect("create");
+        r.edit(vec![set(A, "a"), set(B, "b")]).expect("write");
+        r
+    }
+    fn sent(msg: Option<ClientMsg>) -> Tx {
+        match msg {
+            Some(ClientMsg::Submit(tx)) => tx,
+            other => panic!("expected a submit, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_decided_ops_go_as_the_steps_undo_and_their_inverse_is_the_redo() {
+        let mut r = two_written();
+        r.connect();
+        assert_eq!(r.next_undo(), Some(&[set_if(B, "b", "x"), set_if(A, "a", "x")][..]));
+        let of = r.undo.last().expect("entry").cseq;
+        let tx = sent(r.undo_as(vec![set(A, "x")], Vec::new()).expect("undo_as"));
+        assert_eq!(tx.kind, TxKind::Undo { of });
+        assert_eq!(tx.ops, vec![set(A, "x")]);
+        // Only what was sent changed: B's part of the step was left out.
+        assert_eq!((read(&r, A).as_deref(), read(&r, B).as_deref()), (Some("x"), Some("b")));
+        assert_eq!(r.next_redo(), Some(&[set_if(A, "x", "a")][..]));
+        // The step that was undone is gone; the one under it is next.
+        assert_eq!(r.undo.len(), 1);
+    }
+
+    #[test]
+    fn a_redo_after_undo_as_redoes_what_was_sent() {
+        let mut r = two_written();
+        r.undo_as(vec![set(A, "x")], Vec::new()).expect("undo_as");
+        r.redo().expect("redo");
+        assert_eq!((read(&r, A).as_deref(), read(&r, B).as_deref()), (Some("a"), Some("b")));
+        // And it can be undone again, as any redo can.
+        assert_eq!(r.next_undo(), Some(&[set_if(A, "a", "x")][..]));
+        // redo_as, likewise, as the redo's own kind.
+        r.undo().expect("undo");
+        r.connect();
+        let of = r.redo.last().expect("entry").cseq;
+        let tx = sent(r.redo_as(vec![set(A, "a")], Vec::new()).expect("redo_as"));
+        assert_eq!(tx.kind, TxKind::Redo { of });
+        assert_eq!(read(&r, A).as_deref(), Some("a"));
+        assert_eq!(r.next_undo(), Some(&[set_if(A, "a", "x")][..]));
+        assert!(!r.can_redo());
+    }
+
+    #[test]
+    fn steps_undone_as_decided_keep_the_redo_stack_in_order() {
+        let mut r = two_written();
+        r.undo_as(vec![set(A, "x"), set(B, "x")], Vec::new()).expect("first");
+        r.undo_as(next_ops(&r), Vec::new()).expect("second");
+        assert!(r.view().live(A).is_none(), "the creation undone");
+        // Both are redone, last undone first, as plain undos would be.
+        r.redo_as(next_redo_ops(&r), Vec::new()).expect("redo the creation");
+        assert_eq!(read(&r, A).as_deref(), Some("x"));
+        r.redo().expect("redo the write");
+        assert_eq!((read(&r, A).as_deref(), read(&r, B).as_deref()), (Some("a"), Some("b")));
+        assert!(!r.can_redo());
+    }
+    fn next_ops(r: &Replica) -> Vec<Op> {
+        r.next_undo().expect("a step").to_vec()
+    }
+    fn next_redo_ops(r: &Replica) -> Vec<Op> {
+        r.next_redo().expect("a step").to_vec()
+    }
+
+    #[test]
+    fn the_carry_goes_ahead_of_the_inverse_for_the_records_it_touches_only() {
+        let mut r = two_written();
+        let mine = set_if(A, "x", "x");
+        let other = set_if(B, "b", "b");
+        r.undo_as(vec![set(A, "x")], vec![mine.clone(), other]).expect("undo_as");
+        // B's assertion is dropped: the redo doesn't touch B.
+        assert_eq!(r.next_redo(), Some(&[mine.clone(), set_if(A, "x", "a")][..]));
+        // Sent as it is by a plain redo, the assertion changes nothing.
+        r.redo().expect("redo");
+        assert_eq!((read(&r, A).as_deref(), read(&r, B).as_deref()), (Some("a"), Some("b")));
+        // A step whose inverse is empty keeps no carry: there is no step.
+        r.undo().expect("undo");
+        let undos = r.undo.len();
+        r.redo_as(vec![set(A, "a"), set(A, "a")], vec![set_if(A, "a", "a")]).expect("redo_as");
+        assert_eq!(r.undo.len(), undos + 1, "the redo changed A, so it has an undo");
+        assert_eq!(r.next_undo(), Some(&[set_if(A, "a", "a"), set_if(A, "a", "x")][..]), "redo_as keeps its carry too");
+        r.undo_as(vec![set(A, "a")], vec![set_if(A, "a", "a")]).expect("undo_as");
+        assert!(!r.can_redo(), "an undo that wrote what was there has no redo, carry or not");
+    }
+
+    #[test]
+    fn an_empty_decided_step_drops_the_step_and_sends_nothing() {
+        let mut r = two_written();
+        r.connect();
+        let (cseq, pending, redo) = (r.next_cseq(), r.pending().count(), r.redo.len());
+        let view = r.view().clone();
+        assert_eq!(r.undo_as(Vec::new(), vec![set_if(A, "a", "a")]).expect("undo_as"), None);
+        assert_eq!((r.next_cseq(), r.pending().count(), r.redo.len()), (cseq, pending, redo));
+        assert_eq!(r.view(), &view);
+        // The step is gone: the next undo is the one under it (the notes' creation).
+        assert_eq!(r.undo.len(), 1);
+        r.undo().expect("undo");
+        assert_eq!(read(&r, A), None);
+        // Likewise for redo.
+        r.redo_as(Vec::new(), Vec::new()).expect("redo_as");
+        assert!(!r.can_redo());
+        assert_eq!(r.undo_as(Vec::new(), Vec::new()), Err(UndoError::Empty));
+        assert_eq!(r.redo_as(vec![set(A, "a")], Vec::new()), Err(UndoError::Empty));
+    }
+
+    #[test]
+    fn an_undo_that_no_longer_fits_is_skipped_as_any_undo_is() {
+        let mut r = two_written();
+        // Someone else wrote A since: the decided step still says what this client saw.
+        let mut view = r.view.clone();
+        apply_tx(&mut view, &Tx { client: ClientId(99), cseq: 0, kind: TxKind::Edit, ops: vec![set(A, "theirs")] }).expect("remote");
+        r.view = view;
+        r.undo_as(vec![set_if(A, "a", "x"), set_if(B, "b", "x")], Vec::new()).expect("undo_as");
+        assert_eq!((read(&r, A).as_deref(), read(&r, B).as_deref()), (Some("theirs"), Some("x")));
+        assert_eq!(r.next_redo(), Some(&[set_if(B, "x", "b")][..]));
+        // A decided step refused locally is lost with its entry, as `undo`'s is.
+        let undos = r.undo.len();
+        assert!(matches!(r.undo_as(vec![set(RecordId(999), "x")], Vec::new()), Err(UndoError::Invalid(_))));
+        assert_eq!(r.undo.len(), undos - 1);
     }
 }
 
