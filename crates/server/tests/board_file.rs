@@ -149,10 +149,12 @@ fn an_export_imports_as_the_same_board_under_fresh_ids() {
     assert_eq!(first["version"], 2, "the writer: version 1 plus the `rows` header");
     // The rows this build writes, not the ones it only reads: the reader release takes it.
     assert_eq!(first["rows"], json!(mapcro_schema::written_rows()));
-    // Every row is written by this build (`has_heroes`, the last, since its writer): the export
-    // says them all, which the builds a rollback goes to (v12, v13) know too.
-    let last = mapcro_schema::ROWS.iter().position(|r| r.key == "has_heroes").expect("the row");
-    assert_eq!((mapcro_schema::written_rows(), mapcro_schema::ROWS.len()), (last + 1, last + 1), "no row is still ahead");
+    // In R1, rows 0..16 (`hero`..`has_heroes`) are written and rows 16..40 (phase 5 Groups A & B)
+    // are `Ahead`: the export says `written_rows() == 16`, which v12–v14 builds know too.
+    let last_live = mapcro_schema::ROWS.iter().position(|r| r.key == "has_heroes").expect("the row");
+    assert_eq!(mapcro_schema::written_rows(), last_live + 1);
+    assert_eq!(mapcro_schema::ROWS.len(), 40);
+    assert!(mapcro_schema::ROWS[last_live + 1..].iter().all(|r| r.status == mapcro_schema::Status::Ahead));
     assert!(first["build"].as_str().is_some_and(|b| b.len() == 16), "the server's build");
     assert!(first["exported_at"].as_i64().is_some_and(|t| t > 1_700_000_000));
     assert_eq!(first["matches"], json!([130816395]), "the match comes back by its id");
@@ -300,9 +302,29 @@ fn a_file_with_map_state_imports_and_a_row_still_ahead_makes_no_board() {
         let flags: Vec<Value> = records(&mut out).iter().filter_map(|r| r[1].get("SceneState").map(|s| s["more"].clone())).collect();
         assert_eq!(flags, [json!({ "rows": ROWS.len(), "has_heroes": true })]);
         server.import_ok(&out);
-        // A row whose reader is this build is still refused, alone or beside written ones.
+        // Every row whose reader is this build (rows 16–39) is still refused on its real entity
+        // with a valid value, alone or beside written ones.
+        let valid_json = |kind: mapcro_schema::Kind| -> Value {
+            match kind {
+                mapcro_schema::Kind::Bool => json!(true),
+                mapcro_schema::Kind::Int { min, .. } => json!(min),
+                mapcro_schema::Kind::Text { .. } => json!("a"),
+                mapcro_schema::Kind::Pos => json!({ "x": 0, "y": 0 }),
+                mapcro_schema::Kind::Ints { min, .. } => json!([min]),
+            }
+        };
         for ahead in ROWS.iter().filter(|r| r.status == Status::Ahead) {
-            let (status, body) = server.import(versioned(&|v| hero(v, json!({ "level": 12, ahead.key: 3 }))).to_string().as_bytes());
+            let val = valid_json(ahead.kind);
+            let file = versioned(&|v| match ahead.entity {
+                mapcro_schema::Entity::Hero => hero(v, json!({ "level": 12, ahead.key: val.clone() })),
+                mapcro_schema::Entity::Scene => state(v, json!({ "rows": 16, ahead.key: val.clone() })),
+                mapcro_schema::Entity::Lane => {
+                    let scene = scene_of(v);
+                    records(v).push(json!(["00000000000000000000000000005009", { "Wave": { "scene": scene, "lane": "lane4", "t": 500, "more": { ahead.key: val.clone() } } }]));
+                }
+                mapcro_schema::Entity::Marker => unreachable!(),
+            });
+            let (status, body) = server.import(file.to_string().as_bytes());
             assert_eq!((status, error_of(&body)), (422, "invalid".into()), "{} at version {version}", ahead.key);
         }
     }

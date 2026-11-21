@@ -193,7 +193,7 @@ pub struct Store {
 }
 
 /// Database schema version. Each step in `migrate` takes the database one version forward.
-const SCHEMA_VERSION: i64 = HEROES_WRITER;
+const SCHEMA_VERSION: i64 = PHASE5_READER;
 
 /// The reader of feedback #56, #59 and #60 (a scene name up to 48 characters, a comment's side,
 /// a stroke's colour as a field): deployed as ce1ec0c.
@@ -211,6 +211,11 @@ const HEROES_READER: i64 = 12;
 /// written (`step`, `migrate` and the tests use this): if another branch's step merges first and
 /// takes this number, this moves up one, and the floor stays [`HEROES_READER`].
 const HEROES_WRITER: i64 = 14;
+
+/// The reader of map-state phase 5 (rows 16–39, Groups A & B; docs/specs/map-state-phase5-plan.md).
+/// All 24 rows are `Ahead` here, so v12–v14 servers still read everything in the database:
+/// additive (floor stays 12). R2 (v16) and R3 (v17) will set their floor to this version (15).
+const PHASE5_READER: i64 = 15;
 
 /// What the step from `from` to `from + 1` asks of an older server (spec §9, docs/deploy.md
 /// "Rollbacks").
@@ -242,6 +247,7 @@ fn step(from: i64) -> Step {
         9 => Step::NeedsReader { reader: 9 },
         f if f + 1 == SIDES_WRITER => Step::NeedsReader { reader: SIDES_READER },
         f if f + 1 == HEROES_WRITER => Step::NeedsReader { reader: HEROES_READER },
+        f if f + 1 == PHASE5_READER => Step::Additive,
         _ => Step::Breaking,
     }
 }
@@ -369,6 +375,10 @@ fn migrate(conn: &Connection, from: i64, to: i64) -> Result<(), StoreError> {
             // and the v13 server load it and the v11 server can't parse the key: the floor is 12
             // (`Step::NeedsReader { reader: 12 }`).
             f if f + 1 == HEROES_WRITER => {}
+            // The reader of map-state phase 5 (`PHASE5_READER`, store v15): no SQL. This server
+            // reads rows 16–39 (Groups A & B) and takes none from a client or a file (all `Ahead`),
+            // so v12–v14 servers still read everything in the database: additive (floor stays 12).
+            f if f + 1 == PHASE5_READER => {}
             other => return Err(StoreError::Corrupt(format!("no migration from schema {other}"))),
         }
         v += 1;
@@ -1526,6 +1536,10 @@ mod tests {
         assert_eq!(step(13), Step::NeedsReader { reader: 12 });
         assert_eq!(compat_floor(HEROES_WRITER), 12, "v14 opens on the v12 reader and the v13 server, and on nothing older");
         assert_eq!(HEROES_WRITER, 14);
+        // The reader of map-state phase 5 (v15): additive, floor stays 12.
+        assert_eq!(step(14), Step::Additive);
+        assert_eq!(compat_floor(PHASE5_READER), 12, "v15 opens on v12, v13 and v14 servers, and on nothing older");
+        assert_eq!(PHASE5_READER, 15);
         assert_eq!(compat_floor(SCHEMA_VERSION + 1), SCHEMA_VERSION + 1, "a step this build doesn't know counts as breaking");
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("db.sqlite");
@@ -1743,6 +1757,89 @@ mod tests {
         assert_eq!(loaded.authority.log_len(), 3);
         assert!(matches!(head.live(player), Some(Record::PlayerState(p)) if p.more.get(row("hero")) == Some(&MoreValue::Int(14)) && p.more.get(row("name")).is_none()));
         assert!(head.live(RecordId(901)).is_some() && head.live(RecordId(900)).is_none());
+    }
+
+    /// Store v15 (map-state phase 5 reader): additive over v14, so v12–v14 servers open it
+    /// untouched, v11 refuses it, and a stored base/log holding Group A & B rows (Hero, Lane,
+    /// Scene, including `Pos` and `Ints`) still loads cleanly even though `Admit::DEPLOYED`
+    /// refuses them from outside.
+    #[tokio::test]
+    async fn v15_opens_on_v12_to_v14_and_stored_phase5_rows_load() {
+        use mapcro_schema::{FieldValue, LaneKey, More, MoreValue, Op, Record, RecordId, RowId, SceneState, TxKind, Wave, WorldPos};
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("db.sqlite");
+        Store::open(&path).expect("create v15");
+        assert_eq!(meta(&path, "schema_version").as_deref(), Some("15"));
+        assert_eq!(meta(&path, "compat_floor").as_deref(), Some("12"));
+        let c = Connection::open(&path).expect("open");
+        for older in [12, 13, 14] {
+            reconcile(&c, older).expect("v12..v14 opens v15");
+        }
+        assert!(matches!(reconcile(&c, 11), Err(StoreError::Corrupt(_))), "v11 is below floor 12");
+        drop(c);
+        assert_eq!((meta(&path, "schema_version").as_deref(), meta(&path, "compat_floor").as_deref()), (Some("15"), Some("12")));
+        // A v14 database migrates cleanly to v15 keeping floor 12.
+        let v14_path = dir.path().join("v14.sqlite");
+        Store::open_at(&v14_path, 14).expect("create v14");
+        assert_eq!(meta(&v14_path, "compat_floor").as_deref(), Some("12"));
+        Store::open(&v14_path).expect("migrate v14 -> v15");
+        assert_eq!((meta(&v14_path, "schema_version").as_deref(), meta(&v14_path, "compat_floor").as_deref()), (Some("15"), Some("12")));
+
+        // Stored base and log holding Group A & Group B rows load despite `Admit::DEPLOYED`.
+        let mut n = 0u128;
+        let mut base = mapcro_schema::genesis(|| { n += 1; RecordId(n) }, "Phase5");
+        let player = base.iter_live().find(|(_, r)| matches!(r, Record::PlayerState(_))).map(|(id, _)| id).expect("player");
+        let scene = base.iter_live().find(|(_, r)| matches!(r, Record::Scene(_))).map(|(id, _)| id).expect("scene");
+        let row = |key: &str| RowId::of(key).expect("row");
+        let tx = |cseq: u64, ops: Vec<Op>| Tx { client: ClientId(7), cseq, kind: TxKind::Edit, ops };
+        let wave_id = RecordId(950);
+        let state_id = RecordId(951);
+        let base_ops = vec![
+            Op::Set { id: player, value: FieldValue::More { key: row("unseen"), value: Some(MoreValue::Bool(true)) } },
+            Op::Set { id: player, value: FieldValue::More { key: row("cc"), value: Some(MoreValue::Int(2)) } },
+            Op::Create {
+                id: wave_id,
+                record: Record::Wave(Wave {
+                    scene,
+                    lane: LaneKey("lane4".into()),
+                    t: 500,
+                    more: [(row("edges"), MoreValue::ints(vec![420, 580]))].into_iter().collect(),
+                }),
+            },
+            Op::Create {
+                id: state_id,
+                record: Record::SceneState(SceneState {
+                    scene,
+                    more: [
+                        (row("rows"), MoreValue::Int(40)),
+                        (row("has_sight"), MoreValue::Bool(true)),
+                        (row("has_urn"), MoreValue::Bool(true)),
+                        (row("urn"), MoreValue::ints(vec![1, 0, -1, 12345, 30, -1, 0])),
+                        (row("urn_at"), MoreValue::Pos(WorldPos { x: 1200, y: -3400 })),
+                    ]
+                    .into_iter()
+                    .collect(),
+                }),
+            },
+        ];
+        assert!(mapcro_schema::Admit::DEPLOYED.tx(&tx(0, base_ops.clone())).is_err(), "DEPLOYED refuses Ahead rows");
+        mapcro_schema::apply_tx(&mut base, &tx(0, base_ops)).expect("valid");
+        let log_tx = tx(1, vec![
+            Op::Set { id: player, value: FieldValue::More { key: row("zipline"), value: Some(MoreValue::Bool(true)) } },
+            Op::Set { id: state_id, value: FieldValue::More { key: row("rejuv"), value: Some(MoreValue::ints(vec![0, 2, 180, 12])) } },
+        ]);
+        let mut head = base.clone();
+        mapcro_schema::apply_tx(&mut head, &log_tx).expect("valid");
+        let (codec, stored) = codec::encode(&serde_json::to_vec(&log_tx).expect("json"));
+        {
+            let store = Store::open(&path).expect("open");
+            assert!(store.create_room(RoomKind::Board, "p5".into(), base, crate::links::hash("o"), 1, 10, u64::MAX, None).await.expect("create") == GrantWrite::Written);
+            store.commit("p5".into(), vec![Write::Op { seq: 1, codec, stored }]).await.expect("log");
+        }
+        let store = Store::open(&path).expect("reopen");
+        let caps = LoadCaps { ops: 1000, bytes: 1 << 20, clients: 10, rejections: 10 };
+        let loaded = store.load_board("p5".into(), caps, Quota::default()).await.expect("load").expect("board");
+        assert_eq!(loaded.authority.doc(), &head);
     }
 
     /// A session's listed links say they're a session's, as `link` does (security review of

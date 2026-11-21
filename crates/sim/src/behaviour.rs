@@ -272,7 +272,8 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
         }],
         6 => {
             // Lane equilibrium: place or slide a lane's wave marker (two editors placing the
-            // same lane at once is a Duplicate conflict, as for objectives).
+            // same lane at once is a Duplicate conflict, as for objectives). When the wave already
+            // exists, sometimes write a lane registry row (`edges`) so sim walks all 40 rows.
             let lane = mapcro_schema::LaneKey(["lane1", "lane4", "lane6"][rng.random_range(0..3)].to_owned());
             let t = rng.random_range(0..=mapcro_schema::WAVE_T_MAX);
             let existing = r.view().iter_live().find_map(|(id, rec)| match rec {
@@ -280,6 +281,7 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
                 _ => None,
             });
             match existing {
+                Some(id) if rng.random_range(0..3) == 0 => more_write(rng, Entity::Lane).map(|v| vec![Op::Set { id, value: v }]).unwrap_or_default(),
                 Some(id) => vec![Op::Set { id, value: FieldValue::WavePos(t) }],
                 None => vec![Op::Create { id: new_id, record: Record::Wave(mapcro_schema::Wave { scene, lane, t, more: More::default() }) }],
             }
