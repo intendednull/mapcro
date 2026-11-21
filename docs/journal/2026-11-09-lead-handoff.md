@@ -3,6 +3,44 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Deployed a8f726a: Exploratory QA Cycle 1 fixes (Passes 1–3) & Argon responsive UI polish (2026-11-21, lead 2a42cd74)
+
+- **Prod `web` runs a8f726a** (infra `9bfc723`, bundle `/assets/index-OWUYLE0p.js`). Store unchanged
+  (v14, floor 12; `rows.lock` unchanged). Only `mapcro.service` and `mapcro-replay.service`
+  restarted (+11.7 KiB on `mapcro-web`, zero downtime for other services on `web`).
+- **What shipped (16 confirmed Exploratory QA Cycle 1 findings + Argon responsive design polish, all
+  with fail-before-fix regression tests):**
+  - **Pass 1 (`qa-p1-fixes`):** Localized Events `Ults` ability names + non-ult filtering via pack
+    `buildCatalog` (documented in `docs/research/README.md`), tablet `1024×768 --touch` `.p-top`
+    overflow fix, `1024×600` `Map layers` z-index + `--pop-max` scroll cap, desktop `800×600` header
+    overflow fix, spec §4b `match-tier` hover text cleanup, and auto-dismissing stale `"Back to
+    replay"` toasts on entering Player.
+  - **Pass 2 (`qa-p2-fixes`):** `HeroPicker` §4b `title` fix + balanced-brace scanner in
+    `labels.test.ts`, hiding `Copy` on revoked `ShareDialog` rows, and `"Link revoked"` copy + board
+    DOM unmount behind `DeadLink` scrim on live revocation.
+  - **Pass 3 (`qa-p3-fixes`):** Unnamed-scene `Scene “Scene 1”` fallback in Player→Scene handoff bar,
+    `looksLikeDemo` before id validation in Landing & `AddGame`, `host.ts` `take()` guard on empty
+    `matchId()`, and omitting `[1]`/`[2]`/`[3]` shortcut brackets in phone `Vision` `<select>`.
+  - **Argon responsive UI polish (`qa-responsive-design`):** Narrow desktop (`1024×600`/`800×600`)
+    stage breathing room + `--map-free-h`-bounded `All builds` layout (`1440×900` unchanged), phone
+    (`390×844`) Scene shell `"Scene 1"` clearance + centered `.p-tools` + unclipped `role-chip`, and
+    tablet `Scenes` drawer 48 px row height/gap. Before/after showcase at
+    `/home/intendednull/concierge/artifacts/mapcro-qa-responsive/index.html`.
+- **Gate & live check:** `just web-test` (85/85 Vitest suites, `tsc` 0 errors), full Chromium e2e
+  (578 passed, 16 skipped), Firefox Android phone/tablet e2e (52 passed, 22 skipped). Live prod:
+  `/healthz` `ok rooms=2`, `800×600` header `800/800` (`moreRight: 790`), 0 console/page/network
+  errors; `mapcro-stats`: 0 5xx, 0 failures, 0 OOM kills, server RSS 18.5 MB, op ack p50 0.50 ms.
+- **Next immediately in flight:**
+  - **Map-state Phase 5 R1 (`map-state-p5`, `a85b890` + merged `main`):** Implemented (both readers
+    A+B `Ahead`, store v15 additive floor 12, TD-108/140/141/163, 56/56 mutants killed) and
+    **APPROVED WITH MINOR NOTES** by independent adversarial reviewer (`codex/gpt-6.2-astra` high
+    `e88f1fbd`; 1 nonblocking note for `{written: 40, builds: false}` queued for R2). Starting full
+    R1 staged gate + NixOS VM check + R1 walkthrough on `129738985`, then `pre-v15` SQLite backup,
+    deploy R1, `just rows-lock` (40 rows) + `justfile` `reader` update, then Phase 5 R2.
+  - **Exploratory QA Cycle 2 (Pass 004+):** Run on `qa-browser` v1.3 after Phase 5 R1 lands.
+  - **TD-117** (`APP_OPENS_SESSIONS = true`): queued after Phase 5 R1.
+  - **GitHub feedback #62** (405 blank ability upgrade tiers): root-caused, awaiting operator OK.
+
 ## Deployed 8c6ec5e: TD-145, hero undo/redo coherence (2026-11-21, lead 2a42cd74)
 
 - **Prod `web` runs 8c6ec5e** (infra `ed63e47`, bundle `/assets/index-DYYoqXbF.js`). Store unchanged
