@@ -386,3 +386,149 @@
 /* A calculated value (spec §6b, §4b rule 5; operator 2026-11-10): a quiet "≈" before it, in the
    style, so the value's text stays the number. */
 .tb-build-column b.calc::before, .tb-build-column .calc > .tb-stat-v::before { content: "≈"; margin-right: 0.08em; opacity: 0.5; font-weight: 400; }
+
+/* Narrow & short desktop (1024×600, 1024×768, 800×600): tighten sidebars and stage vertical space
+   so the minimap, TopBar and map controls have room to breathe, and All builds columns never
+   collide horizontally or bleed over .map-controls. */
+@media (max-width: 1150px), (max-height: 760px) {
+  .board-app .tb-host .tb-build-column {
+    max-height: calc(36 * var(--u) + var(--map-free-h, 480px) - 4px);
+  }
+  .board-app .tb-host .tb-build-column:not(:has(.tb-effects[open])) {
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+}
+@media (max-height: 720px) {
+  @container dock (width < 640px) {
+    .app.board-app .dock .pl-scene-label { display: none; }
+  }
+}
+
+@media (max-width: 1080px) {
+  .app.board-app .main { grid-template-columns: 1fr 240px; }
+  .app.board-app .main:has(> .scenes) { grid-template-columns: auto 1fr 240px; }
+  .app.board-app .scenes:not(.folded):not(.drawer) { width: 172px; }
+  .app.board-app .scenes:not(.drawer) .scene-row {
+    gap: 3px; padding: 0 4px 0 calc(2px + var(--depth, 0) * 10px); font-size: 12px;
+  }
+  .app.board-app .scenes:not(.drawer) .scene-row .caret-slot { width: 10px; }
+  .app.board-app .scenes:not(.drawer) .scene-row:not(:hover):not(:focus-within):not(.on) {
+    grid-template-columns: 10px auto minmax(0, 1fr) auto auto auto;
+  }
+  .app.board-app .scenes:not(.drawer) .scene-row:not(:hover):not(:focus-within):not(.on) .row-acts {
+    display: none;
+  }
+  .app.board-app .stage { padding: 6px 10px 4px; }
+  .app.board-app .stage > .tb-host { width: calc(100% + 12px); margin: 4px -6px 4px; }
+  .app.board-app .stage > .dock { width: calc(100% + 20px); margin-left: -10px; margin-right: -10px; }
+  .app.board-app .map-controls { gap: 4px; }
+  .app.board-app .map-controls > .btn,
+  .app.board-app .map-controls > .input,
+  .app.board-app .map-controls .map-layers > summary.btn { height: 26px; padding: 0 8px; font-size: 11.5px; }
+  .app.board-app .dock > .toolbar .tb { height: 30px; padding: 0 8px 0 6px; font-size: 11.5px; }
+  .app.board-app .dock > .toolbar .tb.icon { padding: 0 6px; }
+  .app.board-app .dock > .toolbar .ink-palette { height: 30px; }
+
+  .board-app .tb-host .tb-souls { line-height: 1; padding-bottom: 2px; }
+  .board-app .tb-host .tb-souls-value { display: block; font-size: max(calc(15 * var(--u)), 9px); line-height: 1.05; }
+  .board-app .tb-host .tb-souls .demote { font-size: max(calc(12 * var(--u)), 7.5px); }
+  .board-app .tb-host .tb-score-label { font-size: max(calc(22 * var(--u)), 11px); }
+  .board-app .tb-host .tb-score .demote { font-size: max(calc(14 * var(--u)), 8.5px); }
+  .board-app .tb-host .tb-clock-label { font-size: max(calc(14 * var(--u)), 9.5px); width: auto; height: auto; line-height: 1.2; padding: 0 3px; }
+  .board-app .tb-host .tb-all-builds { padding: 2px 5px; font-size: max(8.5px, calc(11 * var(--u))); }
+  .board-app .tb-host .tb-all-builds kbd { display: none; }
+
+  /* Give the 12 hero slots more horizontal room by tightening the center gap when builds open. */
+  .board-app .tb-host:has(.build-open) .tb-team { width: calc(50% - 31px); }
+  .board-app .tb-host:has(.build-open) .tb-player { flex: 1 1 0; width: auto; min-width: 0; }
+  .board-app .tb-host:has(.build-open) :is(.tb-disc, .tb-img, .tb-focus, .tb-pick:not(.swap), .tb-respawn, .tb-ult) {
+    left: 50%; transform: translateX(-50%);
+  }
+  .board-app .tb-host:has(.build-open) .tb-center { width: 62px; }
+  .board-app .tb-host:has(.build-open) .tb-score { width: 30px; }
+  .board-app .tb-host:has(.build-open) .tb-team-icon { display: none; }
+  .board-app .tb-host:has(.build-open) .tb-score-row { justify-content: center; padding: 0; }
+
+  .board-app .tb-host .tb-build-team-kills {
+    left: 50%; width: auto; transform: translateX(-50%); gap: 2px;
+    font-size: 8.5px;
+  }
+  .board-app .tb-host .tb-build-team-kills span { display: none; }
+  .board-app .tb-host .tb-build-team-kills b { min-width: 22px; padding: 2px 4px; }
+
+  .board-app .tb-host .tb-build-column {
+    top: calc(96 * var(--u) + 13px);
+    left: 1px; width: calc(100% - 2px); padding: 3px 2px 5px; box-sizing: border-box;
+    max-height: calc(76 * var(--u) - 13px + var(--map-free-h, 480px) - 4px);
+  }
+  .board-app .tb-host .tb-build-column:has(.tb-build-popovers) {
+    min-width: 84px; left: 50%; transform: translateX(-50%);
+  }
+  .board-app .tb-host .tb-team.friend > .tb-player:first-child > .tb-build-column:has(.tb-build-popovers) {
+    left: 0; transform: none;
+  }
+  .board-app .tb-host .tb-team.enemy > .tb-player:last-child > .tb-build-column:has(.tb-build-popovers) {
+    left: auto; right: 0; transform: none;
+  }
+  .board-app .tb-host .tb-build-column::before {
+    top: calc(-96 * var(--u) - 13px);
+    background: linear-gradient(180deg, #6b5239eb 0%, #262320f7 35%, #161816fc 100%);
+    border: 1px solid #ffefd71f; border-top: 0; border-radius: 0 0 4px 4px;
+  }
+  .board-app .tb-host .sapphire > .tb-build-column::before {
+    background: linear-gradient(180deg, #324b80eb 0%, #1d2332f7 35%, #121720fc 100%);
+  }
+  .board-app .tb-host .tb-build-name { height: auto; font-size: 8.5px; line-height: 1.15; }
+  .board-app .tb-host .tb-build-hero { min-height: 0; font-size: 7px; line-height: 1.1; }
+  .board-app .tb-host .tb-build-kda { margin: 2px 0 3px; column-gap: 1px; }
+  .board-app .tb-host .tb-build-kda small { font-size: 6px; line-height: 1; }
+  .board-app .tb-host .tb-build-kda b { font-size: 8.5px; line-height: 1.1; }
+  .board-app .tb-host .tb-build-investment { height: 11px; margin-bottom: 3px; gap: 2px; }
+  .board-app .tb-host .tb-build-investment > .gt-anchor > span,
+  .board-app .tb-host .tb-build-investment > span { width: 4px; }
+  .board-app .tb-host .tb-build-vitals { margin-bottom: 3px; font-size: 8px; line-height: 1.15; white-space: nowrap; }
+  .board-app .tb-host .tb-build-resists > span:first-child { display: none; }
+  .board-app .tb-host :is(.tb-build-resists, .tb-build-power) {
+    gap: 2px; margin-top: 1px; font-size: 7.5px; line-height: 1.1; white-space: nowrap;
+  }
+  .board-app .tb-host .tb-build-column b.calc::before,
+  .board-app .tb-host .tb-build-column .calc > .tb-stat-v::before { margin-right: 0; font-size: 0.85em; }
+  .board-app .tb-host .tb-build-abilities { gap: 2px; margin: 0; padding-bottom: 4px; }
+  .board-app .tb-host .tb-build-levels { height: 5px; gap: 1px; margin-bottom: 2px; }
+  .board-app .tb-host .tb-build-levels i { height: 1.5px; }
+  .board-app .tb-host .tb-build-circle .tb-build-charges { width: 9px; height: 9px; font-size: 6.5px; transform: translate(-50%, 40%); }
+  .board-app .tb-host .tb-build-circle .tb-build-cooldown { font-size: 6.5px; }
+  .board-app .tb-host .tb-build-circle .tb-build-stacks { font-size: 6px; min-width: 7px; right: -1px; top: -1px; }
+  .board-app .tb-host .tb-build-items { gap: 2px; padding: 0; }
+  .board-app .tb-host .tb-build-tier { font-size: 6.5px; padding: 0 1px 0 0; }
+  .board-app .tb-host .tb-build-cooldown { font-size: 7.5px; }
+  .board-app .tb-host :is(.tb-build-charges, .tb-build-stacks) { font-size: 6.5px; min-width: 8px; }
+}
+
+@media (max-width: 960px) {
+  .app.board-app .main { grid-template-columns: 1fr 206px; }
+  .app.board-app .main:has(> .scenes) { grid-template-columns: auto 1fr 206px; }
+  .app.board-app .scenes:not(.folded):not(.drawer) { width: 144px; }
+  .app.board-app .scenes-head { padding: 8px 6px 4px 8px; gap: 4px; }
+  .app.board-app .scenes-keys { display: none; }
+  .app.board-app .scene-replay { width: calc(100% - 12px); margin: 6px; padding: 7px 8px; }
+  .app.board-app .side section, .app.board-app .side > .pl-side { padding: 8px; }
+
+  .board-app .tb-host:has(.build-open) .tb-team { width: calc(50% - 26px); }
+  .board-app .tb-host:has(.build-open) .tb-center { width: 52px; }
+  .board-app .tb-host:has(.build-open) .tb-score { width: 25px; }
+  .board-app .tb-host:has(.build-open) .tb-score-label { font-size: 10px; }
+  .board-app .tb-host .tb-all-builds { padding: 1px 4px; font-size: 8px; }
+  .board-app .tb-host .tb-build-team-kills { font-size: 8px; gap: 2px; }
+  .board-app .tb-host .tb-build-team-kills b { min-width: 18px; padding: 1px 3px; }
+  .board-app .tb-host .tb-build-column { padding: 2px 1px 4px; }
+  .board-app .tb-host .tb-build-name { font-size: 8px; }
+  .board-app .tb-host .tb-build-hero { font-size: 6.5px; }
+  .board-app .tb-host .tb-build-kda b { font-size: 8px; }
+  .board-app .tb-host .tb-build-vitals { font-size: 7.5px; letter-spacing: -0.03em; }
+  .board-app .tb-host .tb-build-vitals [data-testid="stat-max-health"] > span:first-child { font-size: 6.5px; }
+  .board-app .tb-host :is(.tb-build-resists, .tb-build-power) { font-size: 7px; gap: 1.5px; letter-spacing: -0.04em; }
+  .board-app .tb-host .tb-build-abilities { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 3px; }
+}

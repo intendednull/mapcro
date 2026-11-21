@@ -1145,7 +1145,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
         <Show when={inSession}>{inSession!.games()}</Show>
         <Show when={!inPlayer()}>
           <span class="viewonly" data-testid="role-chip">
-            {state.canEdit() ? "Can edit" : "View only"} · {teamName(viewpoint() === "sapphire" ? "sapphire" : "amber")} side
+            {state.canEdit() ? "Can edit" : "View only"}<span class="role-side"> · {teamName(viewpoint() === "sapphire" ? "sapphire" : "amber")} side</span>
           </span>
         </Show>
         {/* The tier left the Player bar for the header (prototype): the phone's header too. */}
@@ -1260,6 +1260,19 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     };
     el.addEventListener("pointerdown", onPress, true);
     onCleanup(() => el.removeEventListener("pointerdown", onPress, true));
+    const syncFree = () => {
+      const stage = el.parentElement;
+      if (!stage) return;
+      const ctrl = el.querySelector<HTMLElement>(".map-controls");
+      const free = ctrl && ctrl.offsetHeight > 0 ? ctrl.offsetTop : el.clientHeight - 36;
+      stage.style.setProperty("--map-free-h", `${Math.max(80, free)}px`);
+    };
+    queueMicrotask(syncFree);
+    const ro = new ResizeObserver(syncFree);
+    ro.observe(el);
+    const ctrl = el.querySelector<HTMLElement>(".map-controls");
+    if (ctrl) ro.observe(ctrl);
+    onCleanup(() => ro.disconnect());
   };
   const measureMap = (el: HTMLDivElement) => {
     mapEl = el;
