@@ -72,3 +72,21 @@ Pass 001 (`passes/2026-11-21-pass-001-player-narrow-tablet.md`, Neon medium on `
 - Spawned `qa-p1-fixes` (Neon medium) to fix the 5 non-design bugs (`.p-top` tablet overflow, `Map layers` z-index/max-height, `800×600` header overflow, Events `Ults` localization + non-ult filtering, `match-tier` §4b title, stale `Back to replay` toast) with automated e2e/unit regression tests proven to fail before each fix.
 - Routed narrow-desktop sidebar auto-collapse and `All builds` narrow-width redesign (`#4`, `#6`) to approved design models per `ui-design-model.md`.
 - Next: Pass 002 on Sessions, Multi-Tab Follow, Sharing/Roles, Board Files (`.mapcro` export/import), and Multi-User Undo/Redo using v1.1.
+
+---
+
+## 2026-11-21 — v1.2: Pass 002 Retro, Offline Match Metadata & Tighter Snapshot
+
+### Pass 002 evaluation
+Pass 002 (`passes/2026-11-21-pass-002-sessions-sharing-editing.md`, Neon medium on `8c6ec5e`) ran on v1.1, explored 32 rows (advancing 27 out of `auto-only` → **48/72 rows interactively verified**: `25 deep`, `23 smoke`, `24 auto-only`, `0 unmapped`), and surfaced **6 findings** (`2 bug-minor`, `1 label-violation`, `2 ux-rough`, `1 test-gap`) with zero console/page errors:
+- **v1.1 upgrades validated:** Visible-first locators eliminated Pass 001's hidden-duplicate timeouts, and `upload` worked on the first try for `.mapcro` round-trip import (`testid:import-board-file`).
+- **Notable catches:** Landing `known-rename` navigating into `/b/` on `Enter` (`FM-002`), `HeroPicker` disabled-tile §4b violation (`FM-025`), live-revoked viewer overlay displaying `"Invalid link"` while leaving the full board DOM behind the scrim (`FM-121`), active `Copy` button on revoked rows (`FM-120`; verified no Revoke UI button is intentional per spec §11), and phone Scene shell layout roughness (`FM-130`).
+
+### Driver upgrades applied (`tools/qa-browser/` v1.2, from Pass 002 Meta-Notes)
+1. **Offline match metadata seeding:** `registerReplayFeed` (`--mock-replay-129738985` / `feed-replay`) now also seeds `DATA_DIR/matches/<id>.json` and `<id>.preview.json` from `~/.local/share/mapcro/data/matches/` when present, so Landing `Open match` and Session `Add game → Load a game` work offline without `502 Bad Gateway`.
+2. **Tighter `snapshot` visibility (`vis()`):** Skips non-`<summary>` descendants of closed `<details:not([open])>` and elements clipped inside zero-width/zero-height `overflow: hidden|clip` ancestors (such as collapsed pickup sub-toggles).
+
+### Feedback loop triggered
+- Spawned `qa-p2-fixes` (Neon medium) for the 4 non-design Pass 002 bugs (`known-rename` Enter, `HeroPicker` §4b title, hide `Copy` on revoked `ShareDialog` rows, live-revoked viewer `"Link revoked"` + clear board DOM behind scrim) with regression tests proven to fail before each fix.
+- Spawned an approved design model (**Gemini 4 Argon high**, `qa-responsive-design`) for Pass 001 Findings #4/#6 (narrow desktop `1024×600`/`800×600` Player/All builds layout) and Pass 002 Finding #5 (phone `390×844` Scene shell `"Scene 1"` overlap & bottom toolbar alignment).
+- Launched Pass 003 on the remaining 24 `auto-only` rows (Phone Player & touch gestures, Objectives/Camps/Lanes/Urn/Rift/Shops/Pings/Troopers, K-preview, `.dem` upload & `Open match` offline flow, Board clone carrying replay, Offline/Reconnect).

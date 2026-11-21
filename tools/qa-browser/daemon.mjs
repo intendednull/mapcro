@@ -342,6 +342,29 @@ function buildSnapshotInPage(maxInteractive) {
       ) {
         return false;
       }
+      // Skip non-<summary> descendants of closed <details>.
+      const parent = cur.parentElement;
+      if (
+        parent &&
+        parent.tagName === "DETAILS" &&
+        !parent.hasAttribute("open") &&
+        cur.tagName !== "SUMMARY"
+      ) {
+        return false;
+      }
+      // Skip elements clipped inside a collapsed overflow-hidden ancestor.
+      if (
+        cur !== el &&
+        (style.overflow === "hidden" ||
+          style.overflow === "clip" ||
+          style.overflowY === "hidden" ||
+          style.overflowY === "clip" ||
+          style.overflowX === "hidden" ||
+          style.overflowX === "clip")
+      ) {
+        const cr = cur.getBoundingClientRect();
+        if (cr.width <= 0 || cr.height <= 0) return false;
+      }
     }
     const r = el.getBoundingClientRect();
     return r.width > 0 && r.height > 0;
@@ -499,11 +522,24 @@ async function main() {
     replaySources.set(idStr, src);
 
     let seededCache = false;
+    let seededMatch = false;
     if (serverInfo?.dataDir) {
       const cacheDir = join(serverInfo.dataDir, "replays");
       mkdirSync(cacheDir, { recursive: true });
       copyFileSync(src, join(cacheDir, `${idStr}-cdn.json`));
       seededCache = true;
+      // Also seed cached match metadata & preview if present locally so Landing Open match
+      // and Session Load a game work completely offline without hitting MATCH_API_BASE.
+      const matchSrcDir = join(homedir(), ".local/share/mapcro/data/matches");
+      const matchDstDir = join(serverInfo.dataDir, "matches");
+      for (const suffix of [".json", ".preview.json"]) {
+        const ms = join(matchSrcDir, `${idStr}${suffix}`);
+        if (existsSync(ms)) {
+          mkdirSync(matchDstDir, { recursive: true });
+          copyFileSync(ms, join(matchDstDir, `${idStr}${suffix}`));
+          seededMatch = true;
+        }
+      }
     }
 
     const answeredNow = scanReplayInbox();
@@ -517,7 +553,7 @@ async function main() {
       }, 300);
       replayTimer.unref();
     }
-    return { matchId: idStr, source: src, seededCache, answeredNow };
+    return { matchId: idStr, source: src, seededCache, seededMatch, answeredNow };
   }
 
   function scanReplayInbox() {
