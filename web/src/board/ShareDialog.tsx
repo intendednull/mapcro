@@ -135,7 +135,7 @@ export function ShareDialog(p: { board: string; token: string; role: "owner" | "
                       <span class={cx("badge", r.link.role)}>{r.link.role === "edit" ? "Can edit" : "View only"}</span>
                       <div>{r.mine ? `you · ${day(r.link.created_at)}` : `${r.from ? `from “${r.from}” · ` : ""}${day(r.link.created_at)}`}</div>
                     </div>
-                    <Show when={token()} fallback={<span />}>
+                    <Show when={!r.link.revoked && token()} fallback={<span />}>
                       <button class="btn small ghost" onClick={() => doCopy(r.link.link_id, urlOf(token()!))}>
                         <Ico d={COPY} />
                         {copied() === r.link.link_id ? "Copied" : "Copy"}

@@ -667,6 +667,10 @@ export function SessionView(p: { session: string; token: string; tab: string | u
   });
   // A dead link, not an outdated build: that one reloads, or says Update available, as a board does.
   const closed = () => linkDead(s.connection());
+  const revoked = () => {
+    const c = s.connection();
+    return c.kind === "closed" && c.reason === "revoked";
+  };
   const outdated = () => {
     const c = s.connection();
     return c.kind === "closed" && c.reason === "outdated";
@@ -724,7 +728,7 @@ export function SessionView(p: { session: string; token: string; tab: string | u
         }}
       </Show>
       <Show when={closed()}>
-        <DeadLink />
+        <DeadLink revoked={revoked()} />
       </Show>
       <Show when={outdated()}>
         <div class="update-banner" role="alert" data-testid="update-available">

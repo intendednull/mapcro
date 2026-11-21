@@ -13,10 +13,27 @@ const files = (dir: string): string[] =>
     return statSync(p).isDirectory() ? (f === "gen" || f === "wasm" ? [] : files(p)) : p.endsWith(".tsx") ? [p] : [];
   });
 
-/** Every literal and template `title=` / `aria-label=` in a file, as written. */
+/** Every literal and template `title=` / `aria-label=` in a file, including inside `{...}` expressions. */
 function labels(text: string): string[] {
   const out: string[] = [];
-  for (const m of text.matchAll(/(?:\btitle|aria-label)=(?:"([^"]*)"|\{`([^`]*)`\})/g)) out.push(m[1] ?? m[2]!);
+  for (const m of text.matchAll(/(?:\btitle|aria-label)=(?:"([^"]*)"|\{)/g)) {
+    if (m[1] !== undefined) {
+      out.push(m[1]);
+      continue;
+    }
+    let depth = 1;
+    let i = m.index! + m[0].length;
+    const start = i;
+    while (i < text.length && depth > 0) {
+      if (text[i] === "{") depth++;
+      else if (text[i] === "}") depth--;
+      i++;
+    }
+    const expr = text.slice(start, i - 1);
+    for (const lit of expr.matchAll(/`((?:[^`\\]|\\.)*)`|"((?:[^"\\]|\\.)*)"/g)) {
+      out.push(lit[1] ?? lit[2]!);
+    }
+  }
   return out;
 }
 
@@ -34,7 +51,11 @@ describe("labels are tags (spec §4b)", () => {
     expect(long).toEqual([]);
   });
   it("none is a sentence: no full stop, no colon before more words", () => {
-    const prose = files(SRC).flatMap((f) => labels(readFileSync(f, "utf8")).filter((l) => /\.\s|\.$|:\s+\w+\s+\w+/.test(l.replace(/\$\{[^}]*\}/g, "X"))).map((l) => `${f.slice(SRC.length + 1)}: ${l}`));
+    const prose = files(SRC).flatMap((f) =>
+      labels(readFileSync(f, "utf8"))
+        .filter((l) => /\.\s|\.$|:\s+(?:0\s+)?[A-Za-z]+\s+[A-Za-z]+/.test(l.replace(/\$\{[^}]*\}/g, "0")))
+        .map((l) => `${f.slice(SRC.length + 1)}: ${l}`),
+    );
     expect(prose).toEqual([]);
   });
 });

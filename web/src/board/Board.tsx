@@ -1010,6 +1010,15 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     const c = state.connection();
     return c.kind === "closed" && c.reason === "outdated";
   };
+  /** The link was refused for good (invalid, revoked, wrong room kind): unmount board content. */
+  const dead = () => {
+    const c = state.connection();
+    return c.kind === "closed" && c.reason !== "outdated";
+  };
+  const revoked = () => {
+    const c = state.connection();
+    return c.kind === "closed" && c.reason === "revoked";
+  };
   const flipBy = (d: number) => {
     const all = state.scenes();
     const next = all[sceneIndex() + d];
@@ -1156,6 +1165,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
         <SaveStatus state={state} rejected={rejected()} dismiss={() => setSeenProblems(state.problems().length)} />
         <Show when={!inPlayer()}><FeedbackButton variant="bar" match={feedbackMatch} /></Show>
       </header>
+      <Show when={!dead()}>
       <Show when={!inPlayer()}>{followChip()}</Show>
       <Show when={!inPlayer()}><div class="p-title" onPointerDown={swipe}>
         <div class="ord">
@@ -1241,6 +1251,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
         <SceneTree state={state} art={p.art} vp={viewpoint()} board={p.board} current={scene()?.id} onFlip={pickScene} chip={sceneChip} onFull={() => say("Board full")} keys={() => !inPlayer()} drawer onClose={() => setSceneDrawer(false)} />
       </Show>
       {toastView()}
+      </Show>
     </div>
   );
 
@@ -1575,6 +1586,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
         <MoreMenu groups={moreGroups()} dot={updateLink()} />
       </header>
       <Show when={inSession}>{inSession!.strip()}</Show>
+      <Show when={!dead()}>
       <div class="main">
         <SceneTree
           state={state}
@@ -1759,6 +1771,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
           </Show>
         </aside>
       </div>
+      </Show>
     </div>
     </Show>
     <Show when={dialog() === "share" && state.canEdit() && !inSession}>
@@ -1789,7 +1802,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
         onClose={() => setHeroPick(undefined)}
       />
     </Show>
-    <Show when={dialog() === "clone"}>
+    <Show when={dialog() === "clone" && !dead()}>
       <CloneDialog board={p.board} token={p.token} {...(via ? { via } : {})} title={state.title()} onClose={() => setDialog(undefined)} />
     </Show>
     <Show when={justCloned() && state.role() === "owner" && joined() && !dialog()}>
@@ -1808,8 +1821,8 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
         </button>
       </div>
     </Show>
-    <Show when={state.connection().kind === "closed" && !outdated()}>
-      <Show when={inSession} fallback={<DeadLink />}>
+    <Show when={dead()}>
+      <Show when={inSession} fallback={<DeadLink revoked={revoked()} />}>
         <div class="banner revoked no-access" role="alert" data-testid="no-access">
           <b>No access</b>
         </div>
