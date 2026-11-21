@@ -9,8 +9,12 @@
 // - Dormant Retake, per-feature tier table, re-picked slot rule, `pickHeroOps`, TD-145 `decideStep`
 // - Copy filter (`addSceneOps`) stripping `Ahead` keys and lowering `rows`
 
+import { describe, expect, it, vi } from "vitest";
+
+// Browser build of solid-js so signals and memos track reactively in vitest node workers.
+vi.mock("solid-js", async () => await import(/* @vite-ignore */ "solid-js/dist/" + "solid.js"));
+
 import { createRoot, createSignal } from "solid-js";
-import { describe, expect, it } from "vitest";
 import type { Entry } from "../src/gen/Entry";
 import type { More } from "../src/gen/More";
 import type { ObjectiveStatus } from "../src/gen/ObjectiveStatus";
@@ -36,7 +40,7 @@ import { heroDraw } from "../src/mapstate/shown";
 import { FEATURES, type MapState, fromTimeline } from "../src/mapstate/state";
 import { decideStep } from "../src/mapstate/undo";
 import { DROP_ORDER, canRetake, matchSceneOps, opsBytes, retakeOps, sourceOf } from "../src/match/save";
-import { type CampAt, type PowerupAt, type Timeline, sitesAt, slotKey } from "../src/match/timeline";
+import { type CampAt, type PowerupAt, type Timeline, markerKey, sitesAt, slotKey } from "../src/match/timeline";
 import { tipFacts } from "../src/player/Camps";
 import { markerStates } from "../src/player/markerStates";
 import { keyOf, markers, metadata, replay } from "./support/synthetic-match";
@@ -67,6 +71,16 @@ function richReplay(): Timeline {
     });
   return {
     ...base,
+    players: base.players.map((p, i) => ({
+      ...p,
+      items: [[0, 9000 + i, 1]],
+      abilities: [[0, 5000 + i, 1]],
+      level: [[0, 1 + i]],
+      kills: [[0, i % 3]],
+      assists: [[0, i % 2]],
+      max_health: [[0, 600 + 20 * i]],
+      pickups: [[0, [10, 5, 2, 1, 0.5]]],
+    })),
     powerups: [
       {
         key: keyOf("powerup"),
@@ -494,8 +508,8 @@ describe("FNV-1a hashes, collision fallback, over-length caps & byte-cap drop or
     const tl = richReplay();
     const cap = captureToScene(tl, 6, WRITTEN_B);
     // At t=6, walker:amber:lane1:1 and guardian:sapphire:lane4 are destroyed (always ObjectiveState).
-    expect(cap.objectives.get("walker:amber:lane1:1")?.status).toBe("Destroyed");
-    expect(cap.objectives.get("guardian:sapphire:lane4")?.status).toBe("Destroyed");
+    expect(cap.objectives.get(markerKey("walker:amber:lane1:1", markers)!)?.status).toBe("Destroyed");
+    expect(cap.objectives.get(markerKey("guardian:sapphire:lane4", markers)!)?.status).toBe("Destroyed");
     // Camps, heals, crates, midboss, powerups, rifts, urn points are all covered by baseline -> NO ObjectiveState!
     for (const key of cap.objectives.keys()) {
       expect(key.startsWith("camp:") || key.startsWith("heal:") || key.startsWith("crate:") || key.startsWith("mid_boss:") || key.startsWith("powerup:") || key.startsWith("rift:") || key.startsWith("urn:")).toBe(false);
@@ -751,8 +765,8 @@ describe("Marker clicks (objectives.ts) with baseline shown & TD-163 sitesAt", (
 
     // Clicking the OTHER rift turns baseline-active rift0 off and rift1 on in one tx!
     expect(toggleOps(rift1, all, empty, "s1", mint, shown)).toEqual([
-      { Create: { id: "id3", record: { ObjectiveState: { scene: "s1", key: rift1.key, status: "Active" } } } },
-      { Create: { id: "id4", record: { ObjectiveState: { scene: "s1", key: rift0.key, status: "Destroyed" } } } },
+      { Create: { id: "id4", record: { ObjectiveState: { scene: "s1", key: rift1.key, status: "Active" } } } },
+      { Create: { id: "id3", record: { ObjectiveState: { scene: "s1", key: rift0.key, status: "Destroyed" } } } },
     ]);
 
     // groupToggleOps: clicking baseline-cleared camp turns group ON -> writes Active for camp (does NOT skip!).

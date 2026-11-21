@@ -139,8 +139,10 @@ describe("the hero a slot holds in a scene", () => {
     expect(holdsBuild(build, LATER, null, true)).toBe(false);
     expect(holdsBuild(build, LATER, 999, true)).toBe(false);
     expect(holdsBuild({ items: [1, 0, -1, -1] }, LATER, 10, true)).toBe(false);
-    // The build's rows are every hero row but the two that say who it is.
-    expect([...BUILD_KEYS].sort()).toEqual(Object.keys(ROWS).filter((k) => ROWS[k as keyof typeof ROWS].entity === "hero" && k !== "hero" && k !== "name").sort());
+    // The build's rows are every hero row except identity (`hero`, `name`) and phase 5 Group A
+    // slot-at-the-frame facts (`unseen`, `cc`, `height`, `zipline`; plan §6).
+    const nonBuild = new Set(["hero", "name", "unseen", "cc", "height", "zipline"]);
+    expect([...BUILD_KEYS].sort()).toEqual(Object.keys(ROWS).filter((k) => ROWS[k as keyof typeof ROWS].entity === "hero" && !nonBuild.has(k)).sort());
   });
 });
 
@@ -388,8 +390,8 @@ describe("Retake and the scene's heroes", () => {
     const saved = captureScene(tl, { written: BEFORE });
     expect(retakeRows(BEFORE)).toBe(BEFORE);
     expect(retakeRows(LATER)).toBe(BEFORE);
-    // (A row after it that Retake gives would move it past: there is none yet.)
-    expect(retakeRows(LATER + 1)).toBe(BEFORE);
+    // Row 16 (`has_sight`, phase 5) sits after `has_heroes`, so `retakeRows(LATER + 1)` advances to it.
+    expect(retakeRows(LATER + 1)).toBe(LATER + 1);
     expect(retakeRows()).toBe(BEFORE);
     expect(retakeRows(0)).toBe(0);
     expect(canRetake(src, saved, tl)).toBe(false);

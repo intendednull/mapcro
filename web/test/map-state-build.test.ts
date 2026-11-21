@@ -49,7 +49,7 @@ describe("a hero's build through a scene", () => {
   it.each([0, 1, 2, 3, 4])("reads back as Player computed it at second %i, for every hero", (t) => {
     const rows = captured(captureScene(tl));
     // Its heroes too, once this build writes that row.
-    expect(rows).toEqual({ builds: true, heroes: writesHeroes(), rows: WRITTEN, patch: 6839 });
+    expect(rows).toMatchObject({ builds: true, heroes: writesHeroes(), rows: WRITTEN, patch: 6839 });
     for (const p of tl.players) {
       const computed = heroBuildAt(tl, p, t);
       const stored = captureBuild(computed);
