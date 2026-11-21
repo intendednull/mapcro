@@ -99,7 +99,7 @@ describe("player events", () => {
       ]),
     };
     const heroName = (id: number) => art.heroes.get(id)?.name ?? `Hero ${id}`;
-    const named = (namesFor as unknown as (...args: unknown[]) => ReturnType<typeof namesFor>)(tl, heroName, undefined, art);
+    const named = namesFor(tl, heroName, undefined, art);
     const ultEvents: MatchEvent[] = [
       { t: 100, kind: "ult", team: "amber", slot: 0, hero_id: 10, ability: "citadel_ability_unicorn_dazzlingorb" },
       { t: 110, kind: "ult", team: "amber", slot: 0, hero_id: 10, ability: "citadel_ability_unicorn_radiantblast" },

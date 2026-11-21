@@ -248,6 +248,13 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     resetVisit(p.board);
   });
   const inPlayer = () => player.mode() === "player";
+  // Dismiss a stale "Saved scene … · Back to replay" toast once back in Player.
+  createEffect(() => {
+    if (inPlayer() && untrack(toast)?.action?.label === "Back to replay") {
+      clearTimeout(toastTimer);
+      setToast(undefined);
+    }
+  });
   /** The match open in Player, for the feedback form (spec §11a); none in sandbox. */
   const feedbackMatch = () => feedbackMatchOf(inPlayer(), player.matchId(), player.tl(), player.t());
   // Player draws the match alone, an empty map while there's no timeline (review finding 7).

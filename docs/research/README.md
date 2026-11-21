@@ -28,7 +28,7 @@ Ids are `CUtlStringToken`s: MurmurHash2 of the lower-cased name, seed `0x3141592
 | `zipline` | pawn `m_eZipLineLaneColor` | parse_hero.rs, hero_data.rs | elevation |
 | `items` | user msgs 309 `AbilitiesChanged` + 360 `ItemPurchaseNotification` (sells) | parse_hero.rs, hero_data.rs `item_kinds` | [abilities-and-items](abilities-and-items.md) §1 |
 | `abilities` (tiers, not hero level) | controller `m_vecAbilityUpgradeState[].m_ItemID/m_nUpgradeInfo` | hero_data.rs `levels` | abilities-and-items §2 |
-| `casts` | msg 365 `ImportantAbilityUsed`; cooldown from the ability entity's `m_flCooldownEnd` | parse_hero.rs | abilities-and-items §2 |
+| `casts` | msg 365 `ImportantAbilityUsed`; cooldown from the ability entity's `m_flCooldownEnd`. **Note:** msg 365 fires for non-ult signature abilities too (e.g. `sleep_dagger`, `ratking_ratnibble`, `unicorn_radiantblast`), so Player filters `kind: "ult"` events and resolves localized names via the pack's `buildCatalog` (`ability_type === "ultimate"` or `hero.abilities[3]`) | parse_hero.rs, parse.rs `ability_used` | abilities-and-items §2 |
 | `charges` | ability entity `m_iRemainingCharges` | parse_hero.rs | abilities-and-items §2 |
 | `stacks` (format 10) | `ActiveModifiers` entries a hero applied to itself (`caster` = `parent`) with one of its abilities or items (`ability_subclass`): per ability, the most `stack_count` among the live ones, 0 once none is left. See "Own stacks" | parse_hero.rs `OwnStacks`, hero_data.rs `own_stacks` | this map; `examples/stack_probe.rs` |
 | `cc` | pawn `m_pModifierProp.m_bvEnabledStateMask`; cause from a same-tick enemy modifier | hero_data.rs `cc` | [status-effects](status-effects.md) §1–2 |

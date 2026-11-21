@@ -29,7 +29,7 @@ import { easedNumber } from "../board/smooth";
 import { mapToView, worldToMap, worldToView } from "../map/transform";
 import { EventsList } from "./Events";
 import { markerScrub } from "./scrubDrag";
-import { eventKey, jumpAt, jumpTarget, namesFor, placeOf, shortLabel, tierLabel } from "./events";
+import { eventKey, isUltEvent, jumpAt, jumpTarget, namesFor, placeOf, shortLabel, tierLabel } from "./events";
 import type { PlayerHost } from "./host";
 import { type Vision, VISIONS, hasVision, visionForCode, visionKey } from "./vision";
 import { teamName } from "../map/model";
@@ -253,9 +253,9 @@ export function Player(p: {
 
   // Keys while watching (spec §6b; the scene tree has ← → while viewing a scene): ↑ ↓ step
   // through events, ← → seek SEEK_KEY s (Shift: SEEK_KEY_SHIFT s), a Space tap plays or pauses.
-  const events = createMemo(() => [...(h.tl()?.events ?? [])].sort((a, b) => a.t - b.t));
+  const events = createMemo(() => [...(h.tl()?.events ?? []).filter((e) => isUltEvent(e, p.art))].sort((a, b) => a.t - b.t));
   /** The scrubber ticks' tags (shortLabel), with names as the events list has them. */
-  const tickNames = createMemo(() => (h.tl() ? (h.showNames(), namesFor(h.tl()!, (id) => p.art.heroes.get(id)?.name ?? `Hero ${id}`, h.playerName)) : undefined));
+  const tickNames = createMemo(() => (h.tl() ? (h.showNames(), namesFor(h.tl()!, (id) => p.art.heroes.get(id)?.name ?? `Hero ${id}`, h.playerName, p.art)) : undefined));
   onMount(() => {
     const typing = (el: HTMLElement | null) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
     const plain = (e: KeyboardEvent) => watching() && !!h.tl() && !e.altKey && !e.ctrlKey && !e.metaKey;
@@ -543,7 +543,7 @@ export function Player(p: {
                 {/* Events (#6): a hover grows the tick and shows its tag; a press jumps there, as
                     ↑ ↓ do (which is the keyboard's way: the ticks aren't in the tab order). */}
                 <div class="pl-ticks" ref={ticksRow}>
-                  <For each={m().events ?? []}>{(e) => (
+                  <For each={events()}>{(e) => (
                     <button type="button" tabindex="-1" class={cx("pl-tick", e.kind, edge(e.t / Math.max(1, m().duration_s)))} data-testid="scrub-tick" data-t={e.t} data-kind={e.kind}
                       style={{ left: `${(e.t / Math.max(1, m().duration_s)) * 100}%` }}
                       aria-label={`${tickNames() ? shortLabel(e, tickNames()!) : e.kind}, ${clockLabel(e.t)}`}
@@ -650,18 +650,28 @@ export function MapControls(p: {
 }) {
   const h = p.host;
   let layers: HTMLDetailsElement | undefined;
+  const sizePop = () => {
+    if (!layers?.open || layers.closest(".p-sheet")) return;
+    const r = layers.getBoundingClientRect();
+    const stageTop = layers.closest(".stage")?.getBoundingClientRect().top ?? 0;
+    layers.style.setProperty("--pop-max", `${Math.max(120, Math.floor(r.top - stageTop - 12))}px`);
+  };
   onMount(() => {
     // In a phone sheet the list is the sheet's body: open for as long as the sheet is. (CSS alone
     // showed a closed one's content in Chromium; Firefox kept it hidden and the sheet cut short.)
     if (layers?.closest(".p-sheet")) layers.open = true;
-    else dismissDisclosure(() => layers ?? null);
+    else {
+      dismissDisclosure(() => layers ?? null);
+      window.addEventListener("resize", sizePop);
+      onCleanup(() => window.removeEventListener("resize", sizePop));
+    }
   });
   // A change to what the map draws is your own: the view-state store stops following, and you
   // keep what you were seeing with that one change (spec §8). Player names are this browser's
   // alone, never followed.
   useVisionKeys(h);
   return <div class="map-controls" role="group" aria-label="Map view">
-    <details class="map-layers" ref={layers}>
+    <details class="map-layers" ref={layers} onToggle={sizePop}>
       <summary class="btn small" data-testid="map-layers-toggle">Map layers ▾</summary>
       <div class="map-layers-pop">
         <Show when={h.tl()}>{m => <>
@@ -816,7 +826,7 @@ export function TierChip(p: { host: PlayerHost }) {
     const j = h.job();
     return !replay() && j?.state === "failed" && j.source === "cdn" ? FETCH_WHY[j.reason ?? ""] : undefined;
   };
-  const hint = () => (replay() ? (staleUpload(h.job()) ? `Parsed from the replay file · ${OLDER_PARSE}` : "Parsed from the replay file") : [fetchWhy(), WHAT_SUMMARY_LACKS].filter(Boolean).join(" · "));
+  const hint = () => (replay() ? (staleUpload(h.job()) ? "Older parse" : undefined) : fetchWhy() ?? "Summary details");
   // A button only where a press opens something (#36): the tab that opened the match gets its
   // prompt back (spec §6b), and at the API summary everyone else gets the "why". At the full
   // replay it's a tag with its hover hint.
@@ -856,8 +866,6 @@ export function TierChip(p: { host: PlayerHost }) {
 const edge = (at: number) => (at < 0.1 ? "near-start" : at > 0.9 ? "near-end" : undefined);
 
 const WHAT_SUMMARY_LACKS = "No health, ult timers, zipline colours, camps, rifts or powerups";
-/** A stale upload's hint (spec §6a, format versions): the newer layers come with the file. */
-const OLDER_PARSE = "An older parse: upload the replay file again for the newest layers";
 
 /** Where a jump landed: a ring that pulses there for a few seconds (map → view units). */
 export function Highlight(p: { at: { x: number; y: number } | undefined; vp: "amber" | "sapphire" | "neutral" }) {
@@ -961,10 +969,10 @@ export function PlayerSide(p: Props) {
   const lanes = () => p.art.model.lanes.map((l) => l.key);
   const heroName = (id: number) => p.art.heroes.get(id)?.name ?? `Hero ${id}`;
   // Re-made when Names flips, so the list's labels and search follow it.
-  const names = createMemo(() => (h.tl() ? (h.showNames(), namesFor(h.tl()!, heroName, h.playerName)) : undefined));
+  const names = createMemo(() => (h.tl() ? (h.showNames(), namesFor(h.tl()!, heroName, h.playerName, p.art)) : undefined));
   // The search finds by player name as its maker's Names says (a presenter's: theirs), so a
   // follower's list is the presenter's whatever Names is here.
-  const searchNames = createMemo(() => (h.tl() ? namesFor(h.tl()!, heroName, h.eventSearchByName() ? undefined : () => undefined) : undefined));
+  const searchNames = createMemo(() => (h.tl() ? namesFor(h.tl()!, heroName, h.eventSearchByName() ? undefined : () => undefined, p.art) : undefined));
   const user = (f: () => void) => {
     p.onUserPlayback();
     f();
