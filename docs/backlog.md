@@ -32,18 +32,17 @@ Found during [QA Pass 003](qa/passes/2026-11-21-pass-003-world-import-phone-play
 
 Found during [QA Pass 002](qa/passes/2026-11-21-pass-002-sessions-sharing-editing.md) on `8c6ec5e`:
 
-- **Landing inline board rename navigates into the board on `Enter`** (`bug-minor`, `FM-002`). On `/`,
-  clicking `[data-testid="known-rename"]`, editing the title, and pressing `Enter` saves the new
-  title AND immediately navigates to `/b/<id>#<tok>`. `Enter` should commit the inline rename and
-  stay on `/`. Add a regression assertion in `web/e2e/boards-list.spec.ts`.
+- ~~**Landing inline board rename navigates into the board on `Enter`** (`bug-minor`, `FM-002`).~~
+  **Working as designed** (verified 2026-11-21 against `Landing.tsx:56-60` and `web/e2e/boards-list.spec.ts:130`):
+  clicking `known-rename` intentionally opens `/b/<id>#<tok>` with `board-title-input` focused because
+  board titles live in CRDT `BoardMeta` (no REST rename endpoint).
 - **`HeroPicker` disabled tiles use sentence-style `title` tooltips violating spec §4b**
   (`label-violation`, `FM-025`). Already-picked heroes in `[data-testid="hero-picker"]` carry
   `title="<Hero>: <Slot> has this hero"` — full prose repeating text already shown on the tile.
   Remove or shorten and guard in `web/test/labels.test.ts`.
-- **`ShareDialog` lacks a Revoke button for minted links and keeps `Copy` active on revoked rows**
-  (`ux-rough`, `FM-120`). Server `DELETE /api/{boards,sessions}/{id}/links/{link}`, `api.revoke()`,
-  and `.link-row.revoked` CSS exist, but `ShareDialog.tsx` renders an empty `<span />` placeholder
-  in column 3 and still shows an active `Copy` button on revoked rows.
+- **`ShareDialog` keeps `Copy` active on revoked rows** (`bug-minor`, `FM-120`). *(Note: omitting a
+  Revoke button in `ShareDialog.tsx` is intentional per spec §11 — the footer offers Clone instead.
+  Still a bug: revoked rows render an active `Copy` button.)*
 - **Live-revoked viewer overlay says `"Invalid link"` (contradicting header `"Link revoked"`) and
   leaves board DOM visible behind the scrim** (`bug-minor`, `FM-121`). On `CloseReason::Revoked`,
   align `[data-testid="dead-link"]` copy to `"Link revoked"`, clear/unmount sensitive board contents,

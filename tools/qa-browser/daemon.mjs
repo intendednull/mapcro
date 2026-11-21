@@ -421,6 +421,15 @@ function buildSnapshotInPage(maxInteractive) {
     "[data-testid]",
   ].join(", ");
 
+  // Exclude dense non-interactive SVG visualization data-testids so snapshot's cap focuses on controls.
+  const IGNORE_TESTIDS = new Set([
+    "trooper",
+    "tok-health",
+    "scrub-tick",
+    "lane-edge",
+    "lane-path",
+  ]);
+
   const all = [...document.querySelectorAll(interSel)].filter(vis);
   const items = [];
   for (const el of all) {
@@ -437,7 +446,7 @@ function buildSnapshotInPage(maxInteractive) {
       tag === "textarea" ||
       Boolean(role);
     // Keep non-interactive data-testid containers only if they carry short direct text or are key landmarks.
-    if (!isNativeInteractive && !testid) continue;
+    if (!isNativeInteractive && (!testid || IGNORE_TESTIDS.has(testid))) continue;
     const aria = el.getAttribute("aria-label") || undefined;
     const title = el.getAttribute("title") || undefined;
     const label = clip(
@@ -762,8 +771,19 @@ async function main() {
         const entry = requireTab(args.tab);
         const sel = normalizeSelector(args.selector);
         const loc = args.any ? entry.page.locator(sel).first() : entry.page.locator(sel).filter({ visible: true }).first();
-        await loc.hover({ timeout });
-        return { ok: true, tab: args.tab, action: "hover", selector: sel };
+        await loc.hover({ timeout, force: Boolean(args.force) });
+        return { ok: true, tab: args.tab, action: "hover", selector: sel, force: Boolean(args.force) };
+      }
+
+      case "move": {
+        const entry = requireTab(args.tab);
+        const x = Number(args.x);
+        const y = Number(args.y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          throw new Error("move requires numeric x y");
+        }
+        await entry.page.mouse.move(x, y);
+        return { ok: true, tab: args.tab, action: "move", x, y };
       }
 
       case "fill": {

@@ -99,6 +99,9 @@ Test every chartered flow across relevant viewports:
   console errors, zero uncaught `pageerror`s, and zero unexpected 4xx/5xx responses is the baseline.
 - **Labels & hover text (spec §4b):** Check visible labels, button text, and `title` attributes —
   short, the game's words, no explanatory sentences.
+- **Avoid false positives:** Check `snapshot`'s URL immediately after clicks (some controls
+  intentionally navigate — e.g. `known-rename` opens `/b/<id>` with the title editor focused), and
+  cross-check suspected missing UI controls against specs (`docs/specs/`) before filing as bugs.
 
 ### 5. Clean teardown (mandatory)
 ```bash

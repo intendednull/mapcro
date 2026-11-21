@@ -90,3 +90,23 @@ Pass 002 (`passes/2026-11-21-pass-002-sessions-sharing-editing.md`, Neon medium 
 - Spawned `qa-p2-fixes` (Neon medium) for the 4 non-design Pass 002 bugs (`known-rename` Enter, `HeroPicker` §4b title, hide `Copy` on revoked `ShareDialog` rows, live-revoked viewer `"Link revoked"` + clear board DOM behind scrim) with regression tests proven to fail before each fix.
 - Spawned an approved design model (**Gemini 4 Argon high**, `qa-responsive-design`) for Pass 001 Findings #4/#6 (narrow desktop `1024×600`/`800×600` Player/All builds layout) and Pass 002 Finding #5 (phone `390×844` Scene shell `"Scene 1"` overlap & bottom toolbar alignment).
 - Launched Pass 003 on the remaining 24 `auto-only` rows (Phone Player & touch gestures, Objectives/Camps/Lanes/Urn/Rift/Shops/Pings/Troopers, K-preview, `.dem` upload & `Open match` offline flow, Board clone carrying replay, Offline/Reconnect).
+
+---
+
+## 2026-11-21 — v1.3: Pass 003 Retro (70/72 Coverage), Pointer Hover & Snapshot Signal
+
+### Pass 003 evaluation (end of Cycle 1 full-app sweep)
+Pass 003 (`passes/2026-11-21-pass-003-world-import-phone-player.md`, Neon medium on `8c6ec5e`) ran on v1.2, explored 29 rows (advancing 22 of 24 remaining `auto-only` rows), bringing the Living Feature Map to **70/72 rows interactively verified** (`34 deep`, `36 smoke`, `2 auto-only` [`FM-072` desktop-app-only, `FM-141` release-feed gated], `0 unmapped`), with zero console/page errors and **5 new findings** (`3 bug-minor`, `1 ux-rough`, `1 test-gap`):
+- **v1.2 upgrades validated:** Offline match metadata seeding (`seededMatch: true`) worked on the first try across Landing `Open match`, Session `Load a game`, and Landing `.dem` upload (zero `502`s). Tighter `snapshot` `vis()` cleanly skipped closed `<details>` children.
+- **Pass 002 false-positive lesson applied:** During fix triage, `FM-002` (`known-rename` navigating to `/b/` on click) and `FM-120` (`ShareDialog` having no Revoke button) turned out to be intentional per `boards-list.spec.ts:130` and spec §11. Updated `docs/qa/README.md` so explorers verify URLs right after clicks and cross-check specs before filing missing controls.
+- **Cycle 1 (Passes 001–003) totals against v1 predictions:**
+  - **21 raw findings → 19 confirmed** (`10 bug-minor`, `2 label-violation`, `5 ux-rough`, `2 test-gap`), zero regressions missed, zero game art or player names ever committed.
+  - All 3 v1 predictions held strongly: narrow/tablet/phone visual overlaps, cross-feature state bugs (`Scene ""` handoff, stale toasts, live-revoked viewer DOM leak, Events `Ults` slugs/misclassification, `.dem` upload validation order), and iterative driver upgrades (`v1.0 → v1.1 → v1.2 → v1.3`) driven directly by Pass Meta-Notes.
+
+### Driver upgrades applied (`tools/qa-browser/` v1.3, from Pass 003 Meta-Notes)
+1. **`move <tab> <x> <y>` and `hover --force`:** Map `.mk` markers sit under `<svg class="mm-overlay map">` (`.notes-area` intercepts pointer hit-testing), causing standard `locator.hover()` actionability checks to time out. Added `move` (direct `page.mouse.move(x, y)`) and `--force` on `hover`.
+2. **Exclude dense non-interactive SVG visualization `data-testid`s in `snapshot`:** Filtered `trooper`, `tok-health`, `scrub-tick`, `lane-edge`, and `lane-path` out of `snapshot`'s interactive list so the 120-item default cap never truncates real controls on dense Player screens.
+
+### Feedback loop triggered
+- Spawned `qa-p3-fixes` (Neon medium) for Pass 003's 3 confirmed bugs (`Scene ""` handoff label on unnamed scenes, Landing `.dem` `looksLikeDemo` before `idFromName`, Player `host.ts` `take()` empty-`matchId` handling + stale error clear, and omitting `[1]`/`[2]`/`[3]` shortcut brackets on touch Vision `<select>`) with regression tests proven to fail before each fix.
+- Next QA cycle (Cycle 2, Pass 004+): run after Phase 5 R1 + Pass 1–3 fixes + Argon responsive polish land, targeting regression verification + deepening remaining `smoke` rows to `deep`.

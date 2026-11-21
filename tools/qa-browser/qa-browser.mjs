@@ -31,7 +31,9 @@ Tabs & navigation (each tab is an isolated BrowserContext):
 
 Inspection & interaction:
   snapshot <tab> [--max N] [--json] [--id <name>]
-  click | rclick | dblclick | hover <tab> <selector> [--any] [--id <name>]
+  click | rclick | dblclick <tab> <selector> [--any] [--id <name>]
+  hover <tab> <selector> [--any] [--force] [--id <name>]
+  move <tab> <x> <y> [--id <name>]
   fill <tab> <selector> <value> [--any] [--id <name>]
   upload <tab> <selector> <file> [--id <name>]
   type <tab> <text> [--id <name>]
@@ -73,6 +75,7 @@ function parseArgs(argv) {
     "json",
     "touch",
     "any",
+    "force",
     "help",
   ]);
 
@@ -410,6 +413,13 @@ async function main() {
       args.tab = rest[0];
       args.selector = rest[1];
       if (flags.any) args.any = true;
+      if (flags.force) args.force = true;
+      break;
+    case "move":
+      if (rest.length < 3) throw new Error("move requires <tab> <x> <y>");
+      args.tab = rest[0];
+      args.x = Number(rest[1]);
+      args.y = Number(rest[2]);
       break;
     case "fill":
       if (rest.length < 3) throw new Error("fill requires <tab> <selector> <value>");
