@@ -111,22 +111,22 @@ function activatingGroupA(ops: Op[], records: ReadonlyMap<RecordId, Entry>): Map
     const existing = records.get(stateId);
     const existingState = existing && "SceneState" in existing.record ? existing.record.SceneState : undefined;
     let sceneId: RecordId | undefined = existingState?.scene;
+    let exists = !!existingState;
     let live = !!existing && !existing.deleted && !!existingState;
     const before = live ? captured(existingState!.more) : captured(undefined);
-    let afterMore: More = live ? { ...(existingState!.more ?? {}) } : {};
+    let afterMore: More = existingState ? { ...(existingState.more ?? {}) } : {};
 
     for (const o of ops) {
       if ("Create" in o && o.Create.id === stateId && "SceneState" in o.Create.record) {
-        if (!existing) {
+        if (!exists) {
           sceneId = o.Create.record.SceneState.scene;
+          exists = true;
           live = true;
           afterMore = { ...(o.Create.record.SceneState.more ?? {}) };
         }
       } else if ("Restore" in o && o.Restore.id === stateId) {
-        if (!live && existingState) {
-          live = true;
-          afterMore = { ...(existingState.more ?? {}) };
-        }
+        // Restore only clears the deletion bit (`validate.rs:476`), preserving projected `more`.
+        if (!live && exists) live = true;
       } else if ("Delete" in o && o.Delete.id === stateId) {
         live = false;
       } else {

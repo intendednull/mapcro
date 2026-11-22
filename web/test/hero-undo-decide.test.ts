@@ -277,6 +277,16 @@ describe("a step that writes a hero's record in a scene that holds its heroes", 
       expect(decideStep(restoreRedo, deletedState(nearCapHero()))).toEqual({ ops: [], carry: [], changed: true });
     });
 
+    it("compound Set -> Delete -> Restore on SceneState preserves projected more across Restore", () => {
+      const compound: Op[] = [setIf(H, "unseen", null, true), set(STATE, "has_sight", true), { Delete: { id: STATE } }, { Restore: { id: STATE } }];
+      expect(decideStep(compound, view({ hero: { hero: M, ...BUILD } }))).toEqual({
+        ops: [set(H, "unseen", true), set(STATE, "has_sight", true), { Delete: { id: STATE } }, { Restore: { id: STATE } }],
+        carry: [],
+        changed: true,
+      });
+      expect(decideStep(compound, view({ hero: nearCapHero() }))).toEqual({ ops: [], carry: [], changed: true });
+    });
+
     it("watermark-only activation (dormant has_sight: true at rows: 16, Redo bumps rows 16 -> 27): hardens fitting hero and drops near-cap hero", () => {
       const watermarkRedo: Op[] = [setIf(H, "unseen", null, true), setIf(STATE, "rows", 16, 27)];
       const dormantState = (heroMore: More): Map<RecordId, Entry> => {
