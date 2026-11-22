@@ -476,9 +476,10 @@ export function matchSceneOps(
   }
   // Without the builds the scene still holds its heroes: each record its match's hero, and a
   // state that says so. Both or neither, to the byte.
-  // - At `written <= 16` (`!fd`): exact v14 all-or-nothing check against `legacyObjs`.
-  // - At `written > 16` (`fd`): preserve legacy site buckets as whole units; drop overflowing
-  //   optional site buckets by ops or bytes so the mandatory heroes-only scene still saves.
+  // - At `written <= 16`: exact v14 all-or-nothing check against `legacyObjs`.
+  // - At `written > 16`: preserve legacy site buckets as whole units regardless of `opts.builds`,
+  //   dropping overflowing optional site buckets by ops or bytes so the mandatory heroes-only scene
+  //   still saves (Astra R1 review edge).
   let held = !own || stored;
   if (!stored && own && fixedCount < LIMITS.max_ops_per_tx) {
     const players = new Map(tl.players.map((p) => [slotKey(p.team, p.slot), p]));
@@ -486,7 +487,7 @@ export function matchSceneOps(
     const stateMore = captureScene(tl, { builds: false, written });
     const bytes = mine.reduce((n: number, hero) => n + (hero == null ? 0 : MORE_KEY + moreBytes({ hero })), 0);
     const fitsBytes = (objs: ObjEntry[]) => opsBytes(previewOps(objs, stateMore)) + bytes <= txBudget;
-    const fallbackObjs = fd ? fitBuckets(new Set(), maxObjWithState, fitsBytes) : legacyObjs;
+    const fallbackObjs = written > 16 ? fitBuckets(new Set(), maxObjWithState, fitsBytes) : legacyObjs;
     if (fixedCount + fallbackObjs.length < LIMITS.max_ops_per_tx && fitsBytes(fallbackObjs)) {
       mine.forEach((hero, idx) => {
         if (hero != null) heroes[idx]!.PlayerState.more = { hero };

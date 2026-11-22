@@ -4,7 +4,7 @@ const TEXT_TYPES = new Set(["", "text", "search", "email", "url", "tel", "passwo
 
 /** A field the user types into (spec §6b "Keys while watching"): there Space is a space. */
 export function isTextField(el: Element | null): boolean {
-  if (!(el instanceof HTMLElement)) return false;
+  if (!el || typeof HTMLElement === "undefined" || !(el instanceof HTMLElement)) return false;
   if (el.isContentEditable || el.tagName === "TEXTAREA") return true;
   return el instanceof HTMLInputElement && TEXT_TYPES.has(el.type);
 }
@@ -13,5 +13,5 @@ export function isTextField(el: Element | null): boolean {
  * dialog or a menu, which keep their own keys. */
 export function boardKeys(el: Element | null): boolean {
   if (isTextField(el)) return false;
-  return !(el instanceof Element && el.closest('[role="dialog"], [role="menu"], [aria-modal="true"]'));
+  return !(el && typeof Element !== "undefined" && el instanceof Element && el.closest('[role="dialog"], [role="menu"], [aria-modal="true"]'));
 }

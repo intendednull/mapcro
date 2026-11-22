@@ -90,6 +90,11 @@ export function playerHero(h: HeroState, draw: HeroDraw, shown: Shown): PlayerHe
   };
 }
 
+/** A scene hero's health arc value (plan §5 R2, Q3): shown for a living, visible hero when
+ * Health is on and the scene captured health (`h.health() !== null`). */
+export const sceneTokenHealth = (h: Pick<HeroState, "health">, alive: boolean, visible: boolean, shown: Pick<Shown, "health">): number | null =>
+  shown.health && alive && visible ? h.health() : null;
+
 /** The team whose sight the frame is drawn under: none for All, or a frame without sight data. */
 const sightOf = (ms: MapState, vision: Vision) => (vision !== "all" && ms.has("sight") ? vision : null);
 
