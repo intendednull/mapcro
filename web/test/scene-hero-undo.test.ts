@@ -629,17 +629,32 @@ describe("BoardSession.undo and redo send the plain step unless a hero's record 
     [s.a, s.b].forEach((x) => x.stop());
   });
 
-  it("a Retake in a scene that doesn't hold its heroes (slot writes, no `has_heroes`): what the plain undo and redo send", async () => {
+  it("a Retake in a scene that doesn't hold its heroes (slot writes, no `has_heroes`): plain undo; redo hardens Group A hero ops to Set while keeping slot ops plain", async () => {
     const rec = recording();
     const s = await saved([rec.open], false);
     // `a` is the recorded one: it retakes.
     let n = 0;
     await step(s, () => (n = s.retake(s.a)));
     expect(rows(hero(s.a, s.id).more).length).toBeGreaterThan(0);
+    const groupAKeys = new Set(["unseen", "cc", "height", "zipline"]);
     for (const which of ["undo", "redo", "undo"] as const) {
       for (let i = 0; i < n; i++) {
         const { want, got } = await through(s, rec, which);
-        expect(got).toEqual(want);
+        if (which === "undo") {
+          expect(got).toEqual(want);
+        } else {
+          // On Redo, Group A hero writes (`unseen`/`cc`/`height`/`zipline`) are hardened from `SetIf` to `Set`
+          // for atomic near-cap safety (Astra Round 3 #3), while every build/slot/state op matches `want`.
+          const hardened = want.map((tx) => ({
+            ...tx,
+            ops: tx.ops.map((o): Op =>
+              "SetIf" in o && "More" in o.SetIf.value && groupAKeys.has(o.SetIf.value.More.key) && o.SetIf.value.More.value !== null
+                ? { Set: { id: o.SetIf.id, value: o.SetIf.value } }
+                : o,
+            ),
+          }));
+          expect(got).toEqual(hardened);
+        }
       }
     }
     [s.a, s.b].forEach((x) => x.stop());

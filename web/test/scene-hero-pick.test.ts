@@ -400,14 +400,20 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
     });
   });
 
-  // Blocking #1 (Astra Round 2): when a peer concurrently eats the remaining bytes under
-  // `max_more_bytes` while a Retake's `sceneGroup` is in flight, `Op::Set` on the hero's Group A
-  // key fails `check_more_fits?` (`TxTooLarge`) and aborts the ENTIRE `sceneGroup` transaction
-  // atomically on the server — so `has_sight` and `rows` never commit without `unseen`!
-  it("a concurrent peer eating max_more_bytes aborts Retake's sceneGroup atomically (no false has_sight or rows bump)", async () => {
+  // Helper: seed a v14 scene (`rows: 16, has_builds: true, has_heroes: true`) with an unseen hero
+  // padded to a 100% schema-legal `more` leaving ~30 bytes free under `max_more_bytes`, plus waves.
+  async function nearCapScene() {
     const [ga, gb] = [heldSocket(), heldSocket()];
     const { a, b, scene, heroes } = await board([ga.open, gb.open]);
     const rosterOf = (s: BoardSession) => [...s.records].flatMap(([id, e]) => ("RosterSlot" in e.record ? [{ id, slot: e.record.RosterSlot as RosterSlot }] : []));
+    const wavesOf = (s: BoardSession) =>
+      new Map(
+        [...s.records].flatMap(([id, e]) =>
+          !e.deleted && "Wave" in e.record && e.record.Wave.scene === scene
+            ? [[e.record.Wave.lane, { id, t: e.record.Wave.t, ...(e.record.Wave.more ? { more: e.record.Wave.more } : {}) }] as const]
+            : [],
+        ),
+      );
     const match = new Map(tl.players.map((p) => [slotKey(p.team, p.slot), p]));
     const matchOf = (id: RecordId) => {
       const r = rosterOf(a).find((x) => x.id === hero(a, id).slot)!.slot;
@@ -418,14 +424,18 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
     const target = heroes.find((h) => ten.sight[tl.players.indexOf(matchOf(h))] !== true)!;
     expect(target).toBeDefined();
 
-    // Build a 100% schema-legal `more` on `target` leaving exactly 30 bytes free under `max_more_bytes`
-    // (`build_order` <= 600 ints, `items` <= 128 ints, `abilities` <= 48 ints, no `name` yet).
+    // 100% schema-legal `more` on `target` leaving ~30 bytes free under `max_more_bytes`
+    // (`build_order <= 600`, `items <= 128`, `abilities <= 48`, no `name` yet).
     const targetMore: More = {
       ...captureBuild(heroBuildAt(tl, matchOf(target), T)),
       build_order: Array.from({ length: 600 }, () => 4_294_967_295),
-      items: Array.from({ length: 128 }, () => 4_294_967_295),
+      items: [] as number[],
       abilities: [] as number[],
     };
+    const items = targetMore.items as number[];
+    while (items.length < 128 && moreBytes({ ...targetMore, items: [...items, 4_294_967_295] }) <= LIMITS.max_more_bytes - 42) {
+      items.push(4_294_967_295);
+    }
     const ab = targetMore.abilities as number[];
     while (ab.length < 48 && moreBytes({ ...targetMore, abilities: [...ab, 4_294_967_295] }) <= LIMITS.max_more_bytes - 30) {
       ab.push(4_294_967_295);
@@ -439,19 +449,35 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
     expect(free).toBeGreaterThanOrEqual(25);
     expect(free).toBeLessThanOrEqual(34);
 
-    // Seed a v14 scene (`rows: 16, has_builds: true, has_heroes: true`) with builds on all 12 heroes.
+    // Seed v14 SceneState (`rows: 16, has_builds: true, has_heroes: true`), builds on all 12 heroes, and lanes.
     const stateId = newRecordId();
     const stateMore: More = { rows: 16, has_builds: true, has_heroes: true, build: 6839 };
-    expect(a.edit([{ Create: { id: stateId, record: { SceneState: { scene, more: stateMore } } } }])).toBe(true);
+    expect(
+      a.edit([
+        { Create: { id: stateId, record: { SceneState: { scene, more: stateMore } } } },
+        ...["lane1", "lane4", "lane6"].map((lane): Op => ({ Create: { id: newRecordId(), record: { Wave: { scene, lane, t: 500 } } } })),
+      ]),
+    ).toBe(true);
     for (const h of heroes) {
       const m = h === target ? targetMore : captureBuild(heroBuildAt(tl, matchOf(h), T));
       expect(a.edit(Object.entries(m).map(([key, value]): Op => ({ Set: { id: h, value: { More: { key, value } } } })))).toBe(true);
     }
     expect(await settled(a, b)).toBe(true);
     expect(await until(() => held(a) === held(b))).toBe(true);
-
-    // Hold Peer A while Peer A plans & submits Retake (preflight passes: 25B <= free <= 34B!).
     const row = { id: scene, scene: { name: "s", order: "a", clock: T, source: { match_id: tl.match_id, t: T, tier: "replay" } } } as never;
+    const stateOf = (s: BoardSession) => (s.records.get(stateId)!.record as { SceneState: { more?: More } }).SceneState.more;
+    const nameLen = Math.min(LIMITS.max_name, Math.max(1, free - 10 - 4));
+    return { a, b, ga, gb, scene, heroes, target, stateId, stateMore, row, rosterOf, wavesOf, stateOf, nameLen };
+  }
+
+  // Blocking #1 (Astra Round 2 + Round 3 polish): when a peer concurrently eats the remaining bytes
+  // under `max_more_bytes` while a Retake's `sceneGroup` is in flight, `Op::Set` on the hero's
+  // Group A key fails `check_more_fits?` (`TxTooLarge`) and aborts the ENTIRE `sceneGroup`
+  // transaction atomically on the server — so `has_sight` and `rows` never commit without `unseen`!
+  it("a concurrent peer eating max_more_bytes aborts Retake's sceneGroup atomically (no false has_sight or rows bump)", async () => {
+    const { a, b, ga, heroes, target, stateId, stateMore, row, rosterOf, wavesOf, stateOf, nameLen } = await nearCapScene();
+
+    // Hold Peer A while Peer A plans & submits Retake (preflight passes; waves passed as in TopBar.tsx).
     const beforeProblems = a.problems.length;
     ga.hold();
     const txs = retakeOps(
@@ -461,13 +487,15 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
       rosterOf(a) as never,
       tl,
       newRecordId,
+      undefined,
+      undefined,
+      wavesOf(a),
     );
     expect(txs).toHaveLength(1);
+    expect(txs[0]!).toContainEqual({ Set: { id: target, value: { More: { key: "unseen", value: true } } } });
     expect(a.edit(txs[0]!)).toBe(true);
 
-    // Concurrently, Peer B sets a schema-legal `name` (`<= 24` chars) consuming almost all free bytes
-    // (`,"name":"..."` = 10 + nameLen bytes), leaving < 10 bytes free under `max_more_bytes`.
-    const nameLen = Math.min(LIMITS.max_name, Math.max(1, free - 10 - 4));
+    // Concurrently, Peer B sets a schema-legal `name` (`<= 24` chars) consuming almost all free bytes.
     expect(b.edit([{ Set: { id: target, value: { More: { key: "name", value: "a".repeat(nameLen) } } } }])).toBe(true);
     expect(await settled(b)).toBe(true);
     expect(LIMITS.max_more_bytes - moreBytes(hero(b, target).more!)).toBeLessThan(14);
@@ -480,13 +508,64 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
     expect(await settled(a, b)).toBe(true);
     expect(await until(() => held(a) === held(b))).toBe(true);
 
-    const stateOf = (s: BoardSession) => (s.records.get(stateId)!.record as { SceneState: { more?: More } }).SceneState.more;
     for (const s of [a, b]) {
       expect(hero(s, target).more?.unseen).toBeUndefined();
       expect(hero(s, target).more?.height).toBeUndefined();
       expect(hero(s, target).more?.name).toBe("a".repeat(nameLen));
       expect(stateOf(s)?.has_sight).toBeUndefined();
       expect(stateOf(s)?.has_movement).toBeUndefined();
+      expect(stateOf(s)?.rows).toBe(16);
+      expect(captured(stateOf(s)).sight).toBe(false);
+    }
+    [a, b].forEach((x) => x.stop());
+  });
+
+  // Astra Round 3 #3: complete Group A Retake -> undo -> Peer B consumes freed hero bytes with a
+  // `name` edit -> Peer A redoes -> `decideStep` drops the redo (never leaving `has_sight` set
+  // without `unseen` on either replica!).
+  it("redoing an undone Group A Retake after a peer consumes max_more_bytes does not falsely re-capture sight", async () => {
+    const { a, b, heroes, target, stateId, stateMore, row, rosterOf, wavesOf, stateOf, nameLen } = await nearCapScene();
+
+    // 1. Peer A runs Retake and settles (Group A captured, including `unseen` on `target`).
+    const txs = retakeOps(
+      row,
+      { id: stateId, more: stateMore },
+      heroes.map((h) => ({ id: h, state: hero(a, h) })) as never,
+      rosterOf(a) as never,
+      tl,
+      newRecordId,
+      undefined,
+      undefined,
+      wavesOf(a),
+    );
+    expect(txs).toHaveLength(1);
+    expect(a.edit(txs[0]!)).toBe(true);
+    expect(await settled(a, b)).toBe(true);
+    expect(await until(() => held(a) === held(b))).toBe(true);
+    expect(hero(b, target).more?.unseen).toBe(true);
+    expect(captured(stateOf(b)).sight).toBe(true);
+
+    // 2. Peer A undoes the Group A Retake (`unseen`, `height`, `has_sight`, `rows` all revert).
+    a.undo();
+    expect(await settled(a, b)).toBe(true);
+    expect(await until(() => held(a) === held(b))).toBe(true);
+    expect(hero(b, target).more?.unseen).toBeUndefined();
+    expect(captured(stateOf(b)).sight).toBe(false);
+
+    // 3. Peer B consumes the freed bytes with a legal `name` edit.
+    expect(b.edit([{ Set: { id: target, value: { More: { key: "name", value: "a".repeat(nameLen) } } } }])).toBe(true);
+    expect(await settled(a, b)).toBe(true);
+    expect(await until(() => held(a) === held(b))).toBe(true);
+
+    // 4. Peer A redoes: `decideStep` preflights and drops the capture redo step cleanly!
+    a.redo();
+    expect(await settled(a, b)).toBe(true);
+    expect(await until(() => held(a) === held(b))).toBe(true);
+    for (const s of [a, b]) {
+      expect(hero(s, target).more?.unseen).toBeUndefined();
+      expect(hero(s, target).more?.height).toBeUndefined();
+      expect(hero(s, target).more?.name).toBe("a".repeat(nameLen));
+      expect(stateOf(s)?.has_sight).toBeUndefined();
       expect(stateOf(s)?.rows).toBe(16);
       expect(captured(stateOf(s)).sight).toBe(false);
     }

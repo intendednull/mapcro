@@ -21,13 +21,14 @@
 
 import type { Entry } from "../gen/Entry";
 import type { FieldValue } from "../gen/FieldValue";
+import type { More } from "../gen/More";
 import type { MoreValue } from "../gen/MoreValue";
 import type { Op } from "../gen/Op";
 import type { RecordId } from "../gen/RecordId";
 import { LIMITS } from "../gen/limits";
 import { ROWS } from "../gen/rows";
 import { fitsTx } from "../match/save";
-import { BUILD_KEYS, WRITTEN, captured } from "./build";
+import { BUILD_KEYS, WRITTEN, captured, moreBytes } from "./build";
 
 type Value = MoreValue | null;
 
@@ -67,19 +68,87 @@ function ownHeroes(records: ReadonlyMap<RecordId, Entry>): Set<RecordId> {
   return out;
 }
 
+/** Group A scene capture flags and hero keys: when a redo restores a Group A capture (`has_* = true`
+ * alongside non-null hero keys), preflight `max_more_bytes` and rewrite the hero writes from `SetIf`
+ * to `Op::Set` so neither a settled nor a concurrent near-cap edit can leave `has_*` set with missing
+ * hero data (Astra Round 3 #3). */
+const GROUP_A_FLAGS = new Set<string>(["has_sight", "has_cc", "has_movement"]);
+const GROUP_A_HERO_KEYS = new Set<string>(["unseen", "cc", "height", "zipline"]);
+
+function moreWrite(op: Op): { id: RecordId; key: string; expect: Value | undefined; value: Value; isSetIf: boolean } | undefined {
+  if ("Set" in op && "More" in op.Set.value) {
+    return { id: op.Set.id, key: op.Set.value.More.key, expect: undefined, value: op.Set.value.More.value, isSetIf: false };
+  }
+  if ("SetIf" in op && "More" in op.SetIf.value) {
+    const expect = "More" in op.SetIf.expect ? op.SetIf.expect.More.value : undefined;
+    return { id: op.SetIf.id, key: op.SetIf.value.More.key, expect, value: op.SetIf.value.More.value, isSetIf: true };
+  }
+  return undefined;
+}
+
+/** Preflight and harden a Group A capture redo step: if any hero's projected `more` would exceed
+ * `LIMITS.max_more_bytes`, drop the whole step; otherwise rewrite non-null Group A hero `SetIf` ops
+ * to `Op::Set` so concurrent near-cap overflow aborts the transaction atomically on the server. */
+function hardenGroupACaptureRedo(ops: Op[], carry: Op[], changed: boolean, records: ReadonlyMap<RecordId, Entry>): Decided {
+  if (!ops.length) return { ops, carry, changed };
+  const setsGroupAFlag = ops.some((o) => {
+    const w = moreWrite(o);
+    if (!w || !GROUP_A_FLAGS.has(w.key) || w.value !== true) return false;
+    const e = records.get(w.id);
+    return !!e && !e.deleted && "SceneState" in e.record;
+  });
+  if (!setsGroupAFlag) return { ops, carry, changed };
+
+  const heroIds = new Set<RecordId>();
+  for (const o of ops) {
+    const w = moreWrite(o);
+    if (!w || !GROUP_A_HERO_KEYS.has(w.key) || w.value === null) continue;
+    const e = records.get(w.id);
+    if (e && !e.deleted && "PlayerState" in e.record) heroIds.add(w.id);
+  }
+  if (!heroIds.size) return { ops, carry, changed };
+
+  // Preflight every touched PlayerState record's projected `more` against `LIMITS.max_more_bytes`.
+  for (const id of heroIds) {
+    const e = records.get(id)!;
+    const proj: More = { ...((e.record as { PlayerState: { more?: More } }).PlayerState.more ?? {}) };
+    for (const o of ops) {
+      const w = moreWrite(o);
+      if (!w || w.id !== id) continue;
+      const forceSet = GROUP_A_HERO_KEYS.has(w.key) && w.value !== null;
+      if (!w.isSetIf || forceSet || same(proj[w.key] ?? null, w.expect ?? null)) {
+        if (w.value === null) delete proj[w.key];
+        else proj[w.key] = w.value;
+      }
+    }
+    if (moreBytes(proj) > LIMITS.max_more_bytes) return { ops: [], carry: [], changed: true };
+  }
+
+  let rewrote = false;
+  const hardened = ops.map((o): Op => {
+    const w = moreWrite(o);
+    if (w && w.isSetIf && heroIds.has(w.id) && GROUP_A_HERO_KEYS.has(w.key) && w.value !== null) {
+      rewrote = true;
+      return { Set: { id: w.id, value: more(w.key, w.value) } };
+    }
+    return o;
+  });
+  return { ops: hardened, carry, changed: changed || rewrote };
+}
+
 /** `step` (the ops `nextUndo`/`nextRedo` show) as this client sends it, decided on `records`
  * (the view). `written`: the rows this build writes (a row still `ahead` is never named unless
  * the record holds it, as for a pick). */
 export function decideStep(step: Op[], records: ReadonlyMap<RecordId, Entry>, written: number = WRITTEN): Decided {
-  const asIs = { ops: step, carry: [], changed: false };
-  if (!step.some((o) => slotWrite(o))) return asIs;
-  const own = ownHeroes(records);
+  const own = step.some((o) => slotWrite(o)) ? ownHeroes(records) : new Set<RecordId>();
   const groups = new Map<RecordId, number[]>();
-  step.forEach((o, i) => {
-    const w = slotWrite(o);
-    if (w && own.has(w.id)) groups.set(w.id, [...(groups.get(w.id) ?? []), i]);
-  });
-  if (!groups.size) return asIs;
+  if (own.size) {
+    step.forEach((o, i) => {
+      const w = slotWrite(o);
+      if (w && own.has(w.id)) groups.set(w.id, [...(groups.get(w.id) ?? []), i]);
+    });
+  }
+  if (!groups.size) return hardenGroupACaptureRedo(step, [], false, records);
 
   const whole = new Map<RecordId, Op[]>();
   const kept = new Map<RecordId, Op[]>();
@@ -143,7 +212,7 @@ export function decideStep(step: Op[], records: ReadonlyMap<RecordId, Entry>, wr
   let ops = build(true);
   // Written whole the step may not fit a transaction: then as recorded, decided on the view.
   if (ops.length > LIMITS.max_ops_per_tx || !fitsTx(ops)) ops = build(false);
-  return { ops, carry, changed: true };
+  return hardenGroupACaptureRedo(ops, carry, true, records);
 }
 
 /** A `SetIf` of a value onto itself: an assertion a step carries, which changes nothing. */

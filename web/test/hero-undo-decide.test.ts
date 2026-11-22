@@ -10,7 +10,7 @@ import type { Op } from "../src/gen/Op";
 import type { RecordId } from "../src/gen/RecordId";
 import { LIMITS } from "../src/gen/limits";
 import { ROWS } from "../src/gen/rows";
-import { BUILD_KEYS, WRITTEN } from "../src/mapstate/build";
+import { BUILD_KEYS, WRITTEN, moreBytes } from "../src/mapstate/build";
 import { decideStep } from "../src/mapstate/undo";
 
 const SCENE = "00000000000000000000000000000010" as RecordId;
@@ -205,5 +205,66 @@ describe("a step that writes a hero's record in a scene that holds its heroes", 
     const d = decideStep(step, records);
     // The first no longer fits and is left out; the rest go as recorded, without assertions.
     expect(d.ops).toEqual(ids.slice(1).map((id) => setIf(id, "hero", P, M)));
+  });
+
+  // Astra Round 3 #3: Redo restoring a Group A capture (`has_sight`/`has_cc`/`has_movement` = true
+  // alongside non-null hero keys) preflights `max_more_bytes` and hardens hero ops to `Op::Set`.
+  describe("Group A capture redo hardening (Astra Round 3 #3)", () => {
+    const captureRedo: Op[] = [
+      setIf(H, "unseen", null, true),
+      setIf(H, "height", null, 1),
+      setIf(STATE, "has_sight", null, true),
+      setIf(STATE, "has_movement", null, true),
+      setIf(STATE, "rows", 16, 27),
+    ];
+
+    it("fitting hero: rewrites non-null Group A hero writes from SetIf to Set (leaving SceneState SetIf intact)", () => {
+      const records = view({ hero: { hero: M, ...BUILD } });
+      const d = decideStep(captureRedo, records);
+      expect(d.changed).toBe(true);
+      expect(d.ops).toEqual([
+        set(H, "unseen", true),
+        set(H, "height", 1),
+        setIf(STATE, "has_sight", null, true),
+        setIf(STATE, "has_movement", null, true),
+        setIf(STATE, "rows", 16, 27),
+      ]);
+    });
+
+    it("near-cap hero after a peer's name edit: drops the whole capture redo step instead of leaving has_sight set without unseen", () => {
+      const tight: More = {
+        hero: M,
+        build_order: Array.from({ length: 600 }, () => 4_294_967_295),
+        items: [] as number[],
+        abilities: [] as number[],
+      };
+      const items = tight.items as number[];
+      while (items.length < 128 && moreBytes({ ...tight, items: [...items, 4_294_967_295] }) <= LIMITS.max_more_bytes - 28) {
+        items.push(4_294_967_295);
+      }
+      const ab = tight.abilities as number[];
+      while (ab.length < 48 && moreBytes({ ...tight, abilities: [...ab, 4_294_967_295] }) <= LIMITS.max_more_bytes - 16) {
+        ab.push(4_294_967_295);
+      }
+      let len = 1;
+      while (len < LIMITS.max_name && moreBytes({ ...tight, name: "a".repeat(len) }) < LIMITS.max_more_bytes - 4) len++;
+      tight.name = "a".repeat(len);
+      expect(LIMITS.max_more_bytes - moreBytes(tight)).toBeLessThan(14);
+
+      const records = view({ hero: tight });
+      const d = decideStep(captureRedo, records);
+      expect(d).toEqual({ ops: [], carry: [], changed: true });
+    });
+
+    it("undo clearing Group A (value: null) is left untouched", () => {
+      const undoClear: Op[] = [
+        setIf(H, "unseen", true, null),
+        setIf(H, "height", 1, null),
+        setIf(STATE, "has_sight", true, null),
+        setIf(STATE, "rows", 27, 16),
+      ];
+      const records = view({ hero: { hero: M, unseen: true, height: 1 } });
+      expect(decideStep(undoClear, records)).toEqual({ ops: undoClear, carry: [], changed: false });
+    });
   });
 });

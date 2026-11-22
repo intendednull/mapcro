@@ -815,6 +815,7 @@ export function retakeOps(
   if (second == null || !retakesFrom(tier, tl)) return [];
   const players = new Map(tl.players.map((p) => [slotKey(p.team, p.slot), p]));
   const slots = new Map(roster.map((s) => [s.id, s]));
+  const absent = (id: RecordId, key: string, value: MoreValue): Op => ({ SetIf: { id, expect: { More: { key, value: null } }, value: { More: { key, value } } } });
   const setOp = (id: RecordId, key: string, value: MoreValue | null): Op => ({ Set: { id, value: { More: { key, value } } } });
   const c = captured(state?.more);
   const own = c.heroes;
@@ -856,14 +857,16 @@ export function retakeOps(
         if (have[k] === undefined && ROWS[k as RowKey].index < written) sceneGroup.push(setOp(h.id, k, v));
       }
     }
-    // Group A lane edges: fill absent `edges` on existing Waves, or create Wave on metadata-upgraded scenes.
+    // Group A lane edges: fill absent `edges` on existing Waves via `SetIf` (non-clobbering if
+    // another peer already ran Retake + dragged the lane; Wave.more only holds `edges` ~18B), or
+    // create Wave on metadata-upgraded scenes.
     if (admittedFeatures.has("lanes")) {
       for (const [lane, w] of fd.sec.lanes) {
         const edges = fd.laneEdges.get(lane);
         if (!edges) continue;
         const existing = waves?.get(lane);
         if (existing) {
-          if (existing.more?.edges === undefined) sceneGroup.push(setOp(existing.id, "edges", edges));
+          if (existing.more?.edges === undefined) sceneGroup.push(absent(existing.id, "edges", edges));
         } else if (waves !== undefined) {
           sceneGroup.push({ Create: { id: mint(), record: { Wave: { scene: scene.id, lane, t: Math.round((w.amber + w.sapphire) / 2), more: { edges } } } } });
         }
@@ -918,9 +921,14 @@ export function retakeOps(
     if (!c.heroes && targetRows > ROWS.has_heroes.index && have.has_heroes === true) {
       sceneGroup.push(setOp(state.id, "has_heroes", null));
     }
-    const hasWork = buildGroups.length > 0 || sceneGroup.length > 0 || (buildComplete && c.rows < 15);
+    const hasWork = buildGroups.length > 0 || sceneGroup.length > 0 || admittedFeatures.size > 0 || (buildComplete && c.rows < 15);
     if (hasWork && (have.rows === undefined || c.rows < targetRows)) {
-      sceneGroup.push(setOp(state.id, "rows", targetRows));
+      // Watermark uses `SetIf` on the observed value so a stale Retake can never regress a higher `rows`.
+      sceneGroup.push(
+        have.rows === undefined
+          ? absent(state.id, "rows", targetRows)
+          : { SetIf: { id: state.id, expect: { More: { key: "rows", value: have.rows } }, value: { More: { key: "rows", value: targetRows } } } },
+      );
     }
   }
   if (sceneGroup.length) groups.push(sceneGroup);

@@ -1231,8 +1231,14 @@ describe("Dormant Retake, re-picked slots, TD-145 undo & copy filter", () => {
     // ZERO Group A hero ops (and specifically NO `unseen` re-write on the coach-edited hero)!
     const heroOps = ops.filter((o) => ("Set" in o ? o.Set.id : "SetIf" in o ? o.SetIf.id : "") !== "st0");
     expect(heroOps).toEqual([]);
-    // Group B flags and rows:40 ARE written to SceneState via `Set`!
-    const stateKeys = ops.flatMap((o) => ("Set" in o && o.Set.id === "st0" && "More" in o.Set.value ? [o.Set.value.More.key] : []));
+    // Group B flags (`Set`) and rows:40 (`SetIf` monotonic) ARE written to SceneState!
+    const stateKeys = ops.flatMap((o) =>
+      "Set" in o && o.Set.id === "st0" && "More" in o.Set.value
+        ? [o.Set.value.More.key]
+        : "SetIf" in o && o.SetIf.id === "st0" && "More" in o.SetIf.value
+          ? [o.SetIf.value.More.key]
+          : [],
+    );
     expect(stateKeys).toContain("has_camps");
     expect(stateKeys).toContain("rows");
     // Already-captured Group A SceneState flags are NOT re-written.
@@ -1749,20 +1755,22 @@ describe("Phase 5 R2: Writer A, health arc (Q3), TD-162 MapControls, copy materi
     const wavesMap = new Map(
       [...v14Cap.waves].map(([lane, w], idx) => [lane, { id: `w${idx}`, t: w.t, ...(w.more ? { more: w.more } : {}) }]),
     );
-    const setMoreEntries = (ops: Op[], id: string) =>
+    const stateEntries = (ops: Op[], id: string) =>
       ops.flatMap((o) =>
         "Set" in o && o.Set.id === id && "More" in o.Set.value
           ? [[o.Set.value.More.key, o.Set.value.More.value] as const]
-          : [],
+          : "SetIf" in o && o.SetIf.id === id && "More" in o.SetIf.value
+            ? [[o.SetIf.value.More.key, o.SetIf.value.More.value] as const]
+            : [],
       );
     const stateMoreOps = (ops: Op[], id: string): More => {
       const out: More = {};
-      for (const [k, v] of setMoreEntries(ops, id)) if (v !== null) out[k] = v;
+      for (const [k, v] of stateEntries(ops, id)) if (v !== null) out[k] = v;
       return out;
     };
     const applyStateOps = (baseState: More, ops: Op[], id: string): More => {
       const next: More = { ...baseState };
-      for (const [k, v] of setMoreEntries(ops, id)) {
+      for (const [k, v] of stateEntries(ops, id)) {
         if (v === null) delete next[k];
         else next[k] = v;
       }
@@ -1771,8 +1779,8 @@ describe("Phase 5 R2: Writer A, health arc (Q3), TD-162 MapControls, copy materi
 
     // Case 1a: Hero 1 has only 4 bytes free -> neither `unseen` (14B), `cc` (8B), nor `height`/`zipline` fits.
     // Retake must NOT set has_sight/has_cc/has_movement and must NOT emit partial hero writes!
-    // Lanes & skulls DO fit and are admitted via `Op::Set` (with `rows` covering skulls=27 so `captured()`
-    // reads them, while `has_sight`/`has_cc`/`has_movement` stay absent so `captured()` keeps them false).
+    // Lanes (`SetIf` on edges) & skulls (`Set` on SceneState) DO fit and are admitted cleanly, while
+    // `rows` uses `SetIf` expecting the observed watermark (monotonic!).
     const heroesTight = v14Cap.heroes.map((h, i) =>
       i === 1 ? { ...h, state: { ...h.state, more: padHeroMore(h.state.more ?? {}, 4) } } : h,
     );
@@ -1780,8 +1788,11 @@ describe("Phase 5 R2: Writer A, health arc (Q3), TD-162 MapControls, copy materi
     let mid = 0;
     const txsTight = retakeOps(sceneRow, st16, heroesTight, rs, tl, () => `r${mid++}`, WRITTEN, markers, wavesMap);
     const opsTight = txsTight.flat();
-    // All `sceneGroup` writes use `Op::Set` (for authoritative server rollback on concurrent overflow).
-    expect(opsTight.every((o) => "Set" in o)).toBe(true);
+    // `rows` uses `SetIf` expecting 16 (monotonic); `Wave.more.edges` uses `SetIf` expecting null; flags use `Set`.
+    expect(opsTight).toContainEqual({ SetIf: { id: "st1", expect: { More: { key: "rows", value: 16 } }, value: { More: { key: "rows", value: ROWS.skulls.index + 1 } } } });
+    expect(opsTight.filter((o) => "SetIf" in o && o.SetIf.id.startsWith("w")).length).toBeGreaterThan(0);
+    expect(opsTight).toContainEqual({ Set: { id: "st1", value: { More: { key: "has_lanes", value: true } } } });
+    expect(opsTight).toContainEqual({ Set: { id: "st1", value: { More: { key: "has_skulls", value: true } } } });
     const stateWrites = stateMoreOps(opsTight, "st1");
     expect(stateWrites.has_sight).toBeUndefined();
     expect(stateWrites.has_cc).toBeUndefined();
@@ -1850,7 +1861,7 @@ describe("Phase 5 R2: Writer A, health arc (Q3), TD-162 MapControls, copy materi
     const dormantSight = { id: "st_dormant", more: { rows: 16, has_builds: true, has_heroes: true, has_sight: true } as More };
     expect(captured(dormantSight.more).sight).toBe(false);
     const txsDormant = retakeOps(sceneRow, dormantSight, heroesTight, rs, tl, () => `d${mid++}`, WRITTEN, markers, wavesMap);
-    const dormantClears = setMoreEntries(txsDormant.flat(), "st_dormant").filter(([, v]) => v === null).map(([k]) => k);
+    const dormantClears = stateEntries(txsDormant.flat(), "st_dormant").filter(([, v]) => v === null).map(([k]) => k);
     expect(dormantClears).toContain("has_sight");
     const afterDormant = applyStateOps(dormantSight.more, txsDormant.flat(), "st_dormant");
     expect(afterDormant.has_sight).toBeUndefined();
@@ -1943,6 +1954,25 @@ describe("Phase 5 R2: Writer A, health arc (Q3), TD-162 MapControls, copy materi
     expect(hero1Result.cc).toBeDefined();
     expect(hero1Result.height).toBe(1);
     expect(hero1Result.zipline).toBe(true);
+
+    // Case 7 (Astra Round 3 #4): Dormant-flag activation when the only admitted feature already has
+    // `has_skulls: true` and 0 deaths at the frame (metadata scene `{ rows: 16, has_builds: true, has_skulls: true }`):
+    // `canRetake` is true, first `retakeOps` emits the monotonic `SetIf rows 16 -> 27`, and after applying it `canRetake` is false!
+    const metaNoDeaths = {
+      ...metadata,
+      players: metadata.players.map((p) => ({ ...p, deaths: [] })),
+    } as unknown as Timeline;
+    const metaSceneObj = { name: "m", order: "a", clock: 3, source: { match_id: metaNoDeaths.match_id, t: 3, tier: "metadata" } };
+    const metaSceneRow = { id: "sc_meta", scene: metaSceneObj } as never;
+    const metaCap = captureToScene(metaNoDeaths, 3, 16, rs);
+    const dormantSkulls = { id: "st_ds", more: { rows: 16, has_builds: true, build: 6839, has_heroes: true, has_skulls: true } as More };
+    expect(captured(dormantSkulls.more).skulls).toBe(false);
+    expect(canRetake(metaSceneObj, dormantSkulls.more, metaNoDeaths, WRITTEN, markers, metaCap.heroes, rs)).toBe(true);
+    const txsDs = retakeOps(metaSceneRow, dormantSkulls, metaCap.heroes, rs, metaNoDeaths, () => `ds_${mid++}`, WRITTEN, markers);
+    expect(txsDs).toEqual([[{ SetIf: { id: "st_ds", expect: { More: { key: "rows", value: 16 } }, value: { More: { key: "rows", value: WRITTEN } } } }]]);
+    const afterDs = applyStateOps(dormantSkulls.more, txsDs.flat(), "st_ds");
+    expect(captured(afterDs).skulls).toBe(true);
+    expect(canRetake(metaSceneObj, afterDs, metaNoDeaths, WRITTEN, markers, metaCap.heroes, rs)).toBe(false);
   });
 
   it("Finding #4: remapped active koth/urn/powerup markers (without rift:/urn:/powerup: prefix) emit Active/Destroyed ObjectiveStates and keep bucket priority on overflow", () => {

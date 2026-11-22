@@ -379,12 +379,18 @@ describe("Retake and the scene's heroes", () => {
       expect(state[0]!.r.more?.has_heroes).toBeUndefined();
       expect(captured(state[0]!.r.more).heroes).toBe(false);
     }
-    // Onto a state that exists: the builds' flag and patch, the watermark moved up, no more (`Set` in `sceneGroup`).
+    // Onto a state that exists: the builds' flag and patch (`Set`), the watermark moved up (`SetIf` monotonic), no more.
     const onto = retakeOps(scene(4), { id: "state", more: { rows: 3 } }, old, roster() as never, tl, minter(), LATER).flat();
-    const keys = onto.flatMap((o) => ("Set" in o && o.Set.id === "state" && "More" in o.Set.value ? [o.Set.value.More.key] : []));
+    const keys = onto.flatMap((o) =>
+      "Set" in o && o.Set.id === "state" && "More" in o.Set.value
+        ? [o.Set.value.More.key]
+        : "SetIf" in o && o.SetIf.id === "state" && "More" in o.SetIf.value
+          ? [o.SetIf.value.More.key]
+          : [],
+    );
     expect(keys.sort()).toEqual(["build", "has_builds", "rows"]);
-    // The watermark goes to the rows the retaking build writes.
-    expect(onto.find((o) => "Set" in o && o.Set.id === "state" && "More" in o.Set.value && o.Set.value.More.key === "rows")).toEqual({ Set: { id: "state", value: { More: { key: "rows", value: LATER } } } });
+    // The watermark goes to the rows the retaking build writes via `SetIf` on the observed value.
+    expect(onto.find((o) => "SetIf" in o && o.SetIf.id === "state" && "More" in o.SetIf.value && o.SetIf.value.More.key === "rows")).toEqual({ SetIf: { id: "state", expect: { More: { key: "rows", value: 3 } }, value: { More: { key: "rows", value: LATER } } } });
   });
 
   it("is not offered just because the row came to be written", () => {
