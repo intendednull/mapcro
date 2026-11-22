@@ -3,6 +3,68 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Deployed 01e29a8: Map-state Phase 5, Release R2 (Writer A, store v16 floor 15) (2026-11-22, lead 2a42cd74)
+
+- **Prod `web` runs 01e29a8** (infra `0329765`, bundle `/assets/index-B0Qo8onT.js`). Store migrated
+  cleanly to **v16** (`Step::NeedsReader { reader: 15 }`, `compat_floor = 15`, zero SQL/DDL;
+  `pre-v16` online SQLite backup verified `PRAGMA integrity_check: ok` at
+  `/var/lib/mapcro/mapcro.sqlite.pre-v16`, 32M `0600 mapcro:mapcro`). Closure diff strictly
+  mapcro-only (`+11.2 KiB`); only `mapcro.service` and `mapcro-replay.service` restarted.
+- **Post-deploy locks updated:** `crates/schema/rows.lock` remains locked at all **40 map-state
+  rows** (unchanged since R1); `justfile` `reader` bumped to `01e29a8` for R3 `reader-check`.
+- **What shipped in R2 (`01e29a8`):**
+  - **Group A rows `16..=26` flipped `Live`** (`WRITTEN = 27`, `boardfile::READS = 5`): saved
+    replay scenes now write hero sight (`unseen`), CC (`cc`), elevation/zipline (`height`/`zipline`),
+    exact two-edge lane splits (`Wave.more.edges`), and static death skulls (`skulls`), while Group B
+    rows `27..=39` remain `Ahead`.
+  - **Scene hero health arcs ON (Q3)** in `Tokens.tsx` / `shown.ts`, **TD-162** (`MapControls`,
+    `VisionMark`, `useVisionKeys` active on matchless imported R2 scenes), **R2 copy
+    materialization** for dropped Group B baselines (`scenes.ts`), compatible per-version `(version,
+    rows)` `.mapcro` export headers (`v2/v3 -> 15`, `v4 -> 16`, `v5 -> 27`, `v6 -> 40`), Retake
+    `max_more_bytes` preflight + authoritative `Op::Set` atomicity in `sceneGroup` + `decideStep`
+    Group A capture redo hardening, and Astra's R1 `{written: 40/27, builds: false}` overflow fix.
+    Logged **TD-164** for the two protocol-level Retake concurrency boundaries requiring a future
+    Reader-first `Op::Require` / non-skipping `SetIf` op.
+- **Preceding Stage A web-only deploy (`e5a5cff`, infra `8d0bc6b`, bundle `/assets/index-CTMzeswh.js`):**
+  - **TD-117** re-enabled session `Open in app` (`mapcro://s/<session>?tab=<tab>#<token>` now that
+    desktop 0.2.4 is shipped).
+  - **Exploratory QA Pass 004** (live prod check of `e2438b4` using `129738985`, plus `qa-browser`
+    v1.4 upgrade `6514610`) verified 15/16 Cycle 1 fixes and caught a prod-only Phone `390×844`
+    Session Scene `.p-top` overflow with `Feedback` enabled; fixed by **Argon medium** (`fdc19da`,
+    `d05f50d`) + Playwright regression tests in `feedback.spec.ts` (verified live on prod:
+    `390/390`, `"Can edit"` unclipped `60 px`, `Feedback` icon `44×44` unclipped).
+- **Review & verification for R2 (`01e29a8`):**
+  - Independent adversarial review (`codex/gpt-6.2-astra` high, 5 rounds, zero Claude quota spent):
+    caught real Retake `max_more_bytes` atomicity, legacy `(version, rows)` export header, remapped
+    marker prefix, dormant-flag, and capture-redo edge bugs; final verdict **APPROVE WITH MINOR
+    NOTES** (final 1-line note folded in `481ddf2`).
+  - Worker Stage B (`1077a4ac`): `just wasm`/`just ts` (0 diff), `just clippy` (0 warnings),
+    `just test` (574 workspace, failpoints 2/2, 1000-seed sims `READS` & `deployed`, `reader-check`
+    vs R1 `e2438b4`: 40 boards / 10,211 txs byte-for-byte), `just web-test` (86/86 / 1,014 passed),
+    **16/16 mutants killed (100%)**, and **live R2→R1 rollback DB check** (prebuilt R1 opened R2 v16
+    DB cleanly and exported all Group A keys byte-for-byte).
+  - Lead Stage C on merged tree (`01e29a8`): C1 Rust/sims/`reader-check`/`just web-test`/vite build
+    all green; C2a Chromium e2e **585/585** (updated stale scalar `data-t` assertion in
+    `replay.spec.ts` to R2 two-edge `data-amber`/`data-sapphire` in `58d46d2`); C2b Firefox Android
+    e2e **51/52** (+ 2/3 repeat on `phone.spec.ts:135` confirming TD-133 flake); C3a NixOS VM check
+    (`vm-test-run-mapcro-service`) passed; C3b live walkthrough on `129738985` visually verified all
+    4 screenshots (health arcs, two-edge lanes, static skull, Vision filtering, v5 export, matchless
+    TD-162 import).
+  - Live prod check (re-verified after dev box reboot at ~10:01 UTC): journal confirmed `migrated
+    database schema to=16`, all 9 packs indexed, `PRAGMA integrity_check: ok`, `schema_version=16`,
+    `compat_floor=15`, `/healthz ok`, `mapcro-stats`: 0 5xx / 0 failures / 0 ops rejected / 0 OOM
+    kills / RSS 16.3 MB; live browser check on cached `129738985` confirmed `tokHealth: 10`,
+    two-edge lanes, `skulls: 1`, `.mapcro` export `{ version: 5, rows: 27 }`, 0 console/page errors.
+- **Up next:**
+  - **Map-state Phase 5, Release R3 (Writer B, store v17 floor 16):** flip Group B rows `27..=39` to
+    `Status::Live`, `WRITTEN = 40`, `boardfile::READS = 6`, store step `16 -> 17`
+    (`NeedsReader { reader: 16 }`), completing Map-state Phase 5!
+  - **Exploratory QA Cycle 2, Pass 005:** live prod verification of R2 (scene health arcs, two-edge
+    lanes, Vision/CC/movement, static skulls, matchless `.mapcro` v5 import TD-162, phone Session
+    Scene with match + Feedback) + deepening remaining `smoke` rows in `docs/qa/feature-map.md`.
+  - **GitHub feedback #62** (405 blank ability upgrade tiers): root-caused, still awaiting operator
+    go-ahead.
+
 ## Deployed e2438b4: Map-state Phase 5, Release R1 (readers A & B Ahead, store v15) (2026-11-22, lead 2a42cd74)
 
 - **Prod `web` runs e2438b4** (infra `f5b62b1`, bundle `/assets/index-Etbdjkg4.js`). Store migrated
