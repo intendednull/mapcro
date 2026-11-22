@@ -22,7 +22,9 @@ import type { Op } from "../src/gen/Op";
 import type { RosterSlot } from "../src/gen/RosterSlot";
 import { BUILD_KEYS, captureBuild, captureScene, heroBuildAt, sceneHero } from "../src/mapstate/build";
 import { holdsBuild } from "../src/mapstate/buildView";
+import { encodeCC } from "../src/mapstate/codec";
 import { pickHeroOps } from "../src/mapstate/edit";
+import { secondPart, tenthPart } from "../src/mapstate/frame";
 import { retakeOps, slotKey } from "../src/match/save";
 import { replay } from "./support/synthetic-match";
 
@@ -195,10 +197,25 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
     expect(await until(() => b.records.has(state) && heroes.every((id) => typeof hero(b, id).more?.hero === "number"))).toBe(true);
     const id = heroes[SLOT]!;
     const row = { id: scene, scene: { name: "s", order: "a", clock: T, source: { match_id: tl.match_id, t: T, tier: "replay" } } } as never;
+    const pl = matchOf(id);
+    const idx = tl.players.indexOf(pl);
+    const sec = secondPart(tl, T, []);
+    const ten = tenthPart(tl, T);
+    const groupA: More = {};
+    if (ten.sight[idx] !== true) groupA.unseen = true;
+    const cc = encodeCC(ten.cc[idx]);
+    if (cc !== undefined) groupA.cc = cc;
+    const mv = sec.movement[idx];
+    if (mv?.height === 1 || mv?.height === 2) groupA.height = mv.height;
+    if (mv?.zipline) groupA.zipline = true;
+    expect(Object.keys(groupA).length).toBeGreaterThan(0);
+    const build = captureBuild(heroBuildAt(tl, pl, T));
     return {
       a, b, ga, gb, id, heroes, state: { id: state, more }, row, rosterOf,
-      matchHero: matchOf(id).hero_id,
-      build: captureBuild(heroBuildAt(tl, matchOf(id), T)),
+      matchHero: pl.hero_id,
+      build,
+      groupA,
+      retaken: { ...build, ...groupA } as More,
     };
   }
   type Saved = Awaited<ReturnType<typeof saved>>;
@@ -240,18 +257,18 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
   }
   const stop = (s: Saved) => [s.a, s.b].forEach((x) => x.stop());
 
-  it("the Retake decided first: the pick wins the slot, the new hero with no build", async () => {
+  it("the Retake decided first: the pick wins the slot, the new hero with no build (Group A kept)", async () => {
     const s = await saved();
     await race(s, "retake");
-    expect(agreed(s)).toEqual({ hero: PICKED });
+    expect(agreed(s)).toEqual({ hero: PICKED, ...s.groupA });
     expect(holdsBuild(hero(s.b, s.id).more, LATER, PICKED, true)).toBe(false);
     stop(s);
   });
 
-  it("the pick decided first: the Retake wins the slot, the match's hero with its own build", async () => {
+  it("the pick decided first: the Retake wins the slot, the match's hero with its own build and Group A", async () => {
     const s = await saved();
     await race(s, "pick");
-    expect(agreed(s)).toEqual(s.build);
+    expect(agreed(s)).toEqual(s.retaken);
     expect(holdsBuild(hero(s.b, s.id).more, LATER, s.matchHero, true)).toBe(true);
     stop(s);
   });
@@ -268,14 +285,14 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
     stop(s);
   });
 
-  it("undoing the pick that lost nothing: the match's hero again, and nobody's build on another hero", async () => {
+  it("undoing the pick that lost nothing: the match's hero again, and nobody's build on another hero (Group A kept)", async () => {
     const s = await saved();
     await race(s, "retake");
     s.a.undo();
     expect(await settled(s.a, s.b)).toBe(true);
     expect(await until(() => hero(s.b, s.id).more?.hero === s.matchHero)).toBe(true);
-    // The pick never saw the build, so its undo can't bring it back (TD-146).
-    expect(agreed(s)).toEqual({ hero: s.matchHero });
+    // The pick never saw the build, so its undo can't bring it back (TD-146); Group A stays (plan §6).
+    expect(agreed(s)).toEqual({ hero: s.matchHero, ...s.groupA });
     stop(s);
   });
 
@@ -285,7 +302,7 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
     s.a.undo();
     expect(await settled(s.a, s.b)).toBe(true);
     expect(await until(() => held(s.a) === held(s.b))).toBe(true);
-    expect(agreed(s)).toEqual(s.build);
+    expect(agreed(s)).toEqual(s.retaken);
     stop(s);
   });
 
@@ -306,17 +323,17 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
       return { s, lacks };
     }
 
-    it("the pick decided first: the match's hero with its whole build, not a fragment", async () => {
+    it("the pick decided first: the match's hero with its whole build and Group A, not a fragment", async () => {
       const { s } = await partly();
       await race(s, "pick");
-      expect(agreed(s)).toEqual(s.build);
+      expect(agreed(s)).toEqual(s.retaken);
       stop(s);
     });
 
-    it("the Retake decided first: the new hero with no build", async () => {
+    it("the Retake decided first: the new hero with no build (Group A kept)", async () => {
       const { s } = await partly();
       await race(s, "retake");
-      expect(agreed(s)).toEqual({ hero: PICKED });
+      expect(agreed(s)).toEqual({ hero: PICKED, ...s.groupA });
       stop(s);
     });
 
@@ -330,7 +347,7 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
       expect(await settled(s.a)).toBe(true);
       s.gb.release();
       await sync(s);
-      expect(agreed(s)).toEqual({ ...s.build, [kept]: theirs });
+      expect(agreed(s)).toEqual({ ...s.retaken, [kept]: theirs });
       stop(s);
     });
 
@@ -357,26 +374,26 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
     it("this pick, an older Retake: the pick decided last is whole; decided first is as today", async () => {
       const last = await saved();
       await race(last, "retake", { pick, retake: oldRetake });
-      expect(agreed(last)).toEqual({ hero: PICKED });
+      expect(agreed(last)).toEqual({ hero: PICKED, ...last.groupA });
       stop(last);
       const first = await saved();
       await race(first, "pick", { pick, retake: oldRetake });
       const { hero: who, ...rest } = hero(first.a, first.id).more!;
       expect(who).toBe(PICKED);
-      expect(Object.keys(rest).length).toBeGreaterThan(0);
+      expect(BUILD_KEYS.some((k) => rest[k] !== undefined)).toBe(true);
       stop(first);
     });
 
     it("this Retake, an older pick: the Retake decided last is whole; decided first is as today", async () => {
       const last = await saved();
       await race(last, "pick", { pick: oldPick, retake });
-      expect(agreed(last)).toEqual(last.build);
+      expect(agreed(last)).toEqual(last.retaken);
       stop(last);
       const first = await saved();
       await race(first, "retake", { pick: oldPick, retake });
       const { hero: who, ...rest } = hero(first.a, first.id).more!;
       expect(who).toBe(PICKED);
-      expect(Object.keys(rest).length).toBeGreaterThan(0);
+      expect(BUILD_KEYS.some((k) => rest[k] !== undefined)).toBe(true);
       stop(first);
     });
   });

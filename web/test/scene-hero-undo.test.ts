@@ -22,7 +22,9 @@ import type { PlayerState } from "../src/gen/PlayerState";
 import type { RecordId } from "../src/gen/RecordId";
 import type { RosterSlot } from "../src/gen/RosterSlot";
 import { BUILD_KEYS, captureBuild, captureScene, heroBuildAt } from "../src/mapstate/build";
+import { encodeCC } from "../src/mapstate/codec";
 import { pickHeroOps } from "../src/mapstate/edit";
+import { secondPart, tenthPart } from "../src/mapstate/frame";
 import { decideStep } from "../src/mapstate/undo";
 import type { Entry as RecordEntry } from "../src/gen/Entry";
 import { matchSceneOps, retakeOps, slotKey, sourceOf } from "../src/match/save";
@@ -115,6 +117,19 @@ async function saved(sockets: Array<(url: string) => SocketLike> = [], own = tru
   expect(await until(() => [a, b].every((s) => s.records.has(state) && heroes.every((id) => typeof hero(s, id).more?.hero === "number")))).toBe(true);
   const id = heroes[SLOT]!;
   const row = { id: scene, scene: { name: "s", order: "a", clock: T, source: { match_id: tl.match_id, t: T, tier: "replay" } } } as never;
+  const pl = matchOf(id);
+  const idx = tl.players.indexOf(pl);
+  const sec = secondPart(tl, T, []);
+  const ten = tenthPart(tl, T);
+  const groupA: More = {};
+  if (ten.sight[idx] !== true) groupA.unseen = true;
+  const cc = encodeCC(ten.cc[idx]);
+  if (cc !== undefined) groupA.cc = cc;
+  const mv = sec.movement[idx];
+  if (mv?.height === 1 || mv?.height === 2) groupA.height = mv.height;
+  if (mv?.zipline) groupA.zipline = true;
+  expect(Object.keys(groupA).length).toBeGreaterThan(0);
+  const build = captureBuild(heroBuildAt(tl, pl, T)) as More;
   const s = {
     a, b, id, heroes, open, scene, state, rosterOf,
     /** What `x` saved of its replica's state, once its saves are done. */
@@ -122,9 +137,13 @@ async function saved(sockets: Array<(url: string) => SocketLike> = [], own = tru
       await (x as unknown as { saves: Promise<void> }).saves;
       return JSON.parse(persists.get(x)!.data.get(board)!) as { undo: Entry[]; redo: Entry[] };
     },
-    M: matchOf(id).hero_id,
+    M: pl.hero_id,
     /** The match hero's build at the scene's moment, `hero` included. */
-    build: captureBuild(heroBuildAt(tl, matchOf(id), T)) as More,
+    build,
+    /** Group A hero rows at the scene's moment (outside `BUILD_KEYS`, kept on pick per plan §6). */
+    groupA,
+    /** Build + Group A as Retake/Save leave the slot in R2. */
+    retaken: { ...build, ...groupA } as More,
     pick: (by: BoardSession, h: number) => expect(by.edit(pickHeroOps(true, hero(by, id).slot, { id, more: hero(by, id).more }, h))).toBe(true),
     /** Retake by `by`, on its own view; how many transactions (undo steps) it took. */
     retake: (by: BoardSession) => {
@@ -170,21 +189,30 @@ async function everywhere(s: Saved, id: RecordId = s.id): Promise<More | undefin
 const rows = (more: More | undefined) => BUILD_KEYS.filter((k) => more?.[k] !== undefined);
 const withoutHero = (b: More) => Object.fromEntries(Object.entries(b).filter(([k]) => k !== "hero"));
 
+const buildOnly = (more: More | undefined) =>
+  more ? Object.fromEntries(Object.entries(more).filter(([k]) => k === "hero" || BUILD_KEYS.includes(k as never))) : undefined;
 /** Whatever happened: a record that holds a build holds the match hero's, whole. */
 function coherent(s: Saved, more: More | undefined) {
   if (more?.hero !== s.M) expect(rows(more)).toEqual([]);
-  else if (rows(more).length) expect(more).toEqual(s.build);
+  else if (rows(more).length) expect(buildOnly(more)).toEqual(s.build);
 }
 const heroOf = (o: Op) => ("SetIf" in o && "More" in o.SetIf.value && o.SetIf.value.More.key === "hero" ? o.SetIf : undefined);
-/** A stack's steps for the record: each as its hero write (`h -> h` an assertion) and the
- * build rows it writes, `null` for a clear. */
+/** A stack's build/hero steps for the record: each as its hero write (`h -> h` an assertion)
+ * and the build rows it writes, `null` for a clear (Group A rows live outside `slotKeys`). */
 const steps = (s: Saved, st: Op[][]) =>
   st
-    .map((e) => e.filter((o) => ("SetIf" in o ? o.SetIf.id : "Set" in o ? o.Set.id : undefined) === s.id))
+    .map((e) =>
+      e.filter(
+        (o) =>
+          ("SetIf" in o ? o.SetIf.id : "Set" in o ? o.Set.id : undefined) === s.id &&
+          (("SetIf" in o && "More" in o.SetIf.value && (o.SetIf.value.More.key === "hero" || BUILD_KEYS.includes(o.SetIf.value.More.key as never))) ||
+            ("Set" in o && "More" in o.Set.value && (o.Set.value.More.key === "hero" || BUILD_KEYS.includes(o.Set.value.More.key as never)))),
+      ),
+    )
     .filter((e) => e.length)
     .map((e) => {
       const h = e.map(heroOf).find(Boolean);
-      const fill = e.flatMap((o) => ("SetIf" in o && "More" in o.SetIf.value && o.SetIf.value.More.key !== "hero" ? [o.SetIf.value.More.value === null ? "clear" : "fill"] : []));
+      const fill = e.flatMap((o) => ("SetIf" in o && "More" in o.SetIf.value && BUILD_KEYS.includes(o.SetIf.value.More.key as never) ? [o.SetIf.value.More.value === null ? "clear" : "fill"] : []));
       return { hero: h && [h.expect, h.value].map((v) => ("More" in v ? v.More.value : v)), rows: [...new Set(fill)] };
     });
 /** The record as a save with room for builds leaves it, made by someone else. */
@@ -209,23 +237,23 @@ describe("an undo or redo across another editor's pick or Retake leaves a hero w
     expect(hero(s.a, s.id).more).toEqual({ hero: s.M });
     expect(steps(s, stacks(s.a).redo)).toEqual([{ hero: [s.M, P], rows: [] }]);
     await step(s, () => s.retake(s.b));
-    expect(hero(s.a, s.id).more).toEqual(s.build);
+    expect(hero(s.a, s.id).more).toEqual(s.retaken);
     await step(s, () => s.a.redo());
-    expect(hero(s.a, s.id).more).toEqual({ hero: P });
-    // The redo wrote the record whole, so its undo gives back what it replaced, whole.
+    expect(hero(s.a, s.id).more).toEqual({ hero: P, ...s.groupA });
+    // The redo wrote the record's slot whole, so its undo gives back what it replaced, whole (Group A untouched).
     expect(steps(s, stacks(s.a).undo)).toEqual([{ hero: [P, s.M], rows: ["fill"] }]);
     expect(stacks(s.a).redo).toEqual([]);
     await step(s, () => s.a.undo());
-    expect(hero(s.a, s.id).more).toEqual(s.build);
+    expect(hero(s.a, s.id).more).toEqual(s.retaken);
     await step(s, () => s.a.redo());
-    expect(await everywhere(s)).toEqual({ hero: P });
+    expect(await everywhere(s)).toEqual({ hero: P, ...s.groupA });
   });
 
-  it("(2) B Retakes over the match's hero, B undoes every step, A picks P, B redoes: P with no build", async () => {
+  it("(2) B Retakes over the match's hero, B undoes every step, A picks P, B redoes: P with no build (Group A applied & undoable)", async () => {
     const s = await saved();
     let n = 0;
     await step(s, () => (n = s.retake(s.b)));
-    expect(hero(s.a, s.id).more).toEqual(s.build);
+    expect(hero(s.a, s.id).more).toEqual(s.retaken);
     // The Retake's `Set hero` wrote the hero the record already had, so its undo has none.
     expect(steps(s, stacks(s.b).undo)).toEqual([{ hero: undefined, rows: ["clear"] }]);
     for (let i = 0; i < n; i++) await step(s, () => s.b.undo());
@@ -234,12 +262,13 @@ describe("an undo or redo across another editor's pick or Retake leaves a hero w
     expect(steps(s, stacks(s.b).redo)).toEqual([{ hero: [s.M, s.M], rows: ["fill"] }]);
     await step(s, () => s.pick(s.a, P));
     for (let i = 0; i < n; i++) await step(s, () => s.b.redo());
-    // The redo no longer fits the record, and left it out: nothing of it to undo there.
+    // The build redo no longer fits the record, and left it out: nothing of its build to undo there,
+    // while Group A ops (outside `slotKeys`, plan §6) went through as recorded.
     expect(steps(s, stacks(s.b).undo)).toEqual([]);
     expect(stacks(s.b).redo).toEqual([]);
     // The other eleven took their builds back.
     for (const h of s.heroes.filter((x) => x !== s.id)) expect(rows(hero(s.b, h).more).length).toBeGreaterThan(0);
-    expect(await everywhere(s)).toEqual({ hero: P });
+    expect(await everywhere(s)).toEqual({ hero: P, ...s.groupA });
   });
 
   it("(3) A picks P over the match's hero with its build, B picks Q, A undoes: Q with no build", async () => {
@@ -287,9 +316,37 @@ describe("an undo or redo across another editor's pick or Retake leaves a hero w
     for (let i = 0; i < n; i++) await step(s, () => s.b.undo());
     expect(hero(s.a, s.id).more).toEqual({ hero: s.M });
     for (let i = 0; i < n; i++) await step(s, () => s.b.redo());
-    expect(hero(s.a, s.id).more).toEqual(s.build);
+    expect(hero(s.a, s.id).more).toEqual(s.retaken);
     for (let i = 0; i < n; i++) await step(s, () => s.b.undo());
     expect(await everywhere(s)).toEqual({ hero: s.M });
+  });
+
+  it("Group A Retake over a scene that already holds builds: racing a pick keeps P + Group A, and undoing Retake reverts Group A + SceneState cleanly", async () => {
+    const s = await saved();
+    await withBuild(s);
+    // Mark builds already captured so Retake writes Group A + SceneState alone (one atomic tx).
+    const setup = await s.open();
+    expect(setup.edit([{ Set: { id: s.state, value: { More: { key: "has_builds", value: true } } } }])).toBe(true);
+    expect(await settled(setup)).toBe(true);
+    setup.stop();
+    await sync(s);
+
+    // A picks P (clears builds), then B Retakes (adds Group A + SceneState flags, skips builds on P).
+    await step(s, () => s.pick(s.a, P));
+    expect(hero(s.a, s.id).more).toEqual({ hero: P });
+    let n = 0;
+    await step(s, () => (n = s.retake(s.b)));
+    expect(n).toBe(1);
+    expect(hero(s.a, s.id).more).toEqual({ hero: P, ...s.groupA });
+    const stateMore = (x: BoardSession) => (x.records.get(s.state)!.record as { SceneState: { more?: More } }).SceneState.more;
+    expect(stateMore(s.a)?.has_movement).toBe(true);
+    expect(stateMore(s.a)?.has_sight).toBe(true);
+
+    // B undoes the Group A Retake: Group A rows and SceneState flags revert together while P stays P.
+    await step(s, () => s.b.undo());
+    expect(stateMore(s.a)?.has_movement).toBeUndefined();
+    expect(stateMore(s.a)?.has_sight).toBeUndefined();
+    expect(await everywhere(s)).toEqual({ hero: P });
   });
 });
 
@@ -327,21 +384,21 @@ describe("an undo or redo of a hero's record in a deleted scene: what a restore 
     expect(await everywhere(s)).toEqual({ hero: Q });
   });
 
-  it("(B1.2) A picks P, A undoes, B Retakes, B deletes the scene, A redoes, B restores it: P with no build", async () => {
+  it("(B1.2) A picks P, A undoes, B Retakes, B deletes the scene, A redoes, B restores it: P with no build (Group A kept)", async () => {
     const s = await saved();
     await step(s, () => s.pick(s.a, P));
     await step(s, () => s.a.undo());
     await step(s, () => s.retake(s.b));
-    expect(hero(s.a, s.id).more).toEqual(s.build);
+    expect(hero(s.a, s.id).more).toEqual(s.retaken);
     await another(s, s.b);
     await deleteScene(s, s.b, s.scene);
     await step(s, () => s.a.redo());
     await step(s, () => s.b.undo());
     expect(gone(s, s.scene)).toBe(false);
-    expect(await everywhere(s)).toEqual({ hero: P });
+    expect(await everywhere(s)).toEqual({ hero: P, ...s.groupA });
   });
 
-  it("(B1.3) B saves a scene, A picks P in it, C picks Q, B undoes the save, A undoes, B redoes the save: Q with no build", async () => {
+  it("(B1.3) B saves a scene, A picks P in it, C picks Q, B undoes the save, A undoes, B redoes the save: Q with no build (Group A kept)", async () => {
     const s = await saved();
     const scenes = [...s.b.records].flatMap(([id, e]) => (!e.deleted && "Scene" in e.record ? [{ id, scene: e.record.Scene }] : [])) as never;
     const save = matchSceneOps(s.rosterOf(s.b) as never, scenes, undefined, tl, T, [], newRecordId, [], { source: sourceOf(tl) });
@@ -359,14 +416,14 @@ describe("an undo or redo of a hero's record in a deleted scene: what a restore 
     expect(c.edit(pickHeroOps(true, slot, { id, more: hero(c, id).more }, Q))).toBe(true);
     expect(await settled(c)).toBe(true);
     await sync(s);
-    expect(hero(s.a, id).more).toEqual({ hero: Q });
+    expect(hero(s.a, id).more).toEqual({ hero: Q, ...s.groupA });
     c.stop();
     await step(s, () => s.b.undo());
     expect(gone(s, save.id)).toBe(true);
     await step(s, () => s.a.undo());
     await step(s, () => s.b.redo());
     expect(gone(s, save.id)).toBe(false);
-    expect(await everywhere(s, id)).toEqual({ hero: Q });
+    expect(await everywhere(s, id)).toEqual({ hero: Q, ...s.groupA });
   });
 });
 
@@ -427,8 +484,8 @@ describe("an undo or redo racing another editor's pick or Retake: the later one 
       setup: async (s) => { await step(s, () => s.pick(s.a, P)); await step(s, () => s.a.undo()); },
       undoing: (s) => s.a.redo(),
       other: (s) => void s.retake(s.b),
-      mineLast: () => ({ hero: P }),
-      otherLast: (s) => s.build,
+      mineLast: (s) => ({ hero: P, ...s.groupA }),
+      otherLast: (s) => s.retaken,
     },
     {
       name: "(2) B's redo of its Retake, A's pick of P",
@@ -436,8 +493,8 @@ describe("an undo or redo racing another editor's pick or Retake: the later one 
       setup: async (s) => { const n = s.retake(s.b); await sync(s); for (let i = 0; i < n; i++) await step(s, () => s.b.undo()); },
       undoing: (s) => { while (s.b.canRedo) s.b.redo(); },
       other: (s) => s.pick(s.a, P),
-      mineLast: (s) => s.build,
-      otherLast: () => ({ hero: P }),
+      mineLast: (s) => s.retaken,
+      otherLast: (s) => ({ hero: P, ...s.groupA }),
     },
     {
       name: "(3) A's undo of its pick, B's pick of Q",

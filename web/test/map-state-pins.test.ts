@@ -124,7 +124,7 @@ describe("map state, as it is before MapState (phase 0 pins)", () => {
     const bare = matchSceneOps(roster as never, [], undefined, replay, 3, markers, (() => { let n = 0; return () => `id${n++}`; })(), lanes, { source: sourceOf(replay), builds: false }).ops;
     expect(new Set(bare.flatMap((o) => ("Create" in o ? Object.keys(o.Create.record) : [])))).toEqual(new Set(["ObjectiveState", "PlayerState", "Scene", "SceneState", "Wave"]));
     expect(bare.flatMap((o) => ("Create" in o && "PlayerState" in o.Create.record ? [o.Create.record.PlayerState.more] : []))).toEqual(replay.players.map((p) => ({ hero: p.hero_id })));
-    expect(bare.flatMap((o) => ("Create" in o && "SceneState" in o.Create.record ? [o.Create.record.SceneState.more] : []))).toEqual([{ rows: ROWS.has_heroes.index + 1, has_heroes: true }]);
+    expect(bare.flatMap((o) => ("Create" in o && "SceneState" in o.Create.record ? [o.Create.record.SceneState.more] : []))).toEqual([{ rows: ROWS.skulls.index + 1, has_heroes: true }]);
     const plain = (ops: Op[]) => ops.filter((o) => !("Create" in o && "SceneState" in o.Create.record)).map((o) => JSON.parse(JSON.stringify(o, (k, v) => (k === "more" ? undefined : v))));
     expect(plain(bare)).toEqual(plain(ops.filter((o) => !("Set" in o))));
   });

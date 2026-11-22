@@ -673,7 +673,13 @@
       "Wave": {
        "scene": "id0",
        "lane": "lane1",
-       "t": 500
+       "t": 500,
+       "more": {
+        "edges": [
+         500,
+         500
+        ]
+       }
       }
      }
     }
@@ -685,7 +691,13 @@
       "Wave": {
        "scene": "id0",
        "lane": "lane4",
-       "t": 500
+       "t": 500,
+       "more": {
+        "edges": [
+         480,
+         520
+        ]
+       }
       }
      }
     }
@@ -697,7 +709,13 @@
       "Wave": {
        "scene": "id0",
        "lane": "lane6",
-       "t": 500
+       "t": 500,
+       "more": {
+        "edges": [
+         0,
+         1000
+        ]
+       }
       }
      }
     }
@@ -709,10 +727,12 @@
       "SceneState": {
        "scene": "id0",
        "more": {
-        "rows": 16,
+        "rows": 27,
         "has_builds": true,
         "build": 6839,
-        "has_heroes": true
+        "has_heroes": true,
+        "has_lanes": true,
+        "has_skulls": true
        }
       }
      }
@@ -1454,7 +1474,13 @@
       "Wave": {
        "scene": "id0",
        "lane": "lane1",
-       "t": 500
+       "t": 500,
+       "more": {
+        "edges": [
+         500,
+         500
+        ]
+       }
       }
      }
     }
@@ -1466,7 +1492,13 @@
       "Wave": {
        "scene": "id0",
        "lane": "lane4",
-       "t": 500
+       "t": 500,
+       "more": {
+        "edges": [
+         480,
+         520
+        ]
+       }
       }
      }
     }
@@ -1478,7 +1510,13 @@
       "Wave": {
        "scene": "id0",
        "lane": "lane6",
-       "t": 670
+       "t": 670,
+       "more": {
+        "edges": [
+         640,
+         700
+        ]
+       }
       }
      }
     }
@@ -1490,10 +1528,17 @@
       "SceneState": {
        "scene": "id0",
        "more": {
-        "rows": 16,
+        "rows": 27,
         "has_builds": true,
         "build": 6839,
-        "has_heroes": true
+        "has_heroes": true,
+        "has_lanes": true,
+        "has_skulls": true,
+        "skulls": [
+         3,
+         0,
+         0
+        ]
        }
       }
      }
@@ -2189,10 +2234,16 @@
       "SceneState": {
        "scene": "id0",
        "more": {
-        "rows": 16,
+        "rows": 27,
         "has_builds": true,
         "build": 6839,
-        "has_heroes": true
+        "has_heroes": true,
+        "has_skulls": true,
+        "skulls": [
+         3,
+         0,
+         0
+        ]
        }
       }
      }

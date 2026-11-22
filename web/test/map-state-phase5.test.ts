@@ -28,7 +28,7 @@ import { FALLBACK } from "../src/map/fallback-data";
 import { shiftEdges } from "../src/map/lanes";
 import { modelFromFallback } from "../src/map/model";
 import { groupToggleOps, isOn, toggleOps } from "../src/board/objectives";
-import { addSceneOps } from "../src/board/scenes";
+import { addSceneOps, materializeDroppedBaseline } from "../src/board/scenes";
 import type { BoardState, Player, Slot } from "../src/board/state";
 import { WRITTEN, captured, heroBuildAt, readBuild } from "../src/mapstate/build";
 import {
@@ -37,13 +37,14 @@ import {
 } from "../src/mapstate/codec";
 import { pickHeroOps, toggleSightOps } from "../src/mapstate/edit";
 import { fromScene } from "../src/mapstate/scene";
-import { heroDraw } from "../src/mapstate/shown";
+import { heroDraw, sceneTokenHealth } from "../src/mapstate/shown";
 import { FEATURES, type MapState, fromTimeline } from "../src/mapstate/state";
 import { decideStep } from "../src/mapstate/undo";
 import { canRetake, matchSceneOps, opsBytes, retakeOps, sourceOf } from "../src/match/save";
 import { type CampAt, type PowerupAt, type Timeline, markerKey, sitesAt, slotKey } from "../src/match/timeline";
 import { centreTimer, effectiveCamp, effectivePowerup, effectiveRift, effectiveUrn, markerTip, tipFacts, urnItemTip } from "../src/player/Camps";
 import { markerStates } from "../src/player/markerStates";
+import { mapControlFeatures, visionKeyChoice } from "../src/player/Player";
 import { keyOf, markers, metadata, replay } from "./support/synthetic-match";
 
 const WRITTEN_A = 27;
@@ -160,13 +161,14 @@ function captureToScene(tl: Timeline, second: number, written: number, rs = rost
   return { saved, heroes, objectives, waves, sceneState, frameT, tier, rs };
 }
 
-describe("Phase 5 R1: exhaustive §9 round-trip property (Groups A & B)", () => {
-  it("R1 ships with WRITTEN = 16 and 40 rows (rows 16–39 all ahead)", () => {
-    expect(WRITTEN).toBe(16);
+describe("Phase 5 R2: exhaustive §9 round-trip property (Groups A live & B ahead)", () => {
+  it("R2 ships with WRITTEN = 27 and 40 rows (rows 0–26 live, rows 27–39 ahead)", () => {
+    expect(WRITTEN).toBe(27);
+    expect(WRITTEN).toBe(WRITTEN_A);
     const keys = Object.keys(ROWS) as RowKey[];
     expect(keys).toHaveLength(40);
     for (const k of keys) {
-      if (ROWS[k].index < 16) expect(ROWS[k].status).toBe("live");
+      if (ROWS[k].index < 27) expect(ROWS[k].status).toBe("live");
       else expect(ROWS[k].status).toBe("ahead");
     }
   });
@@ -351,7 +353,7 @@ describe("Phase 5 R1: exhaustive §9 round-trip property (Groups A & B)", () => 
       },
     };
 
-    for (const written of [WRITTEN_A, WRITTEN_B]) {
+    for (const written of [WRITTEN, WRITTEN_B]) {
       for (const second of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]) {
         const cap = captureToScene(tl, second, written, rs);
         createRoot((dispose) => {
@@ -382,7 +384,7 @@ describe("Phase 5 R1: exhaustive §9 round-trip property (Groups A & B)", () => 
 
   it("round-trips metadata tier on both written=27 and written=40 (only skulls captured from Phase 5)", () => {
     const rs = roster(metadata);
-    for (const written of [WRITTEN_A, WRITTEN_B]) {
+    for (const written of [WRITTEN, WRITTEN_B]) {
       const cap = captureToScene(metadata, 5, written, rs);
       createRoot((dispose) => {
         const p = fromTimeline({ tl: () => metadata, t: () => 5, markers: () => markers });
@@ -1096,7 +1098,7 @@ describe("Dormant Retake, re-picked slots, TD-145 undo & copy filter", () => {
     );
     const scRow = { id: cap.saved.id, scene: { name: "t3", order: "a0", clock: 3, source: { ...sourceOf(tl), t: 3 }, live: false, parent: null } };
 
-    for (const written of [WRITTEN_A, WRITTEN_B]) {
+    for (const written of [WRITTEN, WRITTEN_B]) {
       let n = 0;
       const txs = retakeOps(scRow, { id: "st0", more: cap.sceneState }, heroes, rs, tl, () => `rt${n++}`, written, markers, waves);
       // Since builds are already held, the ENTIRE Retake is one single atomic transaction!
@@ -1379,5 +1381,322 @@ describe("Dormant Retake, re-picked slots, TD-145 undo & copy filter", () => {
     expect(canRetake(sc, state, tl, WRITTEN_B, undefined)).toBe(false);
     expect(canRetake(sc, state, tl, WRITTEN_B, [])).toBe(false);
     expect(canRetake(sc, state, tl, WRITTEN_B, markers)).toBe(true);
+  });
+});
+
+describe("Phase 5 R2: Writer A, health arc (Q3), TD-162 MapControls, copy materialization & Astra edge", () => {
+  it("Q3 sceneTokenHealth shows stored health only for living, visible heroes when Health is on and scene captured health", () => {
+    const tl = richReplay();
+    const rs = roster(tl);
+    // Replay scene at t=6: slot 3 (amber-3) is dead; living heroes have health 70.
+    const replayCap = captureToScene(tl, 6, WRITTEN, rs);
+    // Metadata scene at t=6: has("health") is false.
+    const metaCap = captureToScene(metadata, 6, WRITTEN, rs);
+    createRoot((dispose) => {
+      const rMs = fromScene({
+        heroes: () => replayCap.heroes, roster: () => rs, objectives: () => replayCap.objectives, waves: () => replayCap.waves,
+        state: () => replayCap.sceneState, tier: () => replayCap.tier, frame: () => replayCap.frameT, markers: () => markers,
+      });
+      const mMs = fromScene({
+        heroes: () => metaCap.heroes, roster: () => rs, objectives: () => metaCap.objectives, waves: () => metaCap.waves,
+        state: () => metaCap.sceneState, tier: () => metaCap.tier, frame: () => metaCap.frameT, markers: () => markers,
+      });
+      const legacyMs = fromScene({
+        heroes: () => replayCap.heroes, roster: () => rs, objectives: () => replayCap.objectives, waves: () => replayCap.waves,
+        state: () => undefined, tier: () => undefined, frame: () => undefined, markers: () => markers,
+      });
+
+      const a0 = rMs.hero("amber-0");
+      expect(a0.health()).toBe(70);
+      expect(sceneTokenHealth(a0, true, true, { health: true })).toBe(70);
+      expect(sceneTokenHealth(a0, true, true, { health: false })).toBeNull();
+      expect(sceneTokenHealth(a0, true, false, { health: true })).toBeNull();
+      expect(sceneTokenHealth(a0, false, true, { health: true })).toBeNull();
+
+      // Dead hero at frame: health is 0, and alive=false hides the arc.
+      const a3 = rMs.hero("amber-3");
+      expect(a3.alive()).toBe(false);
+      expect(sceneTokenHealth(a3, false, true, { health: true })).toBeNull();
+
+      // Metadata scene & pre-SceneState legacy scene: no health arc (zero DOM pin impact).
+      expect(sceneTokenHealth(mMs.hero("amber-0"), true, true, { health: true })).toBeNull();
+      expect(sceneTokenHealth(legacyMs.hero("amber-0"), true, true, { health: true })).toBeNull();
+      dispose();
+    });
+  });
+
+  it("TD-162: mapControlFeatures and visionKeyChoice activate from MapState even when no match is open", () => {
+    const tl = richReplay();
+    const rs = roster(tl);
+    const replayCap = captureToScene(tl, 6, WRITTEN, rs);
+    const metaCap = captureToScene(metadata, 6, WRITTEN, rs);
+
+    createRoot((dispose) => {
+      const rMs = fromScene({
+        heroes: () => replayCap.heroes, roster: () => rs, objectives: () => replayCap.objectives, waves: () => replayCap.waves,
+        state: () => replayCap.sceneState, tier: () => replayCap.tier, frame: () => replayCap.frameT, markers: () => markers,
+      });
+      const mMs = fromScene({
+        heroes: () => metaCap.heroes, roster: () => rs, objectives: () => metaCap.objectives, waves: () => metaCap.waves,
+        state: () => metaCap.sceneState, tier: () => metaCap.tier, frame: () => metaCap.frameT, markers: () => markers,
+      });
+      const legacyMs = fromScene({
+        heroes: () => replayCap.heroes, roster: () => rs, objectives: () => replayCap.objectives, waves: () => replayCap.waves,
+        state: () => undefined, tier: () => undefined, frame: () => undefined, markers: () => markers,
+      });
+      const objHealthOnlyMs = fromScene({
+        heroes: () => [], roster: () => rs, objectives: () => new Map(), waves: () => new Map(),
+        state: () => ({ rows: 40, has_obj_health: true }), tier: () => "metadata", frame: () => 5, markers: () => markers,
+      });
+
+      // No match open (`tl = undefined`): saved R2 replay scene enables Health, CC, Movement, and Vision!
+      expect(mapControlFeatures(undefined, rMs)).toEqual({ health: true, cc: true, movement: true, vision: true });
+      // Scene holding only obj_health still enables Health toggle.
+      expect(mapControlFeatures(undefined, objHealthOnlyMs)).toEqual({ health: true, cc: false, movement: false, vision: false });
+      // Metadata scene & hand-made scene with no match open: all 4 stay off.
+      expect(mapControlFeatures(undefined, mMs)).toEqual({ health: false, cc: false, movement: false, vision: false });
+      expect(mapControlFeatures(undefined, legacyMs)).toEqual({ health: false, cc: false, movement: false, vision: false });
+      // Open replay timeline + hand-made scene: timeline still enables all 4.
+      expect(mapControlFeatures(tl, legacyMs)).toEqual({ health: true, cc: true, movement: true, vision: true });
+      // Open metadata timeline + saved R2 replay scene: scene's MapState enables all 4.
+      expect(mapControlFeatures(metadata, rMs)).toEqual({ health: true, cc: true, movement: true, vision: true });
+      dispose();
+    });
+
+    // visionKeyChoice: 1/2/3 work when canVision is true (no player-mode gate!), silent when false or modified/in input.
+    const ev = (code: string, extra: Partial<KeyboardEvent> = {}) => ({
+      altKey: false, ctrlKey: false, metaKey: false, repeat: false, defaultPrevented: false, code, target: null, ...extra,
+    });
+    expect(visionKeyChoice(ev("Digit1"), true)).toBe("amber");
+    expect(visionKeyChoice(ev("Digit2"), true)).toBe("sapphire");
+    expect(visionKeyChoice(ev("Digit3"), true)).toBe("all");
+    expect(visionKeyChoice(ev("Numpad1"), true)).toBe("amber");
+    expect(visionKeyChoice(ev("Digit1"), false)).toBeUndefined();
+    expect(visionKeyChoice(ev("Digit1", { ctrlKey: true }), true)).toBeUndefined();
+    expect(visionKeyChoice(ev("Digit1", { repeat: true }), true)).toBeUndefined();
+    expect(visionKeyChoice(ev("Digit1", { defaultPrevented: true }), true)).toBeUndefined();
+    expect(visionKeyChoice(ev("KeyA"), true)).toBeUndefined();
+  });
+
+  it("R2 copy materialization: copying an R3 (written=40) scene on R2 (written=27) materializes all 5 Group B types without duplicating existing ObjectiveStates", () => {
+    const base = richReplay();
+    const clearedCamp = keyOf("camp", 3);
+    const unspawnedCamp = keyOf("camp", 0);
+    const aliveCamp = keyOf("camp", 1);
+    const clearedHeal = keyOf("heal", 0);
+    const clearedCrate = keyOf("crate", 0);
+    const bossKey = keyOf("midboss", 0);
+    const downPwr = keyOf("powerup", 0);
+    const upPwr = keyOf("powerup", 1);
+    const activeRift = keyOf("koth", 0);
+    const inactiveRift = keyOf("koth", 1);
+    const deliveryUrn = keyOf("urn", 1);
+    const otherUrn = keyOf("urn", 0);
+    const patronAmber = markers.find((m) => m.kind === "t3" && m.team === "amber")!.key;
+    const patronSapphire = markers.find((m) => m.kind === "t3" && m.team === "sapphire")!.key;
+
+    // Craft a frame at t=4 where all 5 Group B baseline types are non-default at once:
+    // - camps: clearedCamp (cleared), unspawnedCamp (unspawned, first_s: 10), clearedHeal (cleared),
+    //   clearedCrate (cleared), bossKey (cleared); aliveCamp is alive (must NOT materialize).
+    // - powerups: downPwr is down, upPwr is up (must NOT materialize).
+    // - rifts: activeRift is active, inactiveRift is elsewhere (must NOT materialize).
+    // - urn: carried with delivery = deliveryUrn; otherUrn must NOT materialize.
+    // - obj_health: patronAmber at stage 2 (materializes Stage2), patronSapphire at stage 1 (must NOT materialize).
+    const tl = {
+      ...base,
+      camps: [
+        ...markers
+          .filter((m) => m.kind === "camp")
+          .map((m) => ({
+            key: m.key,
+            first_s: m.key === unspawnedCamp ? 10 : 0,
+            cleared: m.key === clearedCamp ? ([[2, 40]] as Array<[number, number]>) : [],
+          })),
+        { key: bossKey, first_s: 0, cleared: [[3, 400]] as Array<[number, number]> },
+      ],
+      objective_health: [
+        { key: "walker:amber:lane1:1", at: [[0, 100], [4, 35]] },
+        { key: patronAmber, at: [[0, 100], [4, 60]], stage: [[0, 1], [3, 2]] },
+        { key: patronSapphire, at: [[0, 100], [4, 80]], stage: [[0, 1]] },
+      ],
+      urn: {
+        spawns: [{ t: 1, key: otherUrn }],
+        at: [{ t: 3, state: "carried", team: "sapphire", slot: 1, delivery: deliveryUrn }],
+      },
+    } as unknown as Timeline;
+
+    const rs = roster(tl);
+    const cap = captureToScene(tl, 4, WRITTEN_B, rs);
+    const records: Record<RecordId, Entry> = {};
+    for (const op of cap.saved.ops) {
+      if ("Create" in op) records[op.Create.id] = { record: op.Create.record, deleted: false };
+    }
+    const scId = cap.saved.id;
+    const scRec = (records[scId]!.record as { Scene: Record<string, unknown> }).Scene;
+
+    // Simulate a coach override already stored on the source scene: revived clearedCamp ("Active").
+    records["coach_override"] = {
+      record: { ObjectiveState: { scene: scId, key: clearedCamp, status: "Active" } },
+      deleted: false,
+    };
+
+    const fakeState = {
+      records,
+      sceneTree: () => [{ scene: { id: scId, scene: scRec }, parent: null, depth: 0 }],
+    } as unknown as BoardState;
+
+    // 1. Copy on R2 (WRITTEN = 27) with markers: drops Group B, lowers rows 40 -> 27, materializes all 5 types!
+    let n = 0;
+    const copy27 = addSceneOps(fakeState, { id: scId, scene: scRec as never }, false, () => `m${n++}`, "Copy", false, WRITTEN, markers);
+    expect(copy27.full).toBe(false);
+    // SceneState is strictly last in ops and in the last transaction.
+    const lastCopyOp = copy27.ops.at(-1)!;
+    const lastCopyTxOp = copy27.txs.at(-1)!.at(-1)!;
+    expect("Create" in lastCopyOp && "SceneState" in lastCopyOp.Create.record).toBe(true);
+    expect("Create" in lastCopyTxOp && "SceneState" in lastCopyTxOp.Create.record).toBe(true);
+
+    const copiedState = copy27.ops.flatMap((o) => ("Create" in o && "SceneState" in o.Create.record ? [o.Create.record.SceneState.more!] : []))[0]!;
+    expect(copiedState.rows).toBe(27);
+    for (const k of Object.keys(copiedState)) expect(ROWS[k as RowKey].index, k).toBeLessThan(27);
+
+    const objs = copy27.ops.flatMap((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [o.Create.record.ObjectiveState] : []));
+    const byKey = new Map<string, ObjectiveStatus[]>();
+    for (const o of objs) byKey.set(o.key, [...(byKey.get(o.key) ?? []), o.status]);
+
+    // No duplicate keys!
+    for (const [k, list] of byKey) expect(list, `duplicate ObjectiveState for ${k}`).toHaveLength(1);
+    // Coach override preserved, not duplicated with "Destroyed":
+    expect(byKey.get(clearedCamp)).toEqual(["Active"]);
+    // All 5 Group B baseline types materialized accurately:
+    expect(byKey.get(unspawnedCamp)).toEqual(["Destroyed"]);
+    expect(byKey.get(clearedHeal)).toEqual(["Destroyed"]);
+    expect(byKey.get(clearedCrate)).toEqual(["Destroyed"]);
+    expect(byKey.get(bossKey)).toEqual(["Destroyed"]);
+    expect(byKey.get(downPwr)).toEqual(["Destroyed"]);
+    expect(byKey.get(activeRift)).toEqual(["Active"]);
+    expect(byKey.get(deliveryUrn)).toEqual(["Active"]);
+    expect(byKey.get(patronAmber)).toEqual(["Stage2"]);
+    // Defaults NOT materialized:
+    expect(byKey.has(aliveCamp)).toBe(false);
+    expect(byKey.has(upPwr)).toBe(false);
+    expect(byKey.has(inactiveRift)).toBe(false);
+    expect(byKey.has(otherUrn)).toBe(false);
+    expect(byKey.has(patronSapphire)).toBe(false);
+    expect(byKey.has("walker:amber:lane1:1")).toBe(false);
+
+    // 2. Copy on R3 (written = 40) with markers: ZERO Group B rows dropped -> ZERO extra ObjectiveStates materialized!
+    n = 0;
+    const copy40 = addSceneOps(fakeState, { id: scId, scene: scRec as never }, false, () => `r${n++}`, "Copy", false, WRITTEN_B, markers);
+    const objs40 = copy40.ops.flatMap((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [o.Create.record.ObjectiveState] : []));
+    expect(objs40.some((o) => o.key === unspawnedCamp)).toBe(false);
+    expect(objs40.some((o) => o.key === patronAmber)).toBe(false);
+    expect(objs40.some((o) => o.key === clearedCamp && o.status === "Active")).toBe(true);
+
+    // 3. Respects `LIMITS.max_records`: materialized ObjectiveStates are counted against the cap!
+    const needCount = copy27.ops.length;
+    const padRecords = (total: number): BoardState => {
+      const padded: Record<RecordId, Entry> = { ...records };
+      let i = 0;
+      while (Object.keys(padded).length < total) {
+        padded[`pad_${i++}`] = { record: { Note: { scene: "other", text: "" } }, deleted: true };
+      }
+      return {
+        records: padded,
+        sceneTree: () => [{ scene: { id: scId, scene: scRec }, parent: null, depth: 0 }],
+      } as unknown as BoardState;
+    };
+    const atCap = addSceneOps(padRecords(LIMITS.max_records - needCount), { id: scId, scene: scRec as never }, false, () => `f${n++}`, "Copy", false, WRITTEN, markers);
+    expect(atCap.full).toBe(false);
+    expect(atCap.txs.length).toBeGreaterThan(0);
+    const overCap = addSceneOps(padRecords(LIMITS.max_records - needCount + 1), { id: scId, scene: scRec as never }, false, () => `g${n++}`, "Copy", false, WRITTEN, markers);
+    expect(overCap.full).toBe(true);
+    expect(overCap.txs).toEqual([]);
+
+    // 4. Chunking via chunkByBytes when materialized ObjectiveStates push total ops > max_ops_per_tx (256), keeping SceneState last!
+    const manyCampsTl = {
+      ...tl,
+      camps: markers.filter((m) => m.kind === "camp").map((m) => ({ key: m.key, first_s: 10, cleared: [] })),
+      heals: markers.filter((m) => m.kind === "heal").map((m) => ({ key: m.key, first_s: 10, cleared: [] })),
+      crates: markers.filter((m) => m.kind === "crate").map((m) => ({ key: m.key, first_s: 10, cleared: [] })),
+    } as unknown as Timeline;
+    const capMany = captureToScene(manyCampsTl, 4, WRITTEN_B, rs);
+    const manyRecords: Record<RecordId, Entry> = {};
+    for (const op of capMany.saved.ops) {
+      if ("Create" in op) manyRecords[op.Create.id] = { record: op.Create.record, deleted: false };
+    }
+    const scManyId = capMany.saved.id;
+    const scManyRec = (manyRecords[scManyId]!.record as { Scene: Record<string, unknown> }).Scene;
+    // Add 120 drawings so scene + heroes + materialized camps + ink > 256 ops.
+    for (let i = 0; i < 120; i++) {
+      manyRecords[`ink_${i}`] = { record: { Arrow: { scene: scManyId, from: { x: 0, y: 0 }, to: { x: 100, y: 100 }, team: null, color: null } }, deleted: false };
+    }
+    const manyState = {
+      records: manyRecords,
+      sceneTree: () => [{ scene: { id: scManyId, scene: scManyRec }, parent: null, depth: 0 }],
+    } as unknown as BoardState;
+    const chunked = addSceneOps(manyState, { id: scManyId, scene: scManyRec as never }, false, () => `k${n++}`, "Copy", true, WRITTEN, markers);
+    expect(chunked.full).toBe(false);
+    expect(chunked.ops.length).toBeGreaterThan(LIMITS.max_ops_per_tx);
+    expect(chunked.txs.length).toBeGreaterThan(1);
+    for (const tx of chunked.txs) {
+      expect(tx.length).toBeLessThanOrEqual(LIMITS.max_ops_per_tx);
+      expect(opsBytes(tx)).toBeLessThanOrEqual(LIMITS.max_tx_bytes - 1024);
+    }
+    // SceneState is strictly in the last tx, last op!
+    const lastChunkOp = chunked.txs.at(-1)!.at(-1)!;
+    expect("Create" in lastChunkOp && "SceneState" in lastChunkOp.Create.record).toBe(true);
+    expect(chunked.txs.slice(0, -1).every((tx) => tx.every((o) => !("Create" in o && "SceneState" in o.Create.record)))).toBe(true);
+
+    // 5. Ground urn with state="none" materializes nothing; direct helper sanity check.
+    expect(materializeDroppedBaseline({ rows: 40, has_urn: true, urn: [0, -1, -1, -1, -1, -1, -1] }, 27, 4, markers, new Set())).toEqual([]);
+  });
+
+  it("Astra R1 review edge: explicit { written: 40, builds: false } and { written: 27, builds: false } use bucketed overflow fallback", () => {
+    const base = richReplay();
+    const extraMarkers = [
+      ...markers,
+      ...Array.from({ length: 245 }, (_, i) => ({
+        key: `camp:neutral:lane0:extra_${i}`,
+        kind: "camp" as const,
+        team: "neutral" as const,
+        lane: null,
+        at: { x: 10 + (i % 900), y: 10 + Math.floor(i / 900) },
+      })),
+    ];
+    const tl = {
+      ...base,
+      objectives: [{ key: "guardian:sapphire:lane4:1", kind: "guardian", team: "sapphire", lane: 4, destroyed_s: 1 }],
+      camps: extraMarkers.filter((m) => m.kind === "camp").map((m) => ({ key: m.key, first_s: 100, cleared: [] })),
+    } as unknown as Timeline;
+    const rs = roster(tl);
+
+    // Legacy v14 (`written: 16, builds: false`) stays all-or-nothing and returns empty ops on > 256 ops.
+    let n = 0;
+    const v14 = matchSceneOps(rs, [], undefined, tl, 4, extraMarkers, () => `v14_${n++}`, [], {
+      source: sourceOf(tl),
+      written: 16,
+      builds: false,
+    });
+    expect(v14.ops).toEqual([]);
+
+    // Phase 5 (`written: 27` and `written: 40`, with `builds: false`) uses fitBuckets, dropping the
+    // overflowing camp bucket whole while preserving mandatory destroyed objectives + SceneState!
+    for (const written of [WRITTEN, WRITTEN_B]) {
+      n = 0;
+      const saved = matchSceneOps(rs, [], undefined, tl, 4, extraMarkers, () => `p5_${n++}`, [], {
+        source: sourceOf(tl),
+        written,
+        builds: false,
+      });
+      expect(saved.builds).toBe(false);
+      expect(saved.ops.length).toBeGreaterThan(0);
+      expect(saved.ops.length).toBeLessThanOrEqual(LIMITS.max_ops_per_tx);
+      expect(opsBytes(saved.ops)).toBeLessThanOrEqual(LIMITS.max_tx_bytes - 1024);
+      const objs = saved.ops.flatMap((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [o.Create.record.ObjectiveState] : []));
+      expect(objs.some((o) => o.key === "guardian:sapphire:lane4:1" && o.status === "Destroyed")).toBe(true);
+      expect(objs.some((o) => o.key.startsWith("camp:"))).toBe(false);
+      const st = saved.ops.flatMap((o) => ("Create" in o && "SceneState" in o.Create.record ? [o.Create.record.SceneState.more!] : []))[0]!;
+      expect(st).toEqual({ rows: written, has_heroes: true });
+    }
   });
 });

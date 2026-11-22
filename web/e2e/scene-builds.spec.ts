@@ -118,10 +118,10 @@ test("a scene saved from Player shows each hero's build as Player did (#49)", as
   const inPlayer = await savedScene(p);
   expect(inPlayer.items).toEqual(["715762406", "1009965641"]);
   await expect(builds(p)).toHaveCount(0);
-  // The scene holds each hero's health, but its tokens draw no health arc: that is Player's
-  // (map-state phase 4; Health is on).
+  // Phase 5 R2 (Q3): a replay-saved scene draws each living hero's health arc under Health
+  // (Amber-1 is dead at t=25, so 11 of 12 tokens draw an arc).
   await expect(p.locator("[data-testid=map] .tok[data-slot]")).toHaveCount(12);
-  await expect(p.locator("[data-testid=map] [data-testid=tok-health]")).toHaveCount(0);
+  await expect(p.locator("[data-testid=map] [data-testid=tok-health]")).toHaveCount(11);
   // A portrait opens its hero's build: what Player showed at the frame.
   await portrait(p, "Amber-3").getByTestId("focus-hero").click();
   await expect(builds(p)).toHaveCount(1);
@@ -311,9 +311,9 @@ test("with no match on the board, a scene from a file shows its builds and a fol
   const inPlayer = await savedScene(maker);
   const [, board, token] = /\/b\/([^#]+)#(.+)$/.exec(from)!;
   const file = (await (await fetch(`${server.url}/api/boards/${board}/export`, { headers: { authorization: `Bearer ${token}` } })).json()) as { version: number; rows: number; matches: number[] };
-  // Version 4: the scene holds its own heroes (`has_heroes`, store v14), which the v13 and v12
-  // builds call a newer file.
-  expect(file.version).toBe(4);
+  // Version 5: the scene holds Group A map-state rows (has_sight, has_skulls, store v16), which
+  // R1 (READS = 4) and earlier builds call a newer file.
+  expect(file.version).toBe(5);
   expect(file.matches).toEqual([Number(ID)]);
   file.matches = [];
   await maker.close();

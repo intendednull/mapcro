@@ -55,10 +55,11 @@ describe("the row", () => {
   // that made the row `live` (store v14, docs/deploy.md).
   it("is written by this build: its save holds the scene's heroes", () => {
     expect(ROWS.has_heroes).toMatchObject({ entity: "scene", kind: "bool", status: "live" });
-    expect(WRITTEN).toBe(LATER);
+    expect(WRITTEN).toBeGreaterThanOrEqual(LATER);
+    expect(WRITTEN).toBe(ROWS.skulls.index + 1);
     expect(writesHeroes()).toBe(true);
     expect(captureScene(tl).has_heroes).toBe(true);
-    expect(matchSceneOps(roster() as never, [], undefined, tl, 4, markers, minter(), [], { source: sourceOf(tl) }).ops).toEqual(save({ written: LATER }).ops);
+    expect(matchSceneOps(roster() as never, [], undefined, tl, 4, markers, minter(), [], { source: sourceOf(tl) }).ops).toEqual(save({ written: WRITTEN }).ops);
   });
 
   it("a save from before sets the roster to the match's heroes, and says nothing of the scene's own", () => {
@@ -322,7 +323,7 @@ describe("as it was before TD-119", () => {
   ];
   it.each(unflagged)("without the flag (%s), Retake writes each absent value by a SetIf, and only those", (_, state) => {
     const heroes = records({ builds: false });
-    const ops = retakeOps(scene, state, heroes, roster() as never, tl, minter()).flat();
+    const ops = retakeOps(scene, state, heroes, roster() as never, tl, minter(), LATER).flat();
     heroes.forEach((h, i) => {
       const want = Object.entries(captureBuild(heroBuildAt(tl, tl.players[i]!, 4))).filter(([k]) => h.state.more?.[k] === undefined);
       expect(on(ops, h.id)).toEqual(want.map(([k, v]) => absent(h.id, k, v)));
@@ -374,7 +375,8 @@ describe("Retake and the scene's heroes", () => {
       const ops = retakeOps(scene(4), undefined, old, roster() as never, tl, minter(), written).flat();
       const state = made<{ more?: More }>(ops, "SceneState");
       expect(state).toHaveLength(1);
-      expect(state[0]!.r.more).toEqual({ rows: written, has_builds: true, build: 6839 });
+      expect(state[0]!.r.more).toMatchObject({ rows: written, has_builds: true, build: 6839 });
+      expect(state[0]!.r.more?.has_heroes).toBeUndefined();
       expect(captured(state[0]!.r.more).heroes).toBe(false);
     }
     // Onto a state that exists: the builds' flag and patch, the watermark moved up, no more.
@@ -392,10 +394,11 @@ describe("Retake and the scene's heroes", () => {
     expect(retakeRows(LATER)).toBe(BEFORE);
     // Row 16 (`has_sight`, phase 5) sits after `has_heroes`, so `retakeRows(LATER + 1)` advances to it.
     expect(retakeRows(LATER + 1)).toBe(LATER + 1);
-    expect(retakeRows()).toBe(BEFORE);
+    expect(retakeRows()).toBe(WRITTEN);
     expect(retakeRows(0)).toBe(0);
-    expect(canRetake(src, saved, tl)).toBe(false);
-    // The build that writes the row: a scene saved today has nothing to retake.
+    // On R2 (`WRITTEN = 27`), a pre-R2 scene is retakable for Group A, not for `has_heroes`.
+    expect(canRetake(src, saved, tl)).toBe(true);
+    // The v14 build (`LATER = 16`): a scene saved before `has_heroes` has nothing to retake.
     expect(canRetake(src, saved, tl, LATER)).toBe(false);
     expect(canRetake(src, { ...saved, rows: BEFORE - 1 }, tl, LATER)).toBe(true);
     expect(canRetake(src, undefined, tl, LATER)).toBe(true);

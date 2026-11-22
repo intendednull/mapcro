@@ -982,3 +982,79 @@ test("the presenter's next search hides it again over the follower's own", async
   await expect.poll(() => searchShown(b)).toBe("[Filtered] ×");
   await expect.poll(() => listed(b)).toBe("20");
 });
+
+// Map-state phase 5 R2 (plan §7): in a saved scene holding sight, CC, movement, and health, a
+// follower mirrors Vision, Show last seen, and those layers (and sees the same map DOM).
+test("in a saved R2 scene holding sight, CC, movement and health, a follower mirrors Vision, Show last seen and those layers", async ({ browser }) => {
+  const url = await newBoardUrl(server, "Follow R2 scene");
+  const a = await joinNew(browser, url, "Coach", watchRefusals);
+  await load(a, ID);
+  // At t=15: Amber-1 is seen by Sapphire, Amber-0 is unseen, Sapphire-0 is stunned and elevated,
+  // all 12 heroes are alive with health.
+  await scrubTo(a, 15);
+  await a.getByTestId("match-save").click();
+  await expect(a.getByTestId("topbar")).not.toHaveAttribute("data-mode", "player");
+  await expect(a.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
+
+  const b = await joinNew(browser, url, "Second", watchRefusals);
+  await expect(b.getByTestId("scene-card")).toHaveCount(2);
+  await follow(b);
+  await expect(b.getByTestId("topbar")).not.toHaveAttribute("data-mode", "player");
+  await expect(b.locator("[data-testid=map] [data-testid=tok-health]")).toHaveCount(12);
+
+  // Vision & Show last seen in the scene: presenter switches to Sapphire vision, unseen Amber-0 fades
+  // on both while seen Amber-1 stays unfaded; Show last seen mirrors with zero ghosts.
+  await VISION.set(a, "sapphire");
+  await shows(VISION, b, "sapphire");
+  await expect(b.locator('[data-testid=map] .tok[data-slot="Amber-0"]')).toHaveAttribute("data-visible", "false");
+  await expect(b.locator('[data-testid=map] .tok[data-slot="Amber-1"]')).toHaveAttribute("data-visible", "true");
+  await expect(b.locator("[data-testid=map] .tok[data-echo]")).toHaveCount(0);
+
+  const lastSeen = ROWS.find((x) => x.key === "vision.last_seen")!;
+  await put(lastSeen, a, "on");
+  await shows(lastSeen, b, "on");
+  await expect(b.locator("[data-testid=map] .tok[data-echo]")).toHaveCount(0);
+  await put(lastSeen, a, "off");
+  await shows(lastSeen, b, "off");
+
+  // Layers (Health, CC, Movement) mirror in the scene and update the follower's map tokens.
+  const health = ROWS.find((x) => x.key === "layer.health")!;
+  await put(health, a, "off");
+  await shows(health, b, "off");
+  await expect(b.locator("[data-testid=map] [data-testid=tok-health]")).toHaveCount(0);
+  await put(health, a, "on");
+  await shows(health, b, "on");
+  // Under Sapphire vision Amber-0..5 except Amber-1 are unseen (5 unseen enemies), so 7 living seen tokens show health arcs.
+  await expect(b.locator("[data-testid=map] [data-testid=tok-health]")).toHaveCount(7);
+
+  // Back to All vision so Sapphire-0 is seen and shows CC + height when toggled.
+  await VISION.set(a, "all");
+  await shows(VISION, b, "all");
+  await expect(b.locator("[data-testid=map] [data-testid=tok-health]")).toHaveCount(12);
+
+  await put(CC, a, "on");
+  await shows(CC, b, "on");
+  await expect(b.locator('[data-testid=map] .tok[data-slot="Sapphire-0"] [data-testid=tok-cc]')).toHaveCount(1);
+
+  const movement = ROWS.find((x) => x.key === "layer.movement")!;
+  await put(movement, a, "on");
+  await shows(movement, b, "on");
+  await expect(b.locator('[data-testid=map] .tok[data-slot="Sapphire-0"] [data-testid=tok-height]')).toHaveCount(1);
+
+  // Late joiner following in the scene gets Vision and all three layers at once.
+  const c = await joinNew(browser, url, "Third");
+  await expect(c.getByTestId("scene-card")).toHaveCount(2);
+  await follow(c);
+  await shows(CC, c, "on");
+  await shows(movement, c, "on");
+  await shows(health, c, "on");
+  await expect(c.locator('[data-testid=map] .tok[data-slot="Sapphire-0"] [data-testid=tok-cc]')).toHaveCount(1);
+  await expect(c.locator('[data-testid=map] .tok[data-slot="Sapphire-0"] [data-testid=tok-height]')).toHaveCount(1);
+  await c.context().close();
+
+  // Stop following: b returns to its own defaults (CC off, Movement off).
+  await following(b).click();
+  await expect(following(b)).toHaveCount(0);
+  await shows(CC, b, "off");
+  await shows(movement, b, "off");
+});
