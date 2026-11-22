@@ -68,12 +68,19 @@ function ownHeroes(records: ReadonlyMap<RecordId, Entry>): Set<RecordId> {
   return out;
 }
 
-/** Group A scene capture flags and hero keys: when a redo restores a Group A capture (`has_* = true`
- * alongside non-null hero keys), preflight `max_more_bytes` and rewrite the hero writes from `SetIf`
- * to `Op::Set` so neither a settled nor a concurrent near-cap edit can leave `has_*` set with missing
- * hero data (Astra Round 3 #3). */
-const GROUP_A_FLAGS = new Set<string>(["has_sight", "has_cc", "has_movement"]);
-const GROUP_A_HERO_KEYS = new Set<string>(["unseen", "cc", "height", "zipline"]);
+/** Group A hero keys mapped to the SceneState feature that gates them. When a redo transitions a
+ * scene from uncaptured to captured for a feature (via explicit `has_*`, `Create`, `Restore` of a
+ * deleted `SceneState`, or a watermark `rows` bump activating a dormant `has_*`), preflight
+ * `max_more_bytes` on matching hero writes and rewrite them from `SetIf` to `Op::Set` so neither a
+ * settled nor a concurrent near-cap edit can leave `has_*` captured with missing hero data. */
+type GroupAFeature = "sight" | "cc" | "movement";
+const GROUP_A_FEATURES: readonly GroupAFeature[] = ["sight", "cc", "movement"];
+const HERO_KEY_FEATURE: Record<string, GroupAFeature> = {
+  unseen: "sight",
+  cc: "cc",
+  height: "movement",
+  zipline: "movement",
+};
 
 function moreWrite(op: Op): { id: RecordId; key: string; expect: Value | undefined; value: Value; isSetIf: boolean } | undefined {
   if ("Set" in op && "More" in op.Set.value) {
@@ -86,54 +93,118 @@ function moreWrite(op: Op): { id: RecordId; key: string; expect: Value | undefin
   return undefined;
 }
 
-/** Preflight and harden a Group A capture redo step: if any hero's projected `more` would exceed
- * `LIMITS.max_more_bytes`, drop the whole step; otherwise rewrite non-null Group A hero `SetIf` ops
- * to `Op::Set` so concurrent near-cap overflow aborts the transaction atomically on the server. */
+/** Find every `(sceneId, feature)` that transitions from `!before[f]` to `after[f]` when `ops`
+ * runs on `records` (covering `Create`, `Restore`, `Set`, `SetIf`, and watermark-only activation). */
+function activatingGroupA(ops: Op[], records: ReadonlyMap<RecordId, Entry>): Map<RecordId, Set<GroupAFeature>> {
+  const touchedStates = new Set<RecordId>();
+  for (const o of ops) {
+    if ("Create" in o && "SceneState" in o.Create.record) {
+      touchedStates.add(o.Create.id);
+    } else {
+      const id = "Restore" in o ? o.Restore.id : "Delete" in o ? o.Delete.id : "Set" in o ? o.Set.id : "SetIf" in o ? o.SetIf.id : undefined;
+      const e = id ? records.get(id) : undefined;
+      if (id && e && "SceneState" in e.record) touchedStates.add(id);
+    }
+  }
+  const activating = new Map<RecordId, Set<GroupAFeature>>();
+  for (const stateId of touchedStates) {
+    const existing = records.get(stateId);
+    const existingState = existing && "SceneState" in existing.record ? existing.record.SceneState : undefined;
+    let sceneId: RecordId | undefined = existingState?.scene;
+    let live = !!existing && !existing.deleted && !!existingState;
+    const before = live ? captured(existingState!.more) : captured(undefined);
+    let afterMore: More = live ? { ...(existingState!.more ?? {}) } : {};
+
+    for (const o of ops) {
+      if ("Create" in o && o.Create.id === stateId && "SceneState" in o.Create.record) {
+        if (!existing) {
+          sceneId = o.Create.record.SceneState.scene;
+          live = true;
+          afterMore = { ...(o.Create.record.SceneState.more ?? {}) };
+        }
+      } else if ("Restore" in o && o.Restore.id === stateId) {
+        if (!live && existingState) {
+          live = true;
+          afterMore = { ...(existingState.more ?? {}) };
+        }
+      } else if ("Delete" in o && o.Delete.id === stateId) {
+        live = false;
+      } else {
+        const w = moreWrite(o);
+        if (!w || w.id !== stateId || !live) continue;
+        if (!w.isSetIf || same(afterMore[w.key] ?? null, w.expect ?? null)) {
+          if (w.value === null) delete afterMore[w.key];
+          else afterMore[w.key] = w.value;
+        }
+      }
+    }
+    if (!sceneId) continue;
+    const after = live ? captured(afterMore) : captured(undefined);
+    for (const f of GROUP_A_FEATURES) {
+      if (!before[f] && after[f]) {
+        let set = activating.get(sceneId);
+        if (!set) activating.set(sceneId, (set = new Set()));
+        set.add(f);
+      }
+    }
+  }
+  return activating;
+}
+
+/** Preflight and harden a Group A capture redo step: for each activating `(sceneId, feature)`,
+ * check every matching hero op (whose `SetIf` expectation still matches the hero's current `more`,
+ * preserving settled edits when mismatched). If any hero's projected `more` would exceed
+ * `LIMITS.max_more_bytes`, drop the whole step; otherwise rewrite matching non-null Group A hero
+ * `SetIf` ops to `Op::Set` so concurrent overflow aborts atomically on the server. */
 function hardenGroupACaptureRedo(ops: Op[], carry: Op[], changed: boolean, records: ReadonlyMap<RecordId, Entry>): Decided {
   if (!ops.length) return { ops, carry, changed };
-  const setsGroupAFlag = ops.some((o) => {
-    const w = moreWrite(o);
-    if (!w || !GROUP_A_FLAGS.has(w.key) || w.value !== true) return false;
-    const e = records.get(w.id);
-    return !!e && !e.deleted && "SceneState" in e.record;
-  });
-  if (!setsGroupAFlag) return { ops, carry, changed };
+  const activating = activatingGroupA(ops, records);
+  if (!activating.size) return { ops, carry, changed };
 
   const heroIds = new Set<RecordId>();
   for (const o of ops) {
     const w = moreWrite(o);
-    if (!w || !GROUP_A_HERO_KEYS.has(w.key) || w.value === null) continue;
+    if (!w || w.value === null) continue;
+    const f = HERO_KEY_FEATURE[w.key];
+    if (!f) continue;
     const e = records.get(w.id);
-    if (e && !e.deleted && "PlayerState" in e.record) heroIds.add(w.id);
+    if (e && !e.deleted && "PlayerState" in e.record && activating.get(e.record.PlayerState.scene)?.has(f)) {
+      heroIds.add(w.id);
+    }
   }
   if (!heroIds.size) return { ops, carry, changed };
 
-  // Preflight every touched PlayerState record's projected `more` against `LIMITS.max_more_bytes`.
+  const rewriteIndices = new Set<number>();
   for (const id of heroIds) {
     const e = records.get(id)!;
-    const proj: More = { ...((e.record as { PlayerState: { more?: More } }).PlayerState.more ?? {}) };
-    for (const o of ops) {
+    const ps = (e.record as { PlayerState: { scene: RecordId; more?: More } }).PlayerState;
+    const active = activating.get(ps.scene)!;
+    const proj: More = { ...(ps.more ?? {}) };
+    let appliedActive = false;
+    ops.forEach((o, i) => {
       const w = moreWrite(o);
-      if (!w || w.id !== id) continue;
-      const forceSet = GROUP_A_HERO_KEYS.has(w.key) && w.value !== null;
-      if (!w.isSetIf || forceSet || same(proj[w.key] ?? null, w.expect ?? null)) {
-        if (w.value === null) delete proj[w.key];
-        else proj[w.key] = w.value;
+      if (!w || w.id !== id) return;
+      if (w.isSetIf && !same(proj[w.key] ?? null, w.expect ?? null)) return;
+      if (w.value === null) delete proj[w.key];
+      else proj[w.key] = w.value;
+      const f = HERO_KEY_FEATURE[w.key];
+      if (f && active.has(f) && w.value !== null) {
+        appliedActive = true;
+        if (w.isSetIf) rewriteIndices.add(i);
       }
+    });
+    if (appliedActive && moreBytes(proj) > LIMITS.max_more_bytes) {
+      return { ops: [], carry: [], changed: true };
     }
-    if (moreBytes(proj) > LIMITS.max_more_bytes) return { ops: [], carry: [], changed: true };
   }
 
-  let rewrote = false;
-  const hardened = ops.map((o): Op => {
-    const w = moreWrite(o);
-    if (w && w.isSetIf && heroIds.has(w.id) && GROUP_A_HERO_KEYS.has(w.key) && w.value !== null) {
-      rewrote = true;
-      return { Set: { id: w.id, value: more(w.key, w.value) } };
-    }
-    return o;
+  if (!rewriteIndices.size) return { ops, carry, changed };
+  const hardened = ops.map((o, i): Op => {
+    if (!rewriteIndices.has(i)) return o;
+    const w = moreWrite(o)!;
+    return { Set: { id: w.id, value: more(w.key, w.value) } };
   });
-  return { ops: hardened, carry, changed: changed || rewrote };
+  return { ops: hardened, carry, changed: true };
 }
 
 /** `step` (the ops `nextUndo`/`nextRedo` show) as this client sends it, decided on `records`

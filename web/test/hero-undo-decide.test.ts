@@ -207,9 +207,10 @@ describe("a step that writes a hero's record in a scene that holds its heroes", 
     expect(d.ops).toEqual(ids.slice(1).map((id) => setIf(id, "hero", P, M)));
   });
 
-  // Astra Round 3 #3: Redo restoring a Group A capture (`has_sight`/`has_cc`/`has_movement` = true
-  // alongside non-null hero keys) preflights `max_more_bytes` and hardens hero ops to `Op::Set`.
-  describe("Group A capture redo hardening (Astra Round 3 #3)", () => {
+  // Astra Round 3 #3 + Round 4: Redo restoring a Group A capture (via explicit `has_*`, `Restore`
+  // of a deleted `SceneState`, or watermark-only `rows` bump) preflights `max_more_bytes`,
+  // preserves settled `SetIf` mismatches, and hardens matching hero ops to `Op::Set`.
+  describe("Group A capture redo hardening (Astra Round 3 #3 & Round 4)", () => {
     const captureRedo: Op[] = [
       setIf(H, "unseen", null, true),
       setIf(H, "height", null, 1),
@@ -217,21 +218,7 @@ describe("a step that writes a hero's record in a scene that holds its heroes", 
       setIf(STATE, "has_movement", null, true),
       setIf(STATE, "rows", 16, 27),
     ];
-
-    it("fitting hero: rewrites non-null Group A hero writes from SetIf to Set (leaving SceneState SetIf intact)", () => {
-      const records = view({ hero: { hero: M, ...BUILD } });
-      const d = decideStep(captureRedo, records);
-      expect(d.changed).toBe(true);
-      expect(d.ops).toEqual([
-        set(H, "unseen", true),
-        set(H, "height", 1),
-        setIf(STATE, "has_sight", null, true),
-        setIf(STATE, "has_movement", null, true),
-        setIf(STATE, "rows", 16, 27),
-      ]);
-    });
-
-    it("near-cap hero after a peer's name edit: drops the whole capture redo step instead of leaving has_sight set without unseen", () => {
+    const nearCapHero = (): More => {
       const tight: More = {
         hero: M,
         build_order: Array.from({ length: 600 }, () => 4_294_967_295),
@@ -250,10 +237,85 @@ describe("a step that writes a hero's record in a scene that holds its heroes", 
       while (len < LIMITS.max_name && moreBytes({ ...tight, name: "a".repeat(len) }) < LIMITS.max_more_bytes - 4) len++;
       tight.name = "a".repeat(len);
       expect(LIMITS.max_more_bytes - moreBytes(tight)).toBeLessThan(14);
+      return tight;
+    };
 
-      const records = view({ hero: tight });
+    it("fitting hero: rewrites non-null Group A hero writes from SetIf to Set (leaving SceneState SetIf intact)", () => {
+      const records = view({ hero: { hero: M, ...BUILD } });
+      const d = decideStep(captureRedo, records);
+      expect(d.changed).toBe(true);
+      expect(d.ops).toEqual([
+        set(H, "unseen", true),
+        set(H, "height", 1),
+        setIf(STATE, "has_sight", null, true),
+        setIf(STATE, "has_movement", null, true),
+        setIf(STATE, "rows", 16, 27),
+      ]);
+    });
+
+    it("near-cap hero after a peer's name edit: drops the whole capture redo step instead of leaving has_sight set without unseen", () => {
+      const records = view({ hero: nearCapHero() });
       const d = decideStep(captureRedo, records);
       expect(d).toEqual({ ops: [], carry: [], changed: true });
+    });
+
+    it("Restore of deleted SceneState (legacy scene without SceneState): hardens fitting hero and drops near-cap hero", () => {
+      const restoreRedo: Op[] = [setIf(H, "unseen", null, true), { Restore: { id: STATE } }];
+      const deletedState = (heroMore: More): Map<RecordId, Entry> => {
+        const records = view({ hero: heroMore });
+        records.set(STATE, {
+          record: { SceneState: { scene: SCENE, more: { rows: 27, has_builds: true, has_sight: true } } },
+          deleted: true,
+        });
+        return records;
+      };
+      expect(decideStep(restoreRedo, deletedState({ hero: M, ...BUILD }))).toEqual({
+        ops: [set(H, "unseen", true), { Restore: { id: STATE } }],
+        carry: [],
+        changed: true,
+      });
+      expect(decideStep(restoreRedo, deletedState(nearCapHero()))).toEqual({ ops: [], carry: [], changed: true });
+    });
+
+    it("watermark-only activation (dormant has_sight: true at rows: 16, Redo bumps rows 16 -> 27): hardens fitting hero and drops near-cap hero", () => {
+      const watermarkRedo: Op[] = [setIf(H, "unseen", null, true), setIf(STATE, "rows", 16, 27)];
+      const dormantState = (heroMore: More): Map<RecordId, Entry> => {
+        const records = view({ hero: heroMore });
+        records.set(STATE, {
+          record: { SceneState: { scene: SCENE, more: { rows: 16, has_builds: true, has_heroes: true, has_sight: true } } },
+          deleted: false,
+        });
+        return records;
+      };
+      expect(decideStep(watermarkRedo, dormantState({ hero: M, ...BUILD }))).toEqual({
+        ops: [set(H, "unseen", true), setIf(STATE, "rows", 16, 27)],
+        carry: [],
+        changed: true,
+      });
+      expect(decideStep(watermarkRedo, dormantState(nearCapHero()))).toEqual({ ops: [], carry: [], changed: true });
+    });
+
+    it("settled SetIf mismatch preserved: mismatched cc stays SetIf while matching unseen on the same scene is hardened to Set", () => {
+      const step: Op[] = [
+        setIf(H, "cc", null, 2),
+        setIf(H, "unseen", null, true),
+        setIf(STATE, "has_cc", null, true),
+        setIf(STATE, "has_sight", null, true),
+        setIf(STATE, "rows", 16, 27),
+      ];
+      // Hero already has `cc: 4` (mismatching `expect: null`), while `unseen` is absent (matches `expect: null`).
+      const records = view({ hero: { hero: M, ...BUILD, cc: 4 } });
+      expect(decideStep(step, records)).toEqual({
+        ops: [
+          setIf(H, "cc", null, 2),
+          set(H, "unseen", true),
+          setIf(STATE, "has_cc", null, true),
+          setIf(STATE, "has_sight", null, true),
+          setIf(STATE, "rows", 16, 27),
+        ],
+        carry: [],
+        changed: true,
+      });
     });
 
     it("undo clearing Group A (value: null) is left untouched", () => {
