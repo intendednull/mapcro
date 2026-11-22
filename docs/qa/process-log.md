@@ -111,3 +111,20 @@ Pass 003 (`passes/2026-11-21-pass-003-world-import-phone-player.md`, Neon medium
 - Spawned `qa-p3-fixes` (Neon medium) for Pass 003's 3 confirmed bugs (`Scene ""` handoff label on unnamed scenes, Landing `.dem` `looksLikeDemo` before `idFromName`, Player `host.ts` `take()` empty-`matchId` handling + stale error clear, and omitting `[1]`/`[2]`/`[3]` shortcut brackets on touch Vision `<select>`) with regression tests proven to fail before each fix.
 - **Cycle 1 fixes shipped (2026-11-21):** Merged all 4 fix/polish branches (`qa-p1-fixes`, `qa-p2-fixes`, `qa-p3-fixes`, and Argon `qa-responsive-design` — 16 confirmed findings closed with fail-before-fix regression tests, zero conflicts), gated across `just web-test` (85 suites), full Chromium Playwright (`578 passed, 16 skipped`), and Firefox Android phone/tablet Playwright (`52 passed, 22 skipped`).
 - Next QA cycle (Cycle 2, Pass 004+): run after Phase 5 R1 + Cycle 1 fixes land on prod, targeting live regression verification of all 16 fixes + deepening remaining `smoke` rows to `deep`.
+
+---
+
+## 2026-11-22 — v1.4: Pass 004 Retro (Live Prod Cycle 2, 15/16 Verified + Prod-Only Catch)
+
+### Pass 004 evaluation
+Pass 004 (`passes/2026-11-22-pass-004-prod-cycle2-verify.md`, Neon medium against live prod `e2438b4` with cached reference replay `129738985` — zero local stack/build!) verified **15/16 Cycle 1 fixes**, **all Phase 5 R1 zero-regression invariants** (`.mapcro` export `version: 4`, `rows: 16`, scene hero health arcs OFF, Urn/Rift/Rejuv/Mid-Boss), deepened **9 more `smoke` rows → `deep`** (**43 `deep` / 27 `smoke` / 2 `auto-only` / 0 `unmapped`**), and uncovered **1 genuine prod-only bug + 1 CI test gap**:
+- **Prod-only layout bug (`FM-130`, `FM-014`):** On live prod (where GitHub `Feedback` is configured), Phone `390×844 --touch` Session Scene `.p-top` overflows by `+78 px` (`468 / 390`) because `[data-testid="feedback-open"]` (`109 px`, `flex: none`) + `wordmark` (`87 px`, hidden only at `<= 360px`) + `games-open` (`145 px`) + `save-status` (`73 px`) crush `role-chip` to `16 px` (`"C"`) and clip `Feedback` off-screen. Local/CI e2e missed it because local servers omit GitHub feedback config.
+- **v1.3 upgrades validated:** `hover --force` and `move` worked on the first try for map markers under `<svg class="mm-overlay">` (`"Urn delivery point"`, `"Respawns in 6:45"`).
+
+### Driver upgrades applied (`tools/qa-browser/` v1.4, from Pass 004 Meta-Notes)
+1. **Viewport & scrollable-ancestor clipping in `snapshot` (`vis()`):** Skips elements scrolled outside the viewport or outside any scrollable/clipped ancestor (`overflow: auto|scroll|hidden|clip`), and excludes `recap-hit`/`recap-icon`/`death-recap` from `IGNORE_TESTIDS` so loaded Player `snapshot`s stay well under the 120-item cap without off-scroll Events DOM noise.
+2. **`download <tab> <selector> <out-file>`:** Added Playwright `waitForEvent("download")` command gated by the same outside-repo path guardrail (`validateShotPath`) so `.mapcro` export tests need no `URL.createObjectURL` hooking.
+
+### Feedback loop triggered
+- Spawned an approved design model (**Gemini 4 Argon medium**, `qa-p4-phone-feedback`) to fix the Phone `390×844` Session Scene `.p-top` + `Feedback` header overflow and add Playwright e2e coverage with GitHub feedback configured so prod-only chrome is tested in CI.
+- Next QA pass (Pass 005): run after Phase 5 R2 (Writer A + scene hero health arcs + TD-162) + `TD-117` + `qa-p4-phone-feedback` ship to prod, verifying live Group A features + remaining `smoke` rows.

@@ -42,6 +42,7 @@ Inspection & interaction:
   wheel <tab> <dx> <dy> [--at x,y] [--id <name>]
   wait <tab> <selector-or-ms> [--id <name>]
   shot <tab> <out.png> [--full] [--id <name>]   (refuses paths inside repo/worktrees)
+  download <tab> <selector> <out-file> [--any] [--id <name>]  (refuses paths inside repo/worktrees)
   logs <tab> [--clear] [--id <name>]
   eval <tab> <js-expr> [--id <name>]
 
@@ -470,6 +471,13 @@ async function main() {
       args.tab = rest[0];
       args.out = rest[1];
       if (flags.full) args.full = true;
+      break;
+    case "download":
+      if (rest.length < 3) throw new Error("download requires <tab> <selector> <out-file>");
+      args.tab = rest[0];
+      args.selector = rest[1];
+      args.out = rest[2];
+      if (flags.any) args.any = true;
       break;
     case "logs":
       if (!rest[0]) throw new Error("logs requires <tab>");
