@@ -29,7 +29,7 @@ import type { RecordId } from "../gen/RecordId";
 import type { Stroke } from "../gen/Stroke";
 import type { WorldPos } from "../gen/WorldPos";
 import { HUD_PX, type Marker, isFurniture, laneStroke } from "../map/model";
-import { pathOf, pointAt, project, splitAt } from "../map/lanes";
+import { pathOf, pointAt, project, splitAt, splitEdges } from "../map/lanes";
 import { LANE_GAP } from "../map/MapView";
 import { groupToggleOps, marqueePick, toggleOps } from "./objectives";
 import { CARD, SIDES, bubble, cardBox } from "./commentLayout";
@@ -71,6 +71,10 @@ export function Layers(p: {
   svg: () => SVGSVGElement | undefined;
   /** Objective statuses in this scene, by key (absent = active). */
   objectives: () => Map<string, { id: RecordId; status: ObjectiveStatus }>;
+  /** Effective marker status (`ObjectiveState ?? baseline detail`), for first-click accuracy (plan §4). */
+  markerStatus?: (key: string) => ObjectiveStatus | undefined;
+  /** Lane zipline edges per lane key, if captured (`has("lanes")`), for the raised dragged lane (Q7). */
+  laneEdges?: (lane: string) => { amber: number; sapphire: number } | undefined;
   /** Zoom scale (view width / 1000): tokens, tags and cursors keep their screen size. */
   k: number;
   /** Select tool on empty map: pan by this much (view units). */
@@ -255,7 +259,7 @@ export function Layers(p: {
     const sel = p.objSelection();
     if (sel.has(m.key)) {
       const group = p.art.model.markers.filter((x) => sel.has(x.key));
-      const ops = groupToggleOps(m, group, p.art.model.markers, p.objectives(), scene, newRecordId);
+      const ops = groupToggleOps(m, group, p.art.model.markers, p.objectives(), scene, newRecordId, p.markerStatus);
       if (ops.length) st.edit(ops); // one transaction: one undo puts the whole group back
       return;
     }
@@ -265,7 +269,7 @@ export function Layers(p: {
   const toggleObjective = (m: Marker) => {
     const scene = p.scene;
     if (!scene) return;
-    const ops = toggleOps(m, p.art.model.markers, p.objectives(), scene, newRecordId);
+    const ops = toggleOps(m, p.art.model.markers, p.objectives(), scene, newRecordId, p.markerStatus);
     if (ops.length) st.edit(ops);
   };
 
@@ -1150,7 +1154,10 @@ export function Layers(p: {
           {(l) => {
             const at = () => mapToView(pointAt(l.line, p.splitOf(l.key)), p.vp);
             const raised = () => p.waveDrag()?.key === l.key;
-            const halves = () => splitAt(l.line, p.splitOf(l.key), LANE_GAP);
+            const halves = () => {
+              const e = p.laneEdges?.(l.key);
+              return e ? splitEdges(l.line, e.amber, e.sapphire, LANE_GAP) : splitAt(l.line, p.splitOf(l.key), LANE_GAP);
+            };
             const remote = () => st.peerList().find((x) => x.state?.drag && x.state.drag.id === (p.waves().get(l.key)?.id ?? "") ) ?? remoteNew().get(l.key);
             return (
               <>

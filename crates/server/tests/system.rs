@@ -565,9 +565,17 @@ async fn a_client_writes_map_state_that_is_live_and_not_a_row_still_ahead() {
         vec![Op::Set { id: player, value: more("level", Some(MoreValue::Int(12))) }, Op::Set { id: player, value: more("level", None) }],
     ];
     let mut expected = vec![];
-    // A row still ahead, beside a valid edit: the whole transaction goes.
+    // A row still ahead, beside a valid edit: the whole transaction goes (with a valid value of
+    // its kind so local validation passes and the server's `Admit::DEPLOYED` refuses it).
     if let Some(ahead) = RowId::all().find(|r| r.row().status == Status::Ahead && r.row().entity == mapcro_schema::Entity::Hero) {
-        edits.push(vec![Op::Set { id: player, value: FieldValue::PlayerPos(WorldPos { x: 900, y: 900 }) }, Op::Set { id: player, value: FieldValue::More { key: ahead, value: Some(MoreValue::Int(3)) } }]);
+        let val = match ahead.row().kind {
+            mapcro_schema::Kind::Bool => MoreValue::Bool(true),
+            mapcro_schema::Kind::Int { min, .. } => MoreValue::Int(min),
+            mapcro_schema::Kind::Text { .. } => MoreValue::Text("a".into()),
+            mapcro_schema::Kind::Pos => MoreValue::Pos(WorldPos::default()),
+            mapcro_schema::Kind::Ints { min, .. } => MoreValue::ints(vec![min]),
+        };
+        edits.push(vec![Op::Set { id: player, value: FieldValue::PlayerPos(WorldPos { x: 900, y: 900 }) }, Op::Set { id: player, value: FieldValue::More { key: ahead, value: Some(val) } }]);
         expected.push(Reject::WrongField);
     }
     assert_eq!(edits_until_decided(&mut a, edits.len(), |_, i| edits[i].clone()).await, expected);
@@ -1997,7 +2005,7 @@ async fn a_real_v4_database_migrates_and_its_board_compacts_and_rebases() {
     {
         let c = rusqlite::Connection::open(&path).expect("open");
         let v: String = c.query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |r| r.get(0)).expect("version");
-        assert_eq!(v, "14", "migrated to the current schema");
+        assert_eq!(v, "15", "migrated to the current schema");
         let codecs: i64 = c.query_row("SELECT COUNT(*) FROM ops WHERE codec = 'zstd-v1'", [], |r| r.get(0)).expect("ops");
         assert_eq!(codecs as u64, entries, "the v4 rows are untouched");
     }
@@ -2130,7 +2138,7 @@ async fn a_migration_interrupted_by_a_crash_still_boots() {
     let fresh = fresh_catch_up(server.port, &board, &owner, 0x3f3, fx["entries"].as_u64().expect("entries")).await;
     assert!(fresh.replica().view().live(mapcro_schema::RecordId(0xa0a0)).is_some());
     let v: String = rusqlite::Connection::open(&path).expect("open").query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |r| r.get(0)).expect("v");
-    assert_eq!(v, "14", "migrated to the current schema");
+    assert_eq!(v, "15", "migrated to the current schema");
 }
 
 #[tokio::test(flavor = "multi_thread")]

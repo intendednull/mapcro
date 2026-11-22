@@ -54,9 +54,13 @@ pub const FORMAT: &str = "mapcro-board";
 /// refuse from outside. v13 reads up to version 3 and v12 up to 2, so both say "Newer file" for
 /// it. Every scene this build saves from a match holds its heroes, so most of its files are
 /// version 4; a board with none is version 3 or 2 as before.
-pub const VERSION: u64 = 4;
+/// Version 5 and 6 (map-state phase 5 Groups A & B, TD-108) are in `mapcro_schema::FILE_VERSIONS`
+/// alongside versions 3 and 4; `READS` and `VERSION` derive automatically from the highest live
+/// entry (`reads_file_version()`), so flipping rows `Live` in R2/R3 bumps them without touching
+/// this file.
+pub const VERSION: u64 = mapcro_schema::reads_file_version();
 /// The newest version this build reads.
-pub const READS: u64 = 4;
+pub const READS: u64 = VERSION;
 /// The largest file, either way. A board this size as JSON is the largest the server sends as
 /// one snapshot (`room::SNAPSHOT_MAX_BYTES`); real boards are kilobytes to a few hundred. The
 /// schema's own limits allow ~64 MB, which would never fit the room memory budget as a body.
@@ -127,16 +131,9 @@ impl Refusal {
 
 fn file(doc: &Doc, matches: Vec<u64>, exported_at: i64) -> BoardFile {
     let records = mapcro_schema::export_records(doc);
-    // The oldest version that says what the file holds: version 2 imports on the v11 build, and
-    // version 3 on the v13 build.
-    let holds = |f: fn(&Record) -> bool| records.iter().any(|(_, r)| f(r));
-    let version = if holds(mapcro_schema::holds_own_heroes) {
-        VERSION
-    } else if holds(mapcro_schema::holds_typed_field) {
-        3
-    } else {
-        2
-    };
+    // The oldest version that says what the file holds (TD-108): version 2 imports on the v11
+    // build, version 3 on v13, version 4 on v14/v15, version 5 on R2+, version 6 on R3+.
+    let version = mapcro_schema::file_version(&records);
     BoardFile {
         format: FORMAT.to_owned(),
         version,
@@ -642,5 +639,45 @@ mod tests {
             records(v).push(json!(["00000000000000000000000000005003", { "SceneState": { "scene": scene } }]));
         });
         assert_eq!(read(&twice, ids(1000), &Admit::READS).err(), Some(Refusal::Invalid));
+    }
+
+    /// TD-108: `READS` derives from `FILE_VERSIONS` (4 in R1), `rows` header is `written_rows()`
+    /// (16 in R1), v5/v6 files are refused as `Newer` on R1, and exporting a board loaded with
+    /// Group A / Group B rows tags it v5 / v6 respectively.
+    #[test]
+    fn phase5_file_versions_are_derived_from_the_table_and_refused_as_newer_in_r1() {
+        use serde_json::json;
+        assert_eq!(READS, 4);
+        assert_eq!(VERSION, 4);
+        // v5 and v6 files are refused as `Newer` on R1 (before body parsing).
+        for version in [5u64, 6u64] {
+            let bytes = file_with(|v| v["version"] = json!(version));
+            assert_eq!(read(&bytes, ids(1000), &Admit::DEPLOYED).err(), Some(Refusal::Newer), "v{version}");
+        }
+        // A v4 file carrying a Group A or Group B row is refused as `Invalid` under `Admit::DEPLOYED`
+        // (even though `head.rows == 40` is within `ROWS.len()`).
+        let v4_group_a = file_with(|v| {
+            let scene = first(v, "Scene").0;
+            records(v).push(json!([STATE_ID, { "SceneState": { "scene": scene, "more": { "rows": 27, "has_sight": true } } }]));
+            v["version"] = json!(4);
+            v["rows"] = json!(27);
+        });
+        assert_eq!(read(&v4_group_a, ids(1000), &Admit::DEPLOYED).err(), Some(Refusal::Invalid));
+        let (doc_a, _) = read(&v4_group_a, ids(1000), &Admit::READS).expect("reads admits Group A");
+        let out_a: serde_json::Value = serde_json::from_slice(&write(&doc_a, Vec::new(), 0, 0)).expect("json");
+        assert_eq!(out_a["version"], 5);
+        assert_eq!(out_a["rows"], json!(mapcro_schema::written_rows()));
+
+        let v4_group_b = file_with(|v| {
+            let scene = first(v, "Scene").0;
+            records(v).push(json!([STATE_ID, { "SceneState": { "scene": scene, "more": { "rows": 40, "has_sight": true, "has_camps": true } } }]));
+            v["version"] = json!(4);
+            v["rows"] = json!(40);
+        });
+        assert_eq!(read(&v4_group_b, ids(1000), &Admit::DEPLOYED).err(), Some(Refusal::Invalid));
+        let (doc_b, _) = read(&v4_group_b, ids(1000), &Admit::READS).expect("reads admits Group B");
+        let out_b: serde_json::Value = serde_json::from_slice(&write(&doc_b, Vec::new(), 0, 0)).expect("json");
+        assert_eq!(out_b["version"], 6);
+        assert_eq!(out_b["rows"], json!(mapcro_schema::written_rows()));
     }
 }

@@ -15,12 +15,12 @@ vi.mock("solid-js", async () => await import(/* @vite-ignore */ "solid-js/dist/"
 
 import { readFileSync } from "node:fs";
 import { createComputed, createRoot, createSignal } from "solid-js";
-import { type FrameMarkers, type Shown, previewAt, savedPart, secondPart, tenthPart } from "../src/mapstate/frame";
+import { type FrameMarkers, type Shown, savedPart, secondPart, tenthPart } from "../src/mapstate/frame";
 import { FEATURES, type PlayerState, featuresOf, fromTimeline, sameValue, urnOf } from "../src/mapstate/state";
 import { buildAt } from "../src/match/builds";
 import { statBuild } from "../src/match/stats";
 import { sameBuild, sameStatBuild, tenthOf } from "../src/player/buildState";
-import type { MatchPreview } from "../src/match/preview";
+import { type MatchPreview, previewAt } from "./support/player-frame";
 import { matchSceneOps, slotKey } from "../src/match/save";
 import { type CampAt, type PowerupAt, type RiftAt, type Timeline, type TimelinePlayer, campsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, powerupAt, rejuvAt, riftAt, scoreboardValueAt, shopsClosed, sitesAt, urnAt } from "../src/match/timeline";
 import { crowdControlAt } from "../src/player/cc";
@@ -324,10 +324,10 @@ describe("Player's frame", () => {
 
   it("MapState: says which features the match holds", () => {
     const full = stateOf(replay());
-    expect(Object.fromEntries(FEATURES.map((f) => [f, full.state.has(f)]))).toEqual({ health: true, sight: true, cc: true, movement: true, lanes: true, camps: true, powerups: true, rifts: true, urn: true, rejuv: true });
+    expect(Object.fromEntries(FEATURES.map((f) => [f, full.state.has(f)]))).toEqual({ health: true, sight: true, cc: true, movement: true, lanes: true, skulls: true, camps: true, powerups: true, obj_health: true, rifts: true, urn: true, rejuv: true });
     full.dispose();
     const bare = stateOf(metadata);
-    expect(FEATURES.filter((f) => bare.state.has(f))).toEqual([]);
+    expect(FEATURES.filter((f) => bare.state.has(f))).toEqual(["skulls"]);
     bare.dispose();
     // Each alone: a replay with only that data.
     const only = (over: Partial<Timeline>, players?: (p: TimelinePlayer) => TimelinePlayer) => {
@@ -337,19 +337,20 @@ describe("Player's frame", () => {
       return has;
     };
     const full12 = replay();
-    expect(only({})).toEqual(["health"]);
-    expect(only({}, (p) => ({ ...p, seen: [[0, 5]] }) as TimelinePlayer)).toEqual(["health", "sight"]);
-    expect(only({}, (p) => ({ ...p, cc: [[1, 2, 20, 255, 0]] }) as TimelinePlayer)).toEqual(["health", "cc"]);
-    expect(only({}, (p) => ({ ...p, height: [[0, 1]] }) as TimelinePlayer)).toEqual(["health", "movement"]);
-    expect(only({}, (p) => ({ ...p, zipline: [[0, 1]] }) as TimelinePlayer)).toEqual(["health", "movement"]);
-    expect(only({ zips: full12.zips! })).toEqual(["health", "lanes"]);
-    expect(only({ camps: full12.camps! })).toEqual(["health", "camps"]);
-    expect(only({ powerups: full12.powerups! })).toEqual(["health", "powerups"]);
-    expect(only({ rifts: full12.rifts! })).toEqual(["health", "rifts"]);
-    expect(only({ urn: full12.urn! })).toEqual(["health", "urn"]);
-    expect(only({ rejuv: full12.rejuv! })).toEqual(["health", "rejuv"]);
+    expect(only({})).toEqual(["health", "skulls"]);
+    expect(only({}, (p) => ({ ...p, seen: [[0, 5]] }) as TimelinePlayer)).toEqual(["health", "sight", "skulls"]);
+    expect(only({}, (p) => ({ ...p, cc: [[1, 2, 20, 255, 0]] }) as TimelinePlayer)).toEqual(["health", "cc", "skulls"]);
+    expect(only({}, (p) => ({ ...p, height: [[0, 1]] }) as TimelinePlayer)).toEqual(["health", "movement", "skulls"]);
+    expect(only({}, (p) => ({ ...p, zipline: [[0, 1]] }) as TimelinePlayer)).toEqual(["health", "movement", "skulls"]);
+    expect(only({ zips: full12.zips! })).toEqual(["health", "lanes", "skulls"]);
+    expect(only({ camps: full12.camps! })).toEqual(["health", "skulls", "camps"]);
+    expect(only({ powerups: full12.powerups! })).toEqual(["health", "skulls", "powerups"]);
+    expect(only({ objective_health: full12.objective_health! })).toEqual(["health", "skulls", "obj_health"]);
+    expect(only({ rifts: full12.rifts! })).toEqual(["health", "skulls", "rifts"]);
+    expect(only({ urn: full12.urn! })).toEqual(["health", "skulls", "urn"]);
+    expect(only({ rejuv: full12.rejuv! })).toEqual(["health", "skulls", "rejuv"]);
     // The metadata tier holds none of the tier's own, whatever its heroes carry.
-    expect(FEATURES.filter((f) => featuresOf({ ...full12, tier: undefined } as unknown as Timeline)[f])).toEqual(["sight", "lanes", "camps", "powerups", "rifts", "urn", "rejuv"]);
+    expect(FEATURES.filter((f) => featuresOf({ ...full12, tier: undefined } as unknown as Timeline)[f])).toEqual(["sight", "lanes", "skulls", "camps", "powerups", "rifts", "urn", "rejuv"]);
   });
 
   it("MapState: a reader of one field runs when that value changes, not each frame", () => {

@@ -10,8 +10,8 @@
 import { killsAt } from "../match/builds";
 import { HeroBadge } from "../board/HeroBadge";
 import { BuildColumn } from "./BuildColumn";
-import { GameTip, Hover, TagTip, useTooltips } from "./GameTooltip";
-import { centreTimer, rejuvTip, respawnTip } from "./Camps";
+import { GameTip, Hover, useTooltips } from "./GameTooltip";
+import { centreTimer } from "./Camps";
 import { buildAt } from "../match/builds";
 import { tenthOf } from "./buildState";
 
@@ -22,13 +22,12 @@ import { buildPanels } from "../board/buildPanels";
 import { playerBuildView } from "../mapstate/buildView";
 import { teamTotal } from "../core/souls";
 import type { MapState } from "../mapstate/state";
-import { campAt, clockLabel, scoreboardValueAt, type RejuvNow } from "../match/timeline";
+import { clockLabel, scoreboardValueAt } from "../match/timeline";
 import { slotKey } from "../match/save";
 import type { Art } from "../map/pack";
-import { rosterTeamName } from "../map/model";
 import type { Viewpoint } from "../map/transform";
 import type { BoardState } from "../board/state";
-import { BarClock, EyeIcon, PortraitSlot, Souls, TeamColumn, TeamScore, TopBarFrame, UltDial, portraitTitle } from "../board/TopBarParts";
+import { BarClock, EyeIcon, PortraitSlot, RejuvBadge, RejuvTimer, RespawnTimer, Souls, TeamColumn, TeamScore, TopBarFrame, UltDial, portraitTitle } from "../board/TopBarParts";
 import { slotName, slotPlaceholder } from "../board/roster";
 import { easedNumber } from "../board/smooth";
 import type { PlayerHost } from "./host";
@@ -40,100 +39,6 @@ import { barSlot } from "./barSlot";
  * the map tokens' red arc (board/Tokens.tsx).
  */
 export const LOW_HEALTH = 30;
-
-/** The Rejuvenator's natural length (crates/replay REJUV_S): its timer drains over it. */
-const REJUV_S = 180;
-/** The most revives the game draws (team_rejuv_1..4, .RejuvCount_1..4). */
-const REJUV_MAX = 4;
-
-/** Without the pack: a drawn stand-in for the game's winged mark (hud/icons/rejuvenator). */
-const WING = "M10 0a2 2 0 1 1 0 4a2 2 0 1 1 0-4ZM0 5.5h5c1 2.2 3 3.4 5 3.4s4-1.2 5-3.4h5c0 1.6-1 2.6-3 2.6c-2 2.2-3.6 3.4-5 4l-1.4 8.4h-1.2L9 12.1c-1.4-.6-3-1.8-5-4c-2 0-3-1-3-2.6Z";
-const wingsFb = (n: number) => {
-  // The game's arrangement (team_rejuv_N): a shallow V, the inner marks lower.
-  const xs = Array.from({ length: n }, (_, i) => 57.5 + (i - (n - 1) / 2) * 30);
-  const marks = xs.map((x, i) => `<path transform="translate(${x - 14} ${Math.abs(i - (n - 1) / 2) < 1 ? 26 : 10}) scale(1.4)" d="${WING}" fill="#FFCC00"/>`);
-  return "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 115 65">${marks.join("")}</svg>`);
-};
-
-/**
- * A team's Rejuvenator under its souls, as the game draws it (#RejuvenatorFriendly / #RejuvenatorEnemy):
- * one gold winged mark per revive left, the game's image for that count, and no text. A change of
- * count crossfades (spec §4a); the data attributes and label keep the exact values.
- */
-function RejuvBadge(p: { held: () => RejuvNow | undefined; team: "Amber" | "Sapphire"; side: "friend" | "enemy"; art: Art }) {
-  const left = () => Math.min(REJUV_MAX, p.held()?.left ?? 0);
-  return (
-    <div
-      class={cx("pl-rejuv", p.side, p.team.toLowerCase())}
-      data-testid="tb-rejuv"
-      data-team={p.team.toLowerCase()}
-      data-left={left()}
-      role={left() ? "img" : undefined}
-      aria-label={left() ? `${rosterTeamName(p.team)} Rejuvenator, ${left()} revive${left() === 1 ? "" : "s"}` : undefined}
-      title={left() ? `${rosterTeamName(p.team)} Rejuvenator` : undefined}
-    >
-      {Array.from({ length: REJUV_MAX }, (_, i) => (
-        <img class={cx("pl-rejuv-icons", left() === i + 1 && "on")} data-n={i + 1} src={p.art.images.get(`rejuv-${i + 1}`) ?? wingsFb(i + 1)} alt="" />
-      ))}
-    </div>
-  );
-}
-
-/**
- * The buff's natural end, as the game's #RejuvenatorTimer shows it: the winged mark on a dark disc,
- * ringed by an arc that drains from pickup to 180 s later. No text on it; its hover says the time
- * left ("Archmother Rejuvenator ends in 1:40", feedback #44), at once like the panel's tags. Gone
- * when the buff is (expired, or its revives spent), and with it the hover. Beside the other's when
- * both hold one.
- */
-function RejuvTimer(p: { held: () => RejuvNow | undefined; taken: () => number | undefined; both: () => boolean; t: () => number; team: "Amber" | "Sapphire"; side: "friend" | "enemy"; art: Art }) {
-  const on = () => (p.held()?.left ?? 0) > 0 && p.taken() != null;
-  const frac = () => (on() ? Math.max(0, Math.min(1, (p.taken()! + REJUV_S - p.t()) / REJUV_S)) : 0);
-  const img = () => p.art.images.get("rejuv-timer");
-  const tip = () => (on() ? rejuvTip(p.held()!, p.t()) : undefined);
-  return (
-    <Hover tip={() => tip() && <TagTip text={tip()!} />}>
-      <div class={cx("pl-rejuv-timer", p.side, p.team.toLowerCase(), on() && "on", p.both() && "both")} data-testid="tb-rejuv-timer" data-team={p.team.toLowerCase()} data-frac={frac().toFixed(3)} role={tip() ? "img" : undefined} aria-label={tip()} aria-hidden={tip() ? undefined : "true"}>
-        <svg viewBox="0 0 30 30">
-          <circle class="pl-rejuv-disc" cx="15" cy="15" r="13.5" />
-          <Show when={img()} fallback={<path class="pl-rejuv-mark" transform="translate(6 6.5) scale(0.9)" d={WING} />}>
-            <image class="pl-rejuv-mark" href={img()} x="3" y="3" width="24" height="24" />
-          </Show>
-          <circle class="pl-rejuv-track" cx="15" cy="15" r="13.5" />
-          {/* 0..100 so only time eases, as the ult rings do. */}
-          <circle class="pl-rejuv-ring" cx="15" cy="15" r="13.5" transform="rotate(-90 15 15)" pathLength="100" style={{ "stroke-dasharray": `${(frac() * 100).toFixed(2)} 100` }} />
-        </svg>
-      </div>
-    </Hover>
-  );
-}
-
-/**
- * The same centre circle while no team holds a Rejuvenator and the Mid-Boss is dead, as the game's
- * `#RejuvenatorTimer.midboss_cooldown` draws it: the mark greyed (`saturation: 0`, opacity 0.3),
- * the border at 0.15, no sweep, and under it `.midbossTimerLabel`, the respawn's m:ss (10 px, bold,
- * offWhite at 0.3). Its hover says it: "Mid-Boss respawns in 4:40". Up, it's gone
- * (`.midboss_available`).
- */
-function RespawnTimer(p: { at: () => number | undefined; t: () => number; art: Art }) {
-  const img = () => p.art.images.get("rejuv-timer");
-  const left = () => (p.at() != null ? clockLabel(Math.max(0, Math.ceil(p.at()! - p.t()))) : "");
-  const tip = () => (p.at() != null ? respawnTip(p.at()!, p.t()) : undefined);
-  return (
-    <Hover tip={() => tip() && <TagTip text={tip()!} />}>
-      <div class={cx("pl-rejuv-timer", "pl-respawn-timer", p.at() != null && "on")} data-testid="tb-respawn-timer" role={tip() ? "img" : undefined} aria-label={tip()} aria-hidden={tip() ? undefined : "true"}>
-        <svg viewBox="0 0 30 30">
-          <circle class="pl-rejuv-disc" cx="15" cy="15" r="13.5" />
-          <Show when={img()} fallback={<path class="pl-rejuv-mark" transform="translate(6 6.5) scale(0.9)" d={WING} />}>
-            <image class="pl-rejuv-mark" href={img()} x="3" y="3" width="24" height="24" />
-          </Show>
-          <circle class="pl-rejuv-track" cx="15" cy="15" r="13.5" />
-        </svg>
-        <span class="pl-respawn-label" data-testid="tb-respawn-label">{left()}</span>
-      </div>
-    </Hover>
-  );
-}
 
 export function PlayerTopBar(p: {
   host: PlayerHost;
@@ -171,17 +76,9 @@ export function PlayerTopBar(p: {
   const known = (t: "Amber" | "Sapphire") => team(t).some((s) => heroOf(t, s.slot.slot).souls() != null);
   const rejuv = createMemo(() => p.ms.scene().rejuv() ?? []);
   const held = (t: "Amber" | "Sapphire") => rejuv().find((r) => r.team === t.toLowerCase());
-  // When the held one was taken: its timer drains from there.
-  const taken = (t: "Amber" | "Sapphire") => {
-    const h = held(t);
-    return h && p.host.tl()?.rejuv?.find((r) => r.team === h.team && r.ends_s === h.ends)?.taken_s;
-  };
-  // The centre timer when no Rejuvenator is held: the Mid-Boss's respawn while it's dead.
-  const centre = createMemo(() => {
-    const tl = p.host.tl();
-    const c = tl?.camps?.find((c) => c.key.startsWith("mid_boss:"));
-    return centreTimer(rejuv(), c ? campAt(c, p.host.t()) : undefined);
-  });
+  // The centre timer when no Rejuvenator is held: the Mid-Boss's respawn while it's dead (TD-141:
+  // read from MapState's scene().bossCamp() so it works even if the pack lacks a midboss marker).
+  const centre = createMemo(() => centreTimer(rejuv(), p.ms.scene().bossCamp()));
   const respawnAt = () => { const c = centre(); return c.kind === "respawn" ? c.at : undefined; };
   // Changing values ease (spec §4a): the totals count to each new value.
   // Memos: the totals change with a sample, not every frame (#39).
@@ -437,8 +334,8 @@ export function PlayerTopBar(p: {
       </div>
       <RejuvBadge held={() => held(friend())} team={friend()} side="friend" art={p.art} />
       <RejuvBadge held={() => held(enemy())} team={enemy()} side="enemy" art={p.art} />
-      <RejuvTimer held={() => held(friend())} taken={() => taken(friend())} both={() => !!held(enemy())} t={p.host.t} team={friend()} side="friend" art={p.art} />
-      <RejuvTimer held={() => held(enemy())} taken={() => taken(enemy())} both={() => !!held(friend())} t={p.host.t} team={enemy()} side="enemy" art={p.art} />
+      <RejuvTimer held={() => held(friend())} both={() => !!held(enemy())} t={p.host.t} team={friend()} side="friend" art={p.art} />
+      <RejuvTimer held={() => held(enemy())} both={() => !!held(friend())} t={p.host.t} team={enemy()} side="enemy" art={p.art} />
       <RespawnTimer at={respawnAt} t={p.host.t} art={p.art} />
     </TopBarFrame>
   );

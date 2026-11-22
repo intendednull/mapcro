@@ -101,6 +101,11 @@ const HERO: { [K in HeroKey]-?: { put: (b: HeroBuild) => MoreValue | undefined; 
   deaths: { put: (b) => (inRow("deaths", b.deaths) ? b.deaths : undefined), get: (b, v) => { b.deaths = int(v); } },
   assists: { put: (b) => (inRow("assists", b.assists) ? b.assists : undefined), get: (b, v) => { b.assists = int(v); } },
   max_health: { put: (b) => (inRow("max_health", b.max_health) ? Math.round(b.max_health) : undefined), get: (b, v) => { b.max_health = int(v); } },
+  // Phase 5 Group A slot-at-the-frame facts (not part of HeroBuild; read in scene.ts, written in match/save.ts).
+  unseen: { put: () => undefined, get: () => {} },
+  cc: { put: () => undefined, get: () => {} },
+  height: { put: () => undefined, get: () => {} },
+  zipline: { put: () => undefined, get: () => {} },
 };
 
 /** Whether a snapshot of a match of `tier` holds its heroes' health: the replay tier's alone
@@ -162,6 +167,8 @@ export function captureBuild(build: HeroBuild, budget: number = LIMITS.max_more_
 const IS_BUILD: { [K in HeroKey]-?: boolean } = {
   hero: false, name: false,
   items: true, abilities: true, build_order: true, level: true, health: true, pickups: true, kills: true, deaths: true, assists: true, max_health: true,
+  // Phase 5 Group A: slot-at-the-frame facts, kept on hero pick (plan §6).
+  unseen: false, cc: false, height: false, zipline: false,
 };
 export const BUILD_KEYS = (Object.keys(IS_BUILD) as HeroKey[]).filter((k) => IS_BUILD[k]);
 
@@ -174,19 +181,59 @@ export interface SceneCapture {
   heroes?: boolean;
   /** The rows this build writes (default `WRITTEN`; tests pass a later build's). */
   written?: number;
+  // Phase 5 Group A & B scene-level flags and packed lists.
+  sight?: boolean;
+  cc?: boolean;
+  movement?: boolean;
+  lanes?: boolean;
+  skulls?: boolean;
+  skullsData?: number[];
+  camps?: boolean;
+  campsData?: number[];
+  powerups?: boolean;
+  powerupsData?: number[];
+  objHealth?: boolean;
+  objHealthData?: number[];
+  rifts?: boolean;
+  riftData?: number[];
+  urn?: boolean;
+  urnData?: number[];
+  urnAt?: { x: number; y: number };
+  rejuv?: boolean;
+  rejuvData?: number[];
 }
 
-/** The scene's own rows for a snapshot: the watermark, what it holds, the patch. A row this
- * build doesn't write yet is left out, so `has_heroes` is stored only once it is `live`. */
+/** The scene's own rows for a snapshot: the watermark, what it holds, the patch, and any
+ * phase 5 scene-level feature flags and lists. A row this build doesn't write yet is left out. */
 export function captureScene(tl: Pick<Timeline, "build">, opts: SceneCapture = {}): More {
   const patch = tl.build;
   const written = opts.written ?? WRITTEN;
   const builds = opts.builds !== false;
+  const nonEmpty = (a: number[] | undefined) => (a && a.length ? a : undefined);
   const scene: { [K in SceneKey]-?: MoreValue | undefined } = {
     rows: written,
     has_builds: builds ? true : undefined,
     build: builds && patch != null && inRow("build", patch) ? patch : undefined,
     has_heroes: opts.heroes !== false ? true : undefined,
+    has_sight: opts.sight ? true : undefined,
+    has_cc: opts.cc ? true : undefined,
+    has_movement: opts.movement ? true : undefined,
+    has_lanes: opts.lanes ? true : undefined,
+    has_skulls: opts.skulls ? true : undefined,
+    skulls: opts.skulls ? nonEmpty(opts.skullsData) : undefined,
+    has_camps: opts.camps ? true : undefined,
+    camps: opts.camps ? nonEmpty(opts.campsData) : undefined,
+    has_powerups: opts.powerups ? true : undefined,
+    powerups: opts.powerups ? nonEmpty(opts.powerupsData) : undefined,
+    has_obj_health: opts.objHealth ? true : undefined,
+    obj_health: opts.objHealth ? nonEmpty(opts.objHealthData) : undefined,
+    has_rifts: opts.rifts ? true : undefined,
+    rift: opts.rifts ? nonEmpty(opts.riftData) : undefined,
+    has_urn: opts.urn ? true : undefined,
+    urn: opts.urn ? nonEmpty(opts.urnData) : undefined,
+    urn_at: opts.urn ? opts.urnAt : undefined,
+    has_rejuv: opts.rejuv ? true : undefined,
+    rejuv: opts.rejuv ? nonEmpty(opts.rejuvData) : undefined,
   };
   return Object.fromEntries(Object.entries(scene).filter(([k, v]) => v !== undefined && ROWS[k as SceneKey].index < written)) as More;
 }
@@ -202,11 +249,46 @@ export function retakeRows(written: number = WRITTEN): number {
   return mine.length ? Math.max(...mine) + 1 : 0;
 }
 
+export interface CapturedSnapshot {
+  builds: boolean;
+  heroes: boolean;
+  sight: boolean;
+  cc: boolean;
+  movement: boolean;
+  lanes: boolean;
+  skulls: boolean;
+  camps: boolean;
+  powerups: boolean;
+  obj_health: boolean;
+  rifts: boolean;
+  urn: boolean;
+  rejuv: boolean;
+  rows: number;
+  patch: number | undefined;
+}
+
 /** What a scene's state says it holds (spec §4.5). No state, or an empty one: nothing.
  * `heroes`: the scene's own heroes win over the board roster's (D2). */
-export function captured(scene: More | undefined): { builds: boolean; heroes: boolean; rows: number; patch: number | undefined } {
+export function captured(scene: More | undefined): CapturedSnapshot {
   const rows = int(scene?.rows) ?? 0;
-  return { builds: scene?.has_builds === true && rows > 0, heroes: scene?.has_heroes === true && ROWS.has_heroes.index < rows, rows, patch: int(scene?.build) ?? undefined };
+  const flag = (k: SceneKey, last: RowKey) => scene?.[k] === true && ROWS[last].index < rows;
+  return {
+    builds: scene?.has_builds === true && rows > 0,
+    heroes: flag("has_heroes", "has_heroes"),
+    sight: flag("has_sight", "unseen"),
+    cc: flag("has_cc", "cc"),
+    movement: flag("has_movement", "zipline"),
+    lanes: flag("has_lanes", "edges"),
+    skulls: flag("has_skulls", "skulls"),
+    camps: flag("has_camps", "camps"),
+    powerups: flag("has_powerups", "powerups"),
+    obj_health: flag("has_obj_health", "obj_health"),
+    rifts: flag("has_rifts", "rift"),
+    urn: flag("has_urn", "urn_at"),
+    rejuv: flag("has_rejuv", "rejuv"),
+    rows,
+    patch: int(scene?.build) ?? undefined,
+  };
 }
 
 /** The hero a slot holds in a scene (spec D2): the scene's own (`hero` on the hero's record)

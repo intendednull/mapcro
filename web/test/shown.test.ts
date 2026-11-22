@@ -6,7 +6,8 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("solid-js", async () => await import(/* @vite-ignore */ "solid-js/dist/" + "solid.js"));
 
 import { createRoot } from "solid-js";
-import { type Shown, previewAt } from "../src/mapstate/frame";
+import type { Shown } from "../src/mapstate/frame";
+import { previewAt } from "./support/player-frame";
 import { type HeroDraw, type HeroSight, type PlayerHero, heroDraw, playerHero } from "../src/mapstate/shown";
 import { fromTimeline } from "../src/mapstate/state";
 import type { Vision } from "../src/player/vision";

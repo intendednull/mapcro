@@ -371,12 +371,16 @@ export function sitesAt(tl: Timeline, t: number, markers: Array<Pick<Marker, "ke
   const out = new Map<string, "Active" | "Destroyed">();
   if (!tl.rifts && !tl.powerups && !tl.camps && !tl.urn && !tl.heals && !tl.crates) return out;
   const s = Math.floor(t);
-  const known = new Set(markers.map((m) => m.key));
   for (const m of markers) if (m.kind === "koth") out.set(m.key, "Destroyed");
-  for (const r of tl.rifts ?? []) if (known.has(r.key) && s >= r.start_s && s < r.end_s) out.set(r.key, "Active");
+  for (const r of tl.rifts ?? []) {
+    if (s < r.start_s || s >= r.end_s) continue;
+    const key = markerKey(r.key, markers);
+    if (key) out.set(key, "Active");
+  }
   for (const p of tl.powerups ?? []) {
     const v = p.available[Math.max(0, Math.min(p.available.length - 1, s))];
-    if (v !== undefined && known.has(p.key)) out.set(p.key, v ? "Active" : "Destroyed");
+    const key = v !== undefined ? markerKey(p.key, markers) : undefined;
+    if (key) out.set(key, v ? "Active" : "Destroyed");
   }
   for (const c of tl.camps ?? []) {
     if (!c.key.startsWith("camp:")) continue;
@@ -581,11 +585,12 @@ export function powerupAt(p: { spawns?: PowerupSpawn[] | undefined; available: n
   return { state: "down", first: !last, next: n ? { t: n.t, buff: n.buff } : null };
 }
 
-/** A team's Rejuvenator at t: revives left, and when it ends. */
+/** A team's Rejuvenator at t: revives left, when it ends, and when it was taken (TD-141). */
 export interface RejuvNow {
   team: "amber" | "sapphire";
   left: number;
   ends: number;
+  taken: number;
 }
 
 /** The Rejuvenators held at t (replay tier, format 3), Amber's first. */
@@ -593,7 +598,7 @@ export function rejuvAt(tl: Pick<Timeline, "rejuv">, t: number): RejuvNow[] {
   const out: RejuvNow[] = [];
   for (const r of tl.rejuv ?? []) {
     if (t < r.taken_s || t >= r.ends_s) continue;
-    out.push({ team: r.team, left: stepAt(r.left, t) ?? 0, ends: r.ends_s });
+    out.push({ team: r.team, left: stepAt(r.left, t) ?? 0, ends: r.ends_s, taken: r.taken_s });
   }
   return out.sort((a, b) => (a.team === b.team ? 0 : a.team === "amber" ? -1 : 1));
 }

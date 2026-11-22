@@ -13,10 +13,10 @@ import { shownDeaths } from "../mapstate/shown";
 export function DeathSkulls(p: {
   art: Art; vp: "amber" | "sapphire" | "neutral"; frame: TokenFrame; k: number;
   /** Whether the death (slot "amber-0"…, its second) has a recap: its skull opens it. */
-  hasRecap?: (slot: string, t: number) => boolean;
+  hasRecap?: ((slot: string, t: number) => boolean) | undefined;
   /** A touch target's radius, in the skull's own units (phone: 44 px across on screen). */
   hit?: number | undefined;
-  onOpenRecap?: (slot: string, t: number) => void;
+  onOpenRecap?: ((slot: string, t: number) => void) | undefined;
 }) {
   return (
     <g class="pl-skulls" data-testid="death-skulls">

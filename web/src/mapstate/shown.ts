@@ -8,8 +8,8 @@
 // location is on (operator, 2026-11-14). A scene that holds no sight data keeps its legacy
 // meaning: a hero marked out of sight is faded for every viewer (D5).
 
-import type { MatchPreview } from "../match/preview";
 import { type UrnNow, slotKey } from "../match/timeline";
+import type { CrowdControl } from "../player/cc";
 import type { Vision } from "../player/vision";
 import type { Shown } from "./frame";
 import type { Death, HeroState, MapState } from "./state";
@@ -53,8 +53,21 @@ export function heroDraw(h: HeroSight, viewer: Viewer, sight: boolean, stored: b
 }
 
 /** A hero as Player draws it: where it is or its ghost (`pos` null: not drawn), and what shows on
- * its token. */
-export type PlayerHero = NonNullable<ReturnType<MatchPreview["players"]["get"]>>;
+ * its token. `ghost`: in one team's Vision, an enemy out of its sight, drawn dim at `pos`, where
+ * it was last seen, this many seconds ago. `unseen`: in one team's Vision, not drawn because it's
+ * out of that team's sight (not dead, say): its going and coming fade. */
+export interface PlayerHero {
+  hero: number;
+  name?: string | null;
+  pos: { x: number; y: number } | null;
+  health?: number | null;
+  respawn?: number | null;
+  ghost?: number | null;
+  unseen?: boolean;
+  cc?: CrowdControl | undefined;
+  height?: number | undefined;
+  zipline?: boolean;
+}
 
 /**
  * A hero of Player's frame under the viewer's choices, from its state and its `heroDraw`: what

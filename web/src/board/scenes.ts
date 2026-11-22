@@ -2,14 +2,35 @@
 
 import { keyBetween } from "../core/order";
 import { LIMITS } from "../gen/limits";
+import type { More } from "../gen/More";
 import type { Op } from "../gen/Op";
 import type { Record as Rec } from "../gen/Record";
 import type { RecordId } from "../gen/RecordId";
+import { ROWS, type RowKey } from "../gen/rows";
 import type { Scene } from "../gen/Scene";
+import { WRITTEN } from "../mapstate/build";
 import { chunkByBytes, fitsTx } from "../match/save";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { canNest } from "./tree";
 import type { BoardState } from "./state";
+
+/** Drop keys this build does not write (`index >= written`, plan §5 copy filter). */
+function filterMore(more: More | undefined, written: number): { more?: More; dropped: boolean } {
+  if (!more) return { dropped: false };
+  const out: More = {};
+  let dropped = false;
+  let kept = 0;
+  for (const [k, v] of Object.entries(more)) {
+    const row = ROWS[k as RowKey];
+    if (row && row.index < written) {
+      out[k] = v;
+      kept++;
+    } else {
+      dropped = true;
+    }
+  }
+  return kept > 0 ? { more: out, dropped } : { dropped };
+}
 
 export interface SceneRow {
   id: RecordId;
@@ -59,6 +80,7 @@ export function addSceneOps(
   mint = newRecordId,
   name = "",
   ink = false,
+  written: number = WRITTEN,
 ): { id: RecordId; ops: Op[]; txs: Op[][]; full: boolean } {
   const { parentOf, kids } = treeOf(state);
   const parent = from ? (asChild ? from.id : (parentOf.get(from.id) ?? null)) : null;
@@ -83,20 +105,33 @@ export function addSceneOps(
   const mores: Op[][] = [];
   const rest: Op[] = [];
   const drawn: Op[] = [];
-  const states: Op[] = [];
+  const rawStates: Array<{ more?: More }> = [];
+  let anyDropped = false;
   for (const [, e] of Object.entries(state.records)) {
     if (e.deleted) continue;
     const r = e.record;
     if ("PlayerState" in r && r.PlayerState.scene === src) {
       const { more, ...fields } = r.PlayerState;
+      const f = filterMore(more, written);
+      if (f.dropped) anyDropped = true;
       const hero = mint();
-      heroes.push({ Create: { id: hero, record: { PlayerState: { ...r.PlayerState, scene: id } } } });
+      heroes.push({ Create: { id: hero, record: { PlayerState: { ...fields, scene: id, ...(f.more ? { more: f.more } : {}) } } } });
       bare.push({ Create: { id: hero, record: { PlayerState: { ...fields, scene: id } } } });
-      const sets = Object.entries(more ?? {}).map(([key, value]): Op => ({ Set: { id: hero, value: { More: { key, value } } } }));
+      const sets = Object.entries(f.more ?? {}).map(([key, value]): Op => ({ Set: { id: hero, value: { More: { key, value } } } }));
       if (sets.length) mores.push(sets);
     }
-    if ("Wave" in r && r.Wave.scene === src) rest.push(create({ Wave: { ...r.Wave, scene: id } }));
-    if ("ObjectiveState" in r && r.ObjectiveState.scene === src) rest.push(create({ ObjectiveState: { ...r.ObjectiveState, scene: id } }));
+    if ("Wave" in r && r.Wave.scene === src) {
+      const { more, ...fields } = r.Wave;
+      const f = filterMore(more, written);
+      if (f.dropped) anyDropped = true;
+      rest.push(create({ Wave: { ...fields, scene: id, ...(f.more ? { more: f.more } : {}) } }));
+    }
+    if ("ObjectiveState" in r && r.ObjectiveState.scene === src) {
+      const { more, ...fields } = r.ObjectiveState;
+      const f = filterMore(more, written);
+      if (f.dropped) anyDropped = true;
+      rest.push(create({ ObjectiveState: { ...fields, scene: id, ...(f.more ? { more: f.more } : {}) } }));
+    }
     if (ink) {
       if ("Arrow" in r && r.Arrow.scene === src) drawn.push(create({ Arrow: { ...r.Arrow, scene: id } }));
       if ("Callout" in r && r.Callout.scene === src) drawn.push(create({ Callout: { ...r.Callout, scene: id } }));
@@ -105,8 +140,17 @@ export function addSceneOps(
     }
     // The snapshot goes with the scene (map-state spec §4.5): its state, and each record's
     // `more` above. Without it the copied values would be stored and never drawn.
-    if ("SceneState" in r && r.SceneState.scene === src) states.push(create({ SceneState: { ...r.SceneState, scene: id } }));
+    if ("SceneState" in r && r.SceneState.scene === src) rawStates.push(r.SceneState);
   }
+  const states: Op[] = rawStates.map((st) => {
+    const f = filterMore(st.more, written);
+    if (f.dropped) anyDropped = true;
+    let more = f.more;
+    if (more && typeof more.rows === "number" && (more.rows > written || anyDropped)) {
+      more = { ...more, rows: Math.min(more.rows, written) };
+    }
+    return create({ SceneState: { scene: id, ...(more ? { more } : {}) } });
+  });
   const after = [...rest, ...drawn, ...states];
   const ops = [scene, ...heroes, ...after];
   // Every op here makes one record.

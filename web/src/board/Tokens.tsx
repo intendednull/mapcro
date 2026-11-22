@@ -492,23 +492,35 @@ export function Tokens(p: {
                     />
                   )}
                 </Show>
-                <Show when={live() && !leaving() && ghost() == null && raw()?.pos}>
-                  <Show when={raw()?.zipline}><circle class="tok-zipline" data-testid="tok-zipline" r={r() + 6 * p.k}><title>Riding a zipline</title></circle></Show>
-                  <Show when={raw()?.height === 1 || raw()?.height === 2}>
-                    <g class="tok-height" data-testid="tok-height" transform={`translate(${r() * .7} ${-r() * .75}) scale(${p.k})`}>
-                      <title>{raw()?.height === 1 ? "Above street level" : "Below street level"}</title>
-                      <circle r="11" /><text>{raw()?.height === 1 ? "▲" : "▼"}</text>
-                    </g>
-                  </Show>
-                </Show>
-                <Show when={live() && !leaving() && ghost() == null && raw()?.pos && raw()?.cc}>
-                  {(cc) => (
-                    <g class="tok-cc" data-testid="tok-cc" transform={`translate(0 ${r() + 10 * p.k}) scale(${p.k})`} aria-hidden="true">
-                      <rect x="-28" y="-7" width="56" height="14" rx="3" />
-                      <text>{cc()}</text>
-                    </g>
-                  )}
-                </Show>
+                {(() => {
+                  // Living, seen heroes show movement and CC in both Player and scenes (plan §3, §5 R1;
+                  // scene health arc stays off until R2 so existing v14 scenes don't change on R1).
+                  const statusOn = () => (live() ? !leaving() && ghost() == null && !!raw()?.pos : alive() && visible() && h().pos() != null);
+                  const zipline = () => (live() ? !!raw()?.zipline : p.frame.shown().movement && h().zipline());
+                  const height = () => (live() ? raw()?.height : p.frame.shown().movement ? h().height() : undefined);
+                  const cc = () => (live() ? raw()?.cc : p.frame.shown().cc ? h().cc() : undefined);
+                  return (
+                    <>
+                      <Show when={statusOn()}>
+                        <Show when={zipline()}><circle class="tok-zipline" data-testid="tok-zipline" r={r() + 6 * p.k}><title>Riding a zipline</title></circle></Show>
+                        <Show when={height() === 1 || height() === 2}>
+                          <g class="tok-height" data-testid="tok-height" transform={`translate(${r() * .7} ${-r() * .75}) scale(${p.k})`}>
+                            <title>{height() === 1 ? "Above street level" : "Below street level"}</title>
+                            <circle r="11" /><text>{height() === 1 ? "▲" : "▼"}</text>
+                          </g>
+                        </Show>
+                      </Show>
+                      <Show when={statusOn() && cc()}>
+                        {(label) => (
+                          <g class="tok-cc" data-testid="tok-cc" transform={`translate(0 ${r() + 10 * p.k}) scale(${p.k})`} aria-hidden="true">
+                            <rect x="-28" y="-7" width="56" height="14" rx="3" />
+                            <text>{label()}</text>
+                          </g>
+                        )}
+                      </Show>
+                    </>
+                  );
+                })()}
                 {/* Kill and vision are set from the portrait's right-click menu (TopBar), or K;
                     the token only shows them: the dead badge, and the eye-slash when unseen. */}
                 <Show when={!visible()}>

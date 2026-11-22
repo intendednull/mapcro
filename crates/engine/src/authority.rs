@@ -428,7 +428,7 @@ mod admission_tests {
     //! What a client may submit while a map-state row or record kind is `Ahead` (map-state spec
     //! §4.3). The rest of the authority is covered by the simulation and the server's tests.
     use super::*;
-    use mapcro_schema::{FieldValue, More, MoreValue, Op, Record, RecordId, RowId, SceneState, Status, TxKind, WorldPos, genesis};
+    use mapcro_schema::{FieldValue, LaneKey, More, MoreValue, Op, Record, RecordId, RowId, SceneState, Status, TxKind, Wave, WorldPos, genesis};
 
     const CLIENT: ClientId = ClientId(7);
     const CONN: ConnId = ConnId(1);
@@ -528,13 +528,17 @@ mod admission_tests {
         } else {
             assert_eq!(refused(&mut a, state), Reject::Immutable);
         }
-        let (mut cseq, mut visited) = (1, Vec::new());
-        // Every row, on a record of its own entity: the scene's (`has_heroes`) as much as a
-        // hero's.
+        // A lane's rows live on a `Wave`: create one so `Entity::Lane` rows can be tested too.
+        let wave_id = RecordId(901);
+        logged(&mut a, tx(1, vec![Op::Create { id: wave_id, record: Record::Wave(Wave { scene: s, lane: LaneKey("mid".into()), t: 500, more: More::default() }) }]));
+        let (mut cseq, mut visited) = (2, Vec::new());
+        // Every row, on a record of its own entity: the scene's (`has_heroes`) and lanes'
+        // (`edges`) as much as a hero's.
         for r in RowId::all() {
             let id = match r.row().entity {
                 mapcro_schema::Entity::Hero => p,
                 mapcro_schema::Entity::Scene => state_id,
+                mapcro_schema::Entity::Lane => wave_id,
                 other => panic!("a row of {other:?}: give this test a record of that entity"),
             };
             let write = tx(cseq, vec![Op::Set { id, value: FieldValue::More { key: r, value: None } }]);
@@ -542,11 +546,12 @@ mod admission_tests {
             visited.push(r.key());
             if r.row().status == Status::Ahead {
                 assert_eq!(refused(&mut a, write), Reject::WrongField, "{r:?}");
-            } else if id == p || state_live {
+            } else if id != state_id || state_live {
                 logged(&mut a, write);
             }
         }
         assert!(visited.contains(&"has_heroes"), "the scene's rows are asked too");
+        assert!(visited.contains(&"edges"), "the lanes' rows are asked too");
     }
 
     /// Admission is `submit`'s alone: a base and a log that already hold a row or a scene's

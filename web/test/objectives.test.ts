@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type Current, isOn, toggleOps } from "../src/board/objectives";
+import { type Current, isOn, nextPatron, toggleOps } from "../src/board/objectives";
 
 const walker = { kind: "t2" as const, key: "walker:amber:lane1:1" };
 const camp = { kind: "camp" as const, key: "camp:neutral:lane1:10" };
@@ -106,5 +106,13 @@ describe("the Soul Urn's points (Sandbox)", () => {
     const keys = (ops: ReturnType<typeof groupToggleOps>) =>
       ops.map((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [o.Create.record.ObjectiveState.key, o.Create.record.ObjectiveState.status] : "Set" in o && "ObjectiveStatus" in o.Set.value ? [o.Set.id, o.Set.value.ObjectiveStatus] : ["?"]));
     expect(keys(groupToggleOps(ue, [uw, ue, west], withUrn, new Map(), "s", mint))).toEqual([[west.key, "Active"], [ue.key, "Active"]]);
+  });
+
+  it("characterisation: nextPatron cycles every ObjectiveStatus", () => {
+    expect(nextPatron(undefined)).toBe("Stage2");
+    expect(nextPatron("Active")).toBe("Stage2");
+    expect(nextPatron("Hidden")).toBe("Stage2");
+    expect(nextPatron("Stage2")).toBe("Destroyed");
+    expect(nextPatron("Destroyed")).toBe("Active");
   });
 });

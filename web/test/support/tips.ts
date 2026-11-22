@@ -2,7 +2,7 @@
 // facts for that marker (player/Camps.tsx `tipFacts` reads them from `MapState`).
 
 import type { Marker } from "../../src/map/model";
-import type { MatchPreview } from "../../src/match/preview";
+import type { MatchPreview } from "./player-frame";
 import { type TipFacts, markerTip } from "../../src/player/Camps";
 
 export const factsOf = (pv: MatchPreview, key: string): TipFacts => ({

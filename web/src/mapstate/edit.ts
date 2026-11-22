@@ -34,3 +34,22 @@ export function pickHeroOps(own: boolean, slot: RecordId, player: { id: RecordId
     ...dropped.map((key): Op => ({ Set: { id: player.id, value: { More: { key, value: null } } } })),
   ];
 }
+
+/**
+ * Toggle whether a hero is seen by its enemies (plan §3 Q2).
+ *
+ * - Without `has_sight` (legacy D5): flips typed `PlayerVisible`.
+ * - With `has_sight`:
+ *   - Currently seen (`more.unseen !== true && visible !== false`): sets `more.unseen = true`.
+ *   - Currently unseen: clears `more.unseen` (if present) AND sets `PlayerVisible: true` (if
+ *     `visible === false` from a pre-Retake manual mark), in one transaction / one undo step.
+ */
+export function toggleSightOps(hasSight: boolean, id: RecordId, rec: { visible: boolean; more?: More }): Op[] {
+  if (!hasSight) return [{ Set: { id, value: { PlayerVisible: !rec.visible } } }];
+  const inSight = rec.more?.unseen !== true && rec.visible !== false;
+  if (inSight) return [{ Set: { id, value: { More: { key: "unseen", value: true } } } }];
+  const ops: Op[] = [];
+  if (rec.more?.unseen !== undefined) ops.push({ Set: { id, value: { More: { key: "unseen", value: null } } } });
+  if (rec.visible === false) ops.push({ Set: { id, value: { PlayerVisible: true } } });
+  return ops;
+}

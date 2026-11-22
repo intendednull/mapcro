@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { LIMITS } from "../src/gen/limits";
 import { ROWS, type RowKey } from "../src/gen/rows";
-import { WRITTEN, captureBuild, captureScene, captured, heroBuildAt, readBuild, statOf, type HeroBuild, writesHeroes } from "../src/mapstate/build";
+import { BUILD_KEYS, WRITTEN, captureBuild, captureScene, captured, heroBuildAt, readBuild, statOf, type HeroBuild, writesHeroes } from "../src/mapstate/build";
 import { buildAt, buildOrder } from "../src/match/builds";
 import { PICKUPS_FORMAT, statBuild } from "../src/match/stats";
 import type { Timeline, TimelinePlayer } from "../src/match/timeline";
@@ -37,8 +37,8 @@ const match = (format: number): Timeline => ({
 const written = (b: HeroBuild): HeroBuild => {
   const out = { ...b };
   const field: Partial<Record<RowKey, keyof HeroBuild>> = { build_order: "order" };
-  for (const key of Object.keys(ROWS) as RowKey[]) {
-    if (ROWS[key].entity !== "hero" || ROWS[key].index < WRITTEN || key === "name") continue;
+  for (const key of BUILD_KEYS) {
+    if (ROWS[key].index < WRITTEN) continue;
     (out as Record<string, unknown>)[field[key] ?? key] = null;
   }
   return out;
@@ -49,7 +49,7 @@ describe("a hero's build through a scene", () => {
   it.each([0, 1, 2, 3, 4])("reads back as Player computed it at second %i, for every hero", (t) => {
     const rows = captured(captureScene(tl));
     // Its heroes too, once this build writes that row.
-    expect(rows).toEqual({ builds: true, heroes: writesHeroes(), rows: WRITTEN, patch: 6839 });
+    expect(rows).toMatchObject({ builds: true, heroes: writesHeroes(), rows: WRITTEN, patch: 6839 });
     for (const p of tl.players) {
       const computed = heroBuildAt(tl, p, t);
       const stored = captureBuild(computed);
@@ -137,7 +137,10 @@ describe("a hero's build through a scene", () => {
     expect(readBuild(more, ROWS.items.index + 1, p.hero_id).items).not.toBeNull();
     expect(readBuild({ ...more, items: [1, 2, 3] }, WRITTEN, p.hero_id).items).toBeNull();
     expect(readBuild({ ...more, abilities: "x", level: [1], pickups: [1, 2] }, WRITTEN, p.hero_id)).toMatchObject({ abilities: null, level: null, pickups: null });
-    expect(captured(undefined)).toEqual({ builds: false, heroes: false, rows: 0, patch: undefined });
+    expect(captured(undefined)).toEqual({
+      builds: false, heroes: false, sight: false, cc: false, movement: false, lanes: false, skulls: false,
+      camps: false, powerups: false, obj_health: false, rifts: false, urn: false, rejuv: false, rows: 0, patch: undefined,
+    });
     expect(captured({ has_builds: true })).toMatchObject({ builds: false });
     expect(readBuild(undefined, WRITTEN, 5)).toMatchObject({ hero: 5, items: null, order: null });
   });

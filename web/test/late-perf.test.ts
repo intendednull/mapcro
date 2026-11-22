@@ -19,7 +19,7 @@ import { buildAt } from "../src/match/builds";
 import { statBuild } from "../src/match/stats";
 import { type Timeline, scoreboardValueAt } from "../src/match/timeline";
 import type { TimelinePlayer } from "../src/match/timeline";
-import type { MatchPreview } from "../src/match/preview";
+import type { MatchPreview } from "./support/player-frame";
 import type { MapState, MarkerState } from "../src/mapstate/state";
 
 /** Runs `read` in a computation of its own and counts how often it runs. */

@@ -337,6 +337,19 @@ It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` 
     lost its six roster writes and its state gained `has_heroes`; nothing else moved),
     `board_file.rs` ("no row is still ahead"), and `store.rs`'s v12 test (history now; the row's
     status is held by "has_heroes is live only from its writer's version").
+- **Map-state phase 5, R1 (readers A & B, store v15):** appends rows 16–26 (Group A: sight/unseen,
+  cc, movement, lane edges, skulls) and rows 27–39 (Group B: camps, powerups, obj_health, rift,
+  urn, rejuv) as `Ahead` (40 rows total; `written_rows() == 16`, `boardfile::READS == 4`). Store
+  step 14 → 15 is `Step::Additive` with no SQL, so the floor stays **12**.
+  - **Rollback target from v15 (R1):** v14 (prod), v13 (`8efbfac`), and v12 (`18b41c6`), nothing
+    older. Because every new row is `Ahead`, `Admit::DEPLOYED` refuses rows 16–39 in transactions
+    and board files, and the client writes nothing new (`WRITTEN = 16`), so v14 opens the v15
+    database untouched.
+  - **Deploy note:** adding rows changes the schema sources, so the build id changes and open v14
+    tabs close as `Outdated` and reload. Back up SQLite first (`pre-v15`, below). After R1 is live,
+    run `just rows-lock` on the deployed commit (locks 40 rows: adds rows 16–39), commit
+    `crates/schema/rows.lock`, and set `reader` in `justfile` to the deployed R1 commit before
+    landing R2 (v16).
 - **`just reader-check`** (in `just test`) loads what this build's server stores on the reader
   release's own code. Its reader is `reader` in the justfile: **set it to the deployed commit
   at each deploy that changes what is stored**, with `just rows-lock`.

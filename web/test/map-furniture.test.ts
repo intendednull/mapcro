@@ -8,7 +8,7 @@ import { isFurniture, markersFrom, modelFromFallback, withBuiltInFurniture, type
 import { artFromManifest } from "../src/map/pack";
 import { type Timeline, campsAt, downAt, shopsClosed, sitesAt } from "../src/match/timeline";
 import { tipOf } from "./support/tips";
-import type { MatchPreview } from "../src/match/preview";
+import type { MatchPreview } from "./support/player-frame";
 
 // As the extractor writes them for build 6860.
 const furniture: PackEntity[] = [
