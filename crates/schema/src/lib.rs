@@ -17,8 +17,8 @@ pub use file::{export_records, import_records};
 pub use doc::DocPair;
 pub use ids::{BoardId, ClientId, GrantId, HeroId, LaneKey, ObjectiveKey, OrderKey, RecordId, is_id22};
 pub use map_state::{
-    Admit, CALLOUT_SIDE, Entity, FILE_VERSIONS, FileVersion, Kind, LONG_SCENE_NAME, MAX_SAFE_INT, More, MoreValue, ROWS, Row, RowId,
-    SCENE_STATE, STROKE_COLOR, Status, UNFIT_UNDO, file_version, reads_file_version, rows_ts, written_rows,
+    Admit, BASE_FILE_ROWS, CALLOUT_SIDE, Entity, FILE_VERSIONS, FileVersion, Kind, LONG_SCENE_NAME, MAX_SAFE_INT, More, MoreValue, ROWS, Row, RowId,
+    SCENE_STATE, STROKE_COLOR, Status, UNFIT_UNDO, file_header, file_rows, file_version, reads_file_version, rows_ts, written_rows,
 };
 pub use records::{
     Arrow, BoardMeta, Callout, Field, FieldValue, Note, ObjectiveState, ObjectiveStatus, PlayerState,

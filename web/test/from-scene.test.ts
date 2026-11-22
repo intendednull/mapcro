@@ -331,16 +331,16 @@ describe("Save as scene, read back", () => {
     });
   });
 
-  it("what a scene can't hold yet differs from Player's, and the state says so: sight, CC, movement, the colours' gap, camps, powerups, rifts, the urn, the Rejuvenator", () => {
+  it("Group A matches Player in R2; what a scene can't hold yet (Group B) differs, and the state says so", () => {
     const tl = replay();
     createRoot((dispose) => {
       const player = fromTimeline({ tl: () => tl, t: () => 4, markers: () => markers });
       const scene = fromScene(saved(tl, 4));
       expect(FEATURES.filter((f) => player.has(f))).toEqual([...FEATURES]);
-      expect(FEATURES.filter((f) => scene.has(f))).toEqual(["health"]);
-      // Save writes every hero as in sight, whoever saw it.
+      expect(FEATURES.filter((f) => scene.has(f))).toEqual(["health", "sight", "cc", "movement", "lanes", "skulls"]);
+      // R2 stores sight (unseen) so the scene's sight matches Player's at the frame.
       expect(SLOTS.some((k) => !player.hero(k).inSight())).toBe(true);
-      expect(SLOTS.every((k) => scene.hero(k).inSight())).toBe(true);
+      expect(SLOTS.every((k) => scene.hero(k).inSight() === player.hero(k).inSight())).toBe(true);
       dispose();
     });
   });

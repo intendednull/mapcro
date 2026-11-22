@@ -1359,7 +1359,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const markerKeys = createMemo(() => p.art.model.markers.map((m) => m.key));
   const marks = markerStates({ ms: mapState, player: inPlayer, health: player.showHealth }, markerKeys);
   const markerStatus = marks.status;
-  const mapControls = () => (<MapControls host={player} heals={heals()} crates={crates()}
+  const mapControls = () => (<MapControls host={player} ms={mapState} heals={heals()} crates={crates()}
               toggleHeals={() => player.setShowHeals(!heals())}
               toggleCrates={() => player.setShowCrates(!crates())}
               flip={flipSide}

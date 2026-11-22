@@ -119,18 +119,18 @@ pub const ROWS: &[Row] = &[
     // v14 (`HEROES_WRITER` in the server's `store.rs`), whose floor is 12.
     row("has_heroes", Entity::Scene, Kind::Bool),
     // Phase 5, Group A: heroes and lanes (rows 16–26; docs/specs/map-state-phase5-plan.md §3).
-    // Reader lands in R1 (store v15, all Ahead); writer in R2 (store v16).
-    ahead("has_sight", Entity::Scene, Kind::Bool),
-    ahead("unseen", Entity::Hero, Kind::Bool),
-    ahead("has_cc", Entity::Scene, Kind::Bool),
-    ahead("cc", Entity::Hero, Kind::Int { min: 0, max: 15 }),
-    ahead("has_movement", Entity::Scene, Kind::Bool),
-    ahead("height", Entity::Hero, Kind::Int { min: 0, max: 15 }),
-    ahead("zipline", Entity::Hero, Kind::Bool),
-    ahead("has_lanes", Entity::Scene, Kind::Bool),
-    ahead("edges", Entity::Lane, Kind::Ints { len: 2, min: 0, max: 1000 }),
-    ahead("has_skulls", Entity::Scene, Kind::Bool),
-    ahead("skulls", Entity::Scene, Kind::Ints { len: 36, min: 0, max: 255 }),
+    // Reader landed in R1 (store v15, e2438b4); writer in R2 (store v16, floor 15).
+    row("has_sight", Entity::Scene, Kind::Bool),
+    row("unseen", Entity::Hero, Kind::Bool),
+    row("has_cc", Entity::Scene, Kind::Bool),
+    row("cc", Entity::Hero, Kind::Int { min: 0, max: 15 }),
+    row("has_movement", Entity::Scene, Kind::Bool),
+    row("height", Entity::Hero, Kind::Int { min: 0, max: 15 }),
+    row("zipline", Entity::Hero, Kind::Bool),
+    row("has_lanes", Entity::Scene, Kind::Bool),
+    row("edges", Entity::Lane, Kind::Ints { len: 2, min: 0, max: 1000 }),
+    row("has_skulls", Entity::Scene, Kind::Bool),
+    row("skulls", Entity::Scene, Kind::Ints { len: 36, min: 0, max: 255 }),
     // Phase 5, Group B: the marker baseline (rows 27–39; all on SceneState).
     // Reader lands in R1 (store v15, all Ahead); writer in R3 (store v17).
     ahead("has_camps", Entity::Scene, Kind::Bool),
@@ -277,13 +277,18 @@ impl Admit {
     }
 }
 
+/// Default `rows` header for version 2/3 files (rows 0..14: `hero`..`max_health`), accepted by
+/// v10/v11 (`ROWS.len() == 15`), v12–v14 (`ROWS.len() == 16`), and R1–R3 (`ROWS.len() == 40`).
+pub const BASE_FILE_ROWS: usize = 15;
+
 /// One board-file format version past version 2 (TD-108): the version number, whether this build
 /// writes what it gates (derived from the schema constants / row statuses, so `boardfile::READS`
-/// moves automatically when rows flip `Live`), and whether a record carries anything that version
-/// gates.
+/// moves automatically when rows flip `Live`), the `rows` header paired with that version, and
+/// whether a record carries anything that version gates.
 pub struct FileVersion {
     pub version: u64,
     pub live: bool,
+    pub rows: usize,
     pub holds: fn(&Record) -> bool,
 }
 
@@ -320,15 +325,15 @@ fn holds_v6(record: &Record) -> bool {
 }
 
 /// Every gated board-file version past version 2, in version order (TD-108):
-/// - v3: gated typed fields (`LONG_SCENE_NAME`, `CALLOUT_SIDE`)
-/// - v4: `has_heroes` (row 15)
-/// - v5: phase 5 Group A (rows 16–26)
-/// - v6: phase 5 Group B (rows 27–39)
+/// - v3: gated typed fields (`LONG_SCENE_NAME`, `CALLOUT_SIDE`) -> rows 15
+/// - v4: `has_heroes` (row 15) -> rows 16
+/// - v5: phase 5 Group A (rows 16–26) -> rows 27
+/// - v6: phase 5 Group B (rows 27–39) -> rows 40
 pub const FILE_VERSIONS: &[FileVersion] = &[
-    FileVersion { version: 3, live: !matches!(LONG_SCENE_NAME, Status::Ahead) && !matches!(CALLOUT_SIDE, Status::Ahead), holds: holds_v3 },
-    FileVersion { version: 4, live: rows_live(15, 15), holds: holds_v4 },
-    FileVersion { version: 5, live: rows_live(16, 26), holds: holds_v5 },
-    FileVersion { version: 6, live: rows_live(27, 39), holds: holds_v6 },
+    FileVersion { version: 3, live: !matches!(LONG_SCENE_NAME, Status::Ahead) && !matches!(CALLOUT_SIDE, Status::Ahead), rows: 15, holds: holds_v3 },
+    FileVersion { version: 4, live: rows_live(15, 15), rows: 16, holds: holds_v4 },
+    FileVersion { version: 5, live: rows_live(16, 26), rows: 27, holds: holds_v5 },
+    FileVersion { version: 6, live: rows_live(27, 39), rows: 40, holds: holds_v6 },
 ];
 
 /// The newest board-file version this build reads (and writes): the highest `live` version in
@@ -345,15 +350,36 @@ pub const fn reads_file_version() -> u64 {
     max
 }
 
+/// The board-file `(version, rows)` header pair for `records`: the highest matching entry in
+/// [`FILE_VERSIONS`] (defaulting to `(2, BASE_FILE_ROWS)`), with `rows` never below the highest
+/// row index actually present in `records`, so older releases that read `version` also accept
+/// `head.rows` (`<= OLD_ROWS_LEN`).
+pub fn file_header(records: &[(crate::RecordId, Record)]) -> (u64, u64) {
+    let (version, version_rows) = FILE_VERSIONS
+        .iter()
+        .filter(|entry| records.iter().any(|(_, r)| (entry.holds)(r)))
+        .max_by_key(|entry| entry.version)
+        .map(|entry| (entry.version, entry.rows))
+        .unwrap_or((2, BASE_FILE_ROWS));
+    let used_rows = records
+        .iter()
+        .filter_map(|(_, r)| r.more())
+        .flat_map(|(_, m)| m.iter().map(|(id, _)| usize::from(id.0) + 1))
+        .max()
+        .unwrap_or(0);
+    (version, version_rows.max(used_rows) as u64)
+}
+
 /// The board-file version for `records`: the highest matching version in [`FILE_VERSIONS`],
 /// defaulting to 2.
 pub fn file_version(records: &[(crate::RecordId, Record)]) -> u64 {
-    FILE_VERSIONS
-        .iter()
-        .filter(|entry| records.iter().any(|(_, r)| (entry.holds)(r)))
-        .map(|entry| entry.version)
-        .max()
-        .unwrap_or(2)
+    file_header(records).0
+}
+
+/// The board-file `rows` header for `records`: compatible with the oldest release that reads
+/// [`file_version`] and always at least the highest row index present in `records`.
+pub fn file_rows(records: &[(crate::RecordId, Record)]) -> u64 {
+    file_header(records).1
 }
 
 /// The registry as a TypeScript module, `web/src/gen/rows.ts` (`just ts` writes it): the
@@ -1222,15 +1248,20 @@ mod tests {
     fn the_file_version_table_covers_every_gated_version_and_derives_reads() {
         use crate::records::{Scene, Stroke};
         assert_eq!(ROWS.len(), 40);
-        assert_eq!(written_rows(), 16);
+        assert_eq!(written_rows(), 27);
         assert_eq!(ROWS[15].key, "has_heroes");
         assert_eq!(ROWS[16].key, "has_sight");
         assert_eq!(ROWS[26].key, "skulls");
         assert_eq!(ROWS[27].key, "has_camps");
         assert_eq!(ROWS[39].key, "rejuv");
-        // In R1, rows 16–39 are all Ahead, so `reads_file_version()` is 4.
-        assert_eq!(reads_file_version(), 4);
-        assert_eq!(FILE_VERSIONS.iter().map(|v| (v.version, v.live)).collect::<Vec<_>>(), [(3, true), (4, true), (5, false), (6, false)]);
+        // In R2, Group A (rows 16–26) is Live and Group B (rows 27–39) is Ahead, so
+        // `reads_file_version()` is 5.
+        assert_eq!(reads_file_version(), 5);
+        assert_eq!(
+            FILE_VERSIONS.iter().map(|v| (v.version, v.live, v.rows)).collect::<Vec<_>>(),
+            [(3, true, 15), (4, true, 16), (5, true, 27), (6, false, 40)]
+        );
+        assert!(FILE_VERSIONS.iter().all(|v| v.rows <= ROWS.len()));
 
         // `max_more_ints` exact sums per entity (all <= 1280).
         let ints_of = |entity: Entity| -> usize {
@@ -1290,14 +1321,18 @@ mod tests {
             assert_eq!(one(scene_state(holding(&[r.key()]))), 6, "row {i} ({})", r.key());
         }
 
-        // Highest version wins across records.
-        assert_eq!(file_version(&[(RecordId(1), scene(LIMITS.max_scene_name)), (RecordId(2), scene_state(holding(&["has_heroes"])))]), 4);
-        assert_eq!(file_version(&[(RecordId(1), scene_state(holding(&["has_heroes"]))), (RecordId(2), lane(holding(&["edges"])))]), 5);
-        assert_eq!(file_version(&[(RecordId(1), lane(holding(&["edges"]))), (RecordId(2), scene_state(holding(&["has_camps"])))]), 6);
+        // Highest version and matching compatible `rows` header win across records.
+        assert_eq!(file_header(&[]), (2, 15));
+        assert_eq!(file_header(&[(RecordId(1), scene(LIMITS.max_scene_name))]), (3, 15));
+        assert_eq!(file_header(&[(RecordId(1), scene(LIMITS.max_scene_name)), (RecordId(2), scene_state(holding(&["has_heroes"])))]), (4, 16));
+        assert_eq!(file_header(&[(RecordId(1), scene_state(holding(&["has_heroes"]))), (RecordId(2), lane(holding(&["edges"])))]), (5, 27));
+        assert_eq!(file_header(&[(RecordId(1), lane(holding(&["edges"]))), (RecordId(2), scene_state(holding(&["has_camps"])))]), (6, 40));
+        assert_eq!(file_rows(&[(RecordId(1), scene_state(holding(&["has_sight"])))]), 27);
+        assert_eq!(file_rows(&[(RecordId(1), scene_state(holding(&["has_camps"])))]), 40);
     }
 
     #[test]
-    fn phase5_rows_are_all_ahead_and_refused_by_deployed_gate_with_valid_values_and_clears() {
+    fn phase5_group_a_rows_are_live_and_group_b_rows_remain_ahead_and_refused_by_deployed_gate() {
         let valid_value = |kind: Kind| -> MoreValue {
             match kind {
                 Kind::Bool => MoreValue::Bool(true),
@@ -1310,20 +1345,22 @@ mod tests {
         let pos = FieldValue::PlayerPos(WorldPos::default());
         for i in 16..ROWS.len() {
             let r = RowId(i as u16);
-            assert_eq!(r.row().status, Status::Ahead, "{} must be Ahead in R1", r.key());
+            let is_group_a = i <= 26;
+            assert_eq!(r.row().status, if is_group_a { Status::Live } else { Status::Ahead }, "{} status in R2", r.key());
             let v = valid_value(r.row().kind);
             assert_eq!(v.check(r.row()), Ok(()), "valid value for {}", r.key());
-            // Set, clear, SetIf (both sides) all refused by Admit::DEPLOYED, admitted by Admit::READS.
+            // Set, clear, SetIf (both sides): admitted for Group A (16–26), refused for Group B (27–39).
+            let want_deployed = if is_group_a { Ok(()) } else { Err(Reject::WrongField) };
             for op in [
                 set(FieldValue::More { key: r, value: Some(v.clone()) }),
                 set(FieldValue::More { key: r, value: None }),
                 Op::SetIf { id: RecordId(5), expect: FieldValue::More { key: r, value: None }, value: pos.clone() },
                 Op::SetIf { id: RecordId(5), expect: pos.clone(), value: FieldValue::More { key: r, value: Some(v.clone()) } },
             ] {
-                assert_eq!(Admit::DEPLOYED.tx(&tx(vec![op.clone()])), Err(Reject::WrongField), "{} refused", r.key());
+                assert_eq!(Admit::DEPLOYED.tx(&tx(vec![op.clone()])), want_deployed, "{} deployed", r.key());
                 assert_eq!(Admit::READS.tx(&tx(vec![op])), Ok(()), "{} admitted by READS", r.key());
             }
-            // Record creation on its real entity with a valid value is also refused by DEPLOYED.
+            // Record creation on its real entity with a valid value follows the same gate.
             let m: More = [(r, v)].into_iter().collect();
             assert_eq!(m.check(r.row().entity), Ok(()), "{} map valid", r.key());
             let rec = match r.row().entity {
@@ -1332,7 +1369,7 @@ mod tests {
                 Entity::Scene => scene_state(m),
                 Entity::Marker => unreachable!(),
             };
-            assert_eq!(Admit::DEPLOYED.record(&rec), Err(Reject::WrongField), "{} record refused", r.key());
+            assert_eq!(Admit::DEPLOYED.record(&rec), want_deployed, "{} record deployed", r.key());
             assert_eq!(Admit::READS.record(&rec), Ok(()), "{} record admitted by READS", r.key());
         }
     }

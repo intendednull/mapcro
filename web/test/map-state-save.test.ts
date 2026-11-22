@@ -68,7 +68,7 @@ describe("Save as scene's snapshot", () => {
     });
     const state = stateOf(ops);
     expect(state).toHaveLength(1);
-    expect(state[0]!.more).toEqual(captureScene(tl));
+    expect(state[0]!.more).toEqual(captureScene(tl, { skulls: true }));
     expect(ops.filter((o) => "Create" in o && "SceneState" in o.Create.record && o.Create.record.SceneState.scene === id)).toHaveLength(1);
     expect(ops.length).toBeLessThanOrEqual(LIMITS.max_ops_per_tx);
     expect(opsBytes(ops)).toBeLessThan(LIMITS.max_tx_bytes - 512);
@@ -159,7 +159,8 @@ describe("Retake", () => {
 
   it("is offered for a scene of the open match that holds no builds, or older rows", () => {
     expect(canRetake({ source: { match_id: 9, t: 2, tier: "replay" } }, undefined, tl)).toBe(true);
-    expect(canRetake({ source: { match_id: 9, t: 2, tier: "replay" } }, captureScene(tl), tl)).toBe(false);
+    expect(canRetake({ source: { match_id: 9, t: 2, tier: "replay" } }, captureScene(tl, { skulls: true }), tl)).toBe(false);
+    expect(canRetake({ source: { match_id: 9, t: 2, tier: "replay" } }, captureScene(tl), tl)).toBe(true);
     expect(canRetake({ source: { match_id: 9, t: 2, tier: "replay" } }, { ...captureScene(tl), rows: retakeRows() - 1 }, tl)).toBe(true);
     expect(canRetake({ source: { match_id: 8, t: 2, tier: "replay" } }, undefined, tl)).toBe(false);
     expect(canRetake({}, undefined, tl)).toBe(false);
@@ -171,7 +172,7 @@ describe("Retake", () => {
     const txs = retakeOps(scene(2), undefined, heroes, roster as never, tl, minter());
     const ops = txs.flat();
     const last = ops.at(-1)!;
-    expect("Create" in last && "SceneState" in last.Create.record && last.Create.record.SceneState).toEqual({ scene: "scene", more: captureScene(tl, { heroes: false }) });
+    expect("Create" in last && "SceneState" in last.Create.record && last.Create.record.SceneState).toEqual({ scene: "scene", more: captureScene(tl, { heroes: false, skulls: true }) });
     expect(ops.slice(0, -1).every((o) => setIf(o) && "More" in setIf(o)!.expect && (setIf(o)!.expect as { More: { value: unknown } }).More.value === null)).toBe(true);
     // What it writes for a hero is what Save would have stored.
     heroes.forEach((h, i) => {
@@ -202,18 +203,21 @@ describe("Retake", () => {
 
   it("writes only what is absent, and moves an older watermark up", () => {
     const heroes = heroesOf(save(tl).ops);
-    // A snapshot from before `level` was a row, with one hero's items edited since.
+    // A snapshot from before `level` was a row (no `has_heroes`), with one hero's items edited since.
     const rows = ROWS.level.index;
-    const state = { id: "state", more: { ...captureScene(tl), rows } as More };
+    const state = { id: "state", more: { ...captureScene(tl, { heroes: false }), rows } as More };
     const partial = heroes.map((h) => ({ id: h.id, state: { ...h.state, more: Object.fromEntries(Object.entries(h.state.more!).filter(([k]) => ROWS[k as keyof typeof ROWS].index < rows)) } }));
     const ops = retakeOps(scene(2), state, partial, roster as never, tl, minter()).flat();
     const keys = new Set(ops.flatMap((o) => (setIf(o) && setIf(o)!.id !== "state" && "More" in setIf(o)!.value ? [(setIf(o)!.value as { More: { key: string } }).More.key] : [])));
     expect([...keys].sort()).toEqual(Object.keys(ROWS).filter((k) => ROWS[k as keyof typeof ROWS].entity === "hero" && ROWS[k as keyof typeof ROWS].index >= rows && ROWS[k as keyof typeof ROWS].index < WRITTEN && k in captureBuild(heroBuildAt(tl, tl.players[0]!, 2))).sort());
-    // The watermark: from the value read to this build's, and nothing else of the state.
-    expect(ops.filter((o) => setIf(o)?.id === "state")).toEqual([{ SetIf: { id: "state", expect: { More: { key: "rows", value: rows } }, value: { More: { key: "rows", value: WRITTEN } } } }]);
+    // The watermark moves from the value read to this build's via `SetIf` (monotonic), and missing Group A flags (`has_skulls`) use `Set`.
+    expect(ops.filter((o) => ("Set" in o && o.Set.id === "state") || setIf(o)?.id === "state")).toEqual([
+      { Set: { id: "state", value: { More: { key: "has_skulls", value: true } } } },
+      { SetIf: { id: "state", expect: { More: { key: "rows", value: rows } }, value: { More: { key: "rows", value: WRITTEN } } } },
+    ]);
     expect(captured({ ...state.more, rows: WRITTEN }).builds).toBe(true);
     // Nothing to do on a scene that holds it all, or one with no moment.
-    expect(retakeOps(scene(2), { id: "state", more: captureScene(tl) }, heroes, roster as never, tl, minter())).toEqual([]);
+    expect(retakeOps(scene(2), { id: "state", more: captureScene(tl, { skulls: true }) }, heroes, roster as never, tl, minter())).toEqual([]);
     expect(retakeOps(scene(null), undefined, heroes, roster as never, tl, minter())).toEqual([]);
   });
 
@@ -256,6 +260,7 @@ describe("Retake", () => {
       ["old-rows", { rows: 11, has_builds: true }],
       ["v14-full", { rows: 16, has_builds: true, has_heroes: true }],
       ["v15-retake-rows", { rows: 15, has_builds: true }],
+      ["r2-full", { rows: 27, has_builds: true, has_heroes: true, has_skulls: true }],
     ];
     const sources: Array<[string, { source?: { match_id: number; t: number; tier: string } }]> = [
       ["no-source", {}],
@@ -279,24 +284,28 @@ describe("Retake", () => {
       "no-source|old-rows|none": false, "no-source|old-rows|replay": false, "no-source|old-rows|metadata": false,
       "no-source|v14-full|none": false, "no-source|v14-full|replay": false, "no-source|v14-full|metadata": false,
       "no-source|v15-retake-rows|none": false, "no-source|v15-retake-rows|replay": false, "no-source|v15-retake-rows|metadata": false,
+      "no-source|r2-full|none": false, "no-source|r2-full|replay": false, "no-source|r2-full|metadata": false,
       "other-match|none|none": false, "other-match|none|replay": false, "other-match|none|metadata": false,
       "other-match|empty|none": false, "other-match|empty|replay": false, "other-match|empty|metadata": false,
       "other-match|no-builds|none": false, "other-match|no-builds|replay": false, "other-match|no-builds|metadata": false,
       "other-match|old-rows|none": false, "other-match|old-rows|replay": false, "other-match|old-rows|metadata": false,
       "other-match|v14-full|none": false, "other-match|v14-full|replay": false, "other-match|v14-full|metadata": false,
       "other-match|v15-retake-rows|none": false, "other-match|v15-retake-rows|replay": false, "other-match|v15-retake-rows|metadata": false,
+      "other-match|r2-full|none": false, "other-match|r2-full|replay": false, "other-match|r2-full|metadata": false,
       "replay-scene|none|none": false, "replay-scene|none|replay": true, "replay-scene|none|metadata": false,
       "replay-scene|empty|none": false, "replay-scene|empty|replay": true, "replay-scene|empty|metadata": false,
       "replay-scene|no-builds|none": false, "replay-scene|no-builds|replay": true, "replay-scene|no-builds|metadata": false,
       "replay-scene|old-rows|none": false, "replay-scene|old-rows|replay": true, "replay-scene|old-rows|metadata": false,
-      "replay-scene|v14-full|none": false, "replay-scene|v14-full|replay": false, "replay-scene|v14-full|metadata": false,
-      "replay-scene|v15-retake-rows|none": false, "replay-scene|v15-retake-rows|replay": false, "replay-scene|v15-retake-rows|metadata": false,
+      "replay-scene|v14-full|none": false, "replay-scene|v14-full|replay": true, "replay-scene|v14-full|metadata": false,
+      "replay-scene|v15-retake-rows|none": false, "replay-scene|v15-retake-rows|replay": true, "replay-scene|v15-retake-rows|metadata": false,
+      "replay-scene|r2-full|none": false, "replay-scene|r2-full|replay": false, "replay-scene|r2-full|metadata": false,
       "meta-scene|none|none": false, "meta-scene|none|replay": true, "meta-scene|none|metadata": true,
       "meta-scene|empty|none": false, "meta-scene|empty|replay": true, "meta-scene|empty|metadata": true,
       "meta-scene|no-builds|none": false, "meta-scene|no-builds|replay": true, "meta-scene|no-builds|metadata": true,
       "meta-scene|old-rows|none": false, "meta-scene|old-rows|replay": true, "meta-scene|old-rows|metadata": true,
-      "meta-scene|v14-full|none": false, "meta-scene|v14-full|replay": false, "meta-scene|v14-full|metadata": false,
-      "meta-scene|v15-retake-rows|none": false, "meta-scene|v15-retake-rows|replay": false, "meta-scene|v15-retake-rows|metadata": false,
+      "meta-scene|v14-full|none": false, "meta-scene|v14-full|replay": true, "meta-scene|v14-full|metadata": true,
+      "meta-scene|v15-retake-rows|none": false, "meta-scene|v15-retake-rows|replay": true, "meta-scene|v15-retake-rows|metadata": true,
+      "meta-scene|r2-full|none": false, "meta-scene|r2-full|replay": false, "meta-scene|r2-full|metadata": false,
     });
   });
 });

@@ -131,9 +131,12 @@ impl Refusal {
 
 fn file(doc: &Doc, matches: Vec<u64>, exported_at: i64) -> BoardFile {
     let records = mapcro_schema::export_records(doc);
-    // The oldest version that says what the file holds (TD-108): version 2 imports on the v11
-    // build, version 3 on v13, version 4 on v14/v15, version 5 on R2+, version 6 on R3+.
-    let version = mapcro_schema::file_version(&records);
+    // The oldest `(version, rows)` pair that says what the file holds (TD-108):
+    // - v2/v3 (legacy / typed fields): rows 15 (imports on v10/v11..R3)
+    // - v4 (`has_heroes`): rows 16 (imports on v14/R1..R3)
+    // - v5 (Group A): rows 27 (imports on R2/R3; Newer on R1 and v14)
+    // - v6 (Group B): rows 40 (imports on R3; Newer on R2 and older)
+    let (version, rows) = mapcro_schema::file_header(&records);
     BoardFile {
         format: FORMAT.to_owned(),
         version,
@@ -141,9 +144,7 @@ fn file(doc: &Doc, matches: Vec<u64>, exported_at: i64) -> BoardFile {
         exported_at,
         records,
         matches,
-        // The rows this build writes, not the ones it only reads: the file must still import
-        // on the reader release a rollback goes to.
-        rows: Some(mapcro_schema::written_rows() as u64),
+        rows: Some(rows),
     }
 }
 
@@ -403,7 +404,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_file_says_the_rows_this_build_writes_not_the_ones_it_only_reads() {
+    fn a_file_says_the_rows_its_records_need_and_never_exceeds_written_rows_for_live_boards() {
         use mapcro_schema::{ROWS, Status};
         let mut n = 0u128;
         let doc = mapcro_schema::genesis(
@@ -415,22 +416,35 @@ mod tests {
         );
         let head: Head = serde_json::from_slice(&write(&doc, Vec::new(), 0, 0)).expect("head");
         let rows = head.rows.expect("version 2 has rows") as usize;
-        // Every row below it is written, and it stops at the first that is only read.
+        // A blank board has no Group A/B or `has_heroes` rows: emits BASE_FILE_ROWS (15), which
+        // v11..v14 and R1 all accept alongside version 2.
+        assert_eq!(head.version, 2);
+        assert_eq!(rows, mapcro_schema::BASE_FILE_ROWS);
+        assert!(rows <= mapcro_schema::written_rows());
         assert!(ROWS[..rows].iter().all(|r| r.status != Status::Ahead));
-        assert!(ROWS.get(rows).is_none_or(|r| r.status == Status::Ahead));
-        assert_eq!(rows, mapcro_schema::written_rows());
-        // A reader that knows exactly those rows takes the file; `read` refuses one above its own.
         assert!(head.rows.is_some_and(|n| n <= ROWS.len() as u64));
+    }
+
+    /// Simulate an older release's header + admission checks: rejects when `head.rows > old_rows`
+    /// OR `head.version > old_reads` as `Newer`, then checks admission under `admit`.
+    fn read_as_older(bytes: &[u8], old_reads: u64, old_rows: u64, admit: &Admit) -> Result<(), Refusal> {
+        let head: Head = serde_json::from_slice(bytes).map_err(|_| Refusal::NotABoard)?;
+        if head.rows.is_some_and(|n| n > old_rows) || head.version > old_reads {
+            return Err(Refusal::Newer);
+        }
+        read(bytes, ids(1000), admit).map(|_| ())
     }
 
     /// The file says version 3 only when the v11 build would refuse what it holds (a scene
     /// name over 24 characters, a comment's side), so that build answers "Newer file" for it,
-    /// and imports every other file this build writes.
+    /// and imports every other file this build writes (checking both v11's `READS = 2` and
+    /// `ROWS.len() = 15`).
     #[test]
     fn a_file_is_version_3_only_when_it_holds_what_the_v11_build_refuses() {
         use mapcro_schema::{Callout, FieldValue, Op, Side, Status, Tx, TxKind, WorldPos};
-        /// The newest file version the v11 build reads, and its gate.
+        /// The newest file version and row count the v11 build reads, and its gate.
         const V11_READS: u64 = 2;
+        const V11_ROWS: u64 = 15;
         let v11 = Admit { long_scene_name: Status::Ahead, callout_side: Status::Ahead, stroke_color: Status::Ahead, ..Admit::DEPLOYED };
         let base = mapcro_schema::genesis(ids(0), "t");
         let scene = base.iter_live().find(|(_, r)| matches!(r, Record::Scene(_))).map(|(id, _)| id).expect("scene");
@@ -455,33 +469,38 @@ mod tests {
             let head: Head = serde_json::from_slice(&bytes).expect("head");
             assert_eq!(head.version > V11_READS, newer, "{what}");
             assert_eq!(head.version, if newer { 3 } else { 2 }, "{what}");
-            // What v11 does with it: a version it reads, then its gate. Never "Bad file".
+            assert_eq!(head.rows, Some(V11_ROWS), "{what}");
+            // What v11 does with it: both `head.rows <= 15` and `head.version <= 2`, then its gate.
             if !newer {
-                read(&bytes, ids(1000), &v11).unwrap_or_else(|e| panic!("{what}: the v11 build imports it: {e:?}"));
+                read_as_older(&bytes, V11_READS, V11_ROWS, &v11).unwrap_or_else(|e| panic!("{what}: the v11 build imports it: {e:?}"));
             } else {
+                assert_eq!(read_as_older(&bytes, V11_READS, V11_ROWS, &v11).err(), Some(Refusal::Newer), "{what}");
                 assert_eq!(read(&bytes, ids(1000), &v11).err(), Some(Refusal::Invalid), "{what}: as version 2 it would be a bad file");
             }
             read(&bytes, ids(1000), &Admit::DEPLOYED).unwrap_or_else(|e| panic!("{what}: imports here: {e:?}"));
         }
     }
 
-    /// The file says version 4 ([`VERSION`]) only when the v13 build (8efbfac, reading up to
-    /// version 3) would refuse what it holds: a scene's state with `has_heroes`. That build, and
-    /// the v12 one (18b41c6, up to 2), answer "Newer file" for it, and import every other file
-    /// this build writes. (Before the writer such a board was written as version 2: a bad file
-    /// there.)
+    /// The file says version 4 (`rows: 16`) only when the v13 build (8efbfac, reading up to
+    /// version 3, `ROWS.len() == 16`) would refuse what it holds: a scene's state with
+    /// `has_heroes`. Both v13 and v12 (`READS = 2, ROWS = 16`) answer "Newer file" for it,
+    /// and import every v2/v3 file this build writes; v14 (`READS = 4, ROWS = 16`) imports
+    /// every v2/v3/v4 file this build writes!
     #[test]
     fn a_file_is_version_4_only_when_it_holds_what_the_v13_build_refuses() {
         use mapcro_schema::Status;
-        /// The newest file version the v13 and v12 builds read, and their gate.
+        const V14_READS: u64 = 4;
         const V13_READS: u64 = 3;
         const V12_READS: u64 = 2;
+        const V12_TO_V14_ROWS: u64 = 16;
         let v13 = Admit { row: |r| if r.key() == "has_heroes" { Status::Ahead } else { r.row().status }, ..Admit::DEPLOYED };
-        let reading = |reads: u64| move |bytes: &[u8]| -> Result<(), Refusal> {
-            let head: Head = serde_json::from_slice(bytes).map_err(|_| Refusal::NotABoard)?;
-            if head.version > reads { Err(Refusal::Newer) } else { read(bytes, ids(1000), &v13).map(|_| ()) }
+        let v14 = Admit {
+            row: |r| if mapcro_schema::ROWS.iter().position(|x| x.key == r.key()).unwrap_or(0) >= 16 { Status::Ahead } else { r.row().status },
+            ..Admit::DEPLOYED
         };
-        let (v13_reads, v12_reads) = (reading(V13_READS), reading(V12_READS));
+        let v14_reads = |bytes: &[u8]| read_as_older(bytes, V14_READS, V12_TO_V14_ROWS, &v14);
+        let v13_reads = |bytes: &[u8]| read_as_older(bytes, V13_READS, V12_TO_V14_ROWS, &v13);
+        let v12_reads = |bytes: &[u8]| read_as_older(bytes, V12_READS, V12_TO_V14_ROWS, &v13);
         let state = |more: serde_json::Value| move |v: &mut serde_json::Value| {
             let scene = first(v, "Scene").0;
             records(v).push(serde_json::json!([STATE_ID, { "SceneState": { "scene": scene, "more": more.clone() } }]));
@@ -489,19 +508,22 @@ mod tests {
         let long = |v: &mut serde_json::Value| first(v, "Scene").1["name"] = serde_json::json!("n".repeat(LIMITS.max_scene_name));
         let rows = mapcro_schema::ROWS.len();
         type Change<'a> = Box<dyn Fn(&mut serde_json::Value) + 'a>;
-        let cases: [(&str, Change, u64); 6] = [
-            ("nothing new", Box::new(|_| {}), 2),
-            ("a scene's state without it", Box::new(state(serde_json::json!({ "rows": rows, "has_builds": true }))), 2),
-            ("a long name", Box::new(long), 3),
-            ("a scene that holds its heroes", Box::new(state(serde_json::json!({ "rows": rows, "has_heroes": true }))), 4),
-            ("the flag said false", Box::new(state(serde_json::json!({ "rows": rows, "has_heroes": false }))), 4),
-            ("both", Box::new(|v: &mut serde_json::Value| { long(v); state(serde_json::json!({ "rows": rows, "has_heroes": true }))(v) }), 4),
+        let cases: [(&str, Change, u64, u64); 6] = [
+            ("nothing new", Box::new(|_| {}), 2, 15),
+            ("a scene's state without it", Box::new(state(serde_json::json!({ "rows": rows, "has_builds": true }))), 2, 15),
+            ("a long name", Box::new(long), 3, 15),
+            ("a scene that holds its heroes", Box::new(state(serde_json::json!({ "rows": rows, "has_heroes": true }))), 4, 16),
+            ("the flag said false", Box::new(state(serde_json::json!({ "rows": rows, "has_heroes": false }))), 4, 16),
+            ("both", Box::new(|v: &mut serde_json::Value| { long(v); state(serde_json::json!({ "rows": rows, "has_heroes": true }))(v) }), 4, 16),
         ];
-        for (what, change, version) in cases {
+        for (what, change, version, want_rows) in cases {
             let (doc, _) = read(&file_with(change), ids(1000), &Admit::DEPLOYED).unwrap_or_else(|e| panic!("{what}: imports here: {e:?}"));
             let bytes = write(&doc, Vec::new(), 0, 0);
             let head: Head = serde_json::from_slice(&bytes).expect("head");
             assert_eq!(head.version, version, "{what}");
+            assert_eq!(head.rows, Some(want_rows), "{what}");
+            // v14 (`READS = 4, ROWS = 16`) imports ALL v2/v3/v4 boards exported by R2!
+            v14_reads(&bytes).unwrap_or_else(|e| panic!("{what}: the v14 build imports it: {e:?}"));
             // What v13 and v12 do with it: import it, or say it is newer. Never "Bad file".
             assert_eq!(v13_reads(&bytes).err(), (version > V13_READS).then_some(Refusal::Newer), "{what}: on the v13 build");
             if version > V12_READS {
@@ -622,8 +644,9 @@ mod tests {
         let (doc, _) = read(&bytes, ids(1000), &Admit::READS).expect("imports");
         let mut out: serde_json::Value = serde_json::from_slice(&write(&doc, Vec::new(), 0, 0)).expect("json");
         assert_eq!(out["version"], 2, "this build writes rows: version 2, which a build from before the reader refuses as newer");
-        // The rows this build writes (review F1), whatever a test's gate let the board hold.
-        assert_eq!(out["rows"], json!(mapcro_schema::written_rows()));
+        // Snapshot holds only rows 0..14 (no `has_heroes` or Phase 5 rows), so `rows` stays 15
+        // for v11..v14 compatibility.
+        assert_eq!(out["rows"], json!(mapcro_schema::BASE_FILE_ROWS));
         let find = |v: &mut serde_json::Value, kind: &str| -> Vec<serde_json::Value> { records(v).iter().filter_map(|r| r[1].get(kind).cloned()).collect() };
         let states = find(&mut out, "SceneState");
         assert_eq!(states.len(), 1);
@@ -641,43 +664,79 @@ mod tests {
         assert_eq!(read(&twice, ids(1000), &Admit::READS).err(), Some(Refusal::Invalid));
     }
 
-    /// TD-108: `READS` derives from `FILE_VERSIONS` (4 in R1), `rows` header is `written_rows()`
-    /// (16 in R1), v5/v6 files are refused as `Newer` on R1, and exporting a board loaded with
-    /// Group A / Group B rows tags it v5 / v6 respectively.
+    /// TD-108: in R2, `READS` derives from `FILE_VERSIONS` as 5, `rows` header is `written_rows()`
+    /// (27), files holding Group A (and no Group B) export version 5 (saying `Newer` on R1
+    /// `READS = 4`), legacy/v4 files stay <= 4, and Group B rows remain refused (`Invalid` at v5,
+    /// `Newer` at v6).
     #[test]
-    fn phase5_file_versions_are_derived_from_the_table_and_refused_as_newer_in_r1() {
+    fn phase5_file_versions_are_derived_from_the_table_and_v5_is_live_in_r2() {
+        use mapcro_schema::Status;
         use serde_json::json;
-        assert_eq!(READS, 4);
-        assert_eq!(VERSION, 4);
-        // v5 and v6 files are refused as `Newer` on R1 (before body parsing).
-        for version in [5u64, 6u64] {
-            let bytes = file_with(|v| v["version"] = json!(version));
-            assert_eq!(read(&bytes, ids(1000), &Admit::DEPLOYED).err(), Some(Refusal::Newer), "v{version}");
-        }
-        // A v4 file carrying a Group A or Group B row is refused as `Invalid` under `Admit::DEPLOYED`
-        // (even though `head.rows == 40` is within `ROWS.len()`).
-        let v4_group_a = file_with(|v| {
+        assert_eq!(READS, 5);
+        assert_eq!(VERSION, 5);
+        assert_eq!(mapcro_schema::written_rows(), 27);
+        // v6 files are refused as `Newer` on R2 (before body parsing).
+        let v6_bytes = file_with(|v| v["version"] = json!(6));
+        assert_eq!(read(&v6_bytes, ids(1000), &Admit::DEPLOYED).err(), Some(Refusal::Newer));
+
+        // A v5 file carrying Group A (and no Group B) imports under `Admit::DEPLOYED`, exports as
+        // version 5 with `rows == 27`, and is refused as `Newer` on R1 (`R1_READS == 4`).
+        let v5_group_a = file_with(|v| {
             let scene = first(v, "Scene").0;
-            records(v).push(json!([STATE_ID, { "SceneState": { "scene": scene, "more": { "rows": 27, "has_sight": true } } }]));
-            v["version"] = json!(4);
+            first(v, "PlayerState").1["more"] = json!({ "unseen": true, "cc": 1, "height": 2, "zipline": true });
+            records(v).push(json!(["00000000000000000000000000005002", { "Wave": { "scene": scene, "lane": "lane4", "t": 500, "more": { "edges": [420, 580] } } }]));
+            records(v).push(json!([STATE_ID, { "SceneState": { "scene": scene, "more": { "rows": 27, "has_heroes": true, "has_sight": true, "has_cc": true, "has_movement": true, "has_lanes": true, "has_skulls": true, "skulls": [3, 10, 1] } } }]));
+            v["version"] = json!(5);
             v["rows"] = json!(27);
         });
-        assert_eq!(read(&v4_group_a, ids(1000), &Admit::DEPLOYED).err(), Some(Refusal::Invalid));
-        let (doc_a, _) = read(&v4_group_a, ids(1000), &Admit::READS).expect("reads admits Group A");
-        let out_a: serde_json::Value = serde_json::from_slice(&write(&doc_a, Vec::new(), 0, 0)).expect("json");
+        let (doc_a, _) = read(&v5_group_a, ids(1000), &Admit::DEPLOYED).expect("R2 admits Group A");
+        let out_a_bytes = write(&doc_a, Vec::new(), 0, 0);
+        let out_a: serde_json::Value = serde_json::from_slice(&out_a_bytes).expect("json");
         assert_eq!(out_a["version"], 5);
-        assert_eq!(out_a["rows"], json!(mapcro_schema::written_rows()));
+        assert_eq!(out_a["rows"], json!(27));
+        // On R1 (`READS == 4, ROWS == 40`, rows 16..40 Ahead) and v14 (`READS == 4, ROWS == 16`):
+        // v5 says `Newer`; forged as v4 it is `Invalid` on R1 (and still `Newer` on v14 because `rows == 27 > 16`).
+        const R1_READS: u64 = 4;
+        const R1_ROWS: u64 = 40;
+        const V14_ROWS: u64 = 16;
+        let r1_gate = Admit {
+            row: |r| if mapcro_schema::ROWS.iter().position(|x| x.key == r.key()).unwrap_or(0) >= 16 { Status::Ahead } else { r.row().status },
+            ..Admit::DEPLOYED
+        };
+        assert_eq!(read_as_older(&out_a_bytes, R1_READS, R1_ROWS, &r1_gate).err(), Some(Refusal::Newer), "R1 answers Newer for a Group A file");
+        assert_eq!(read_as_older(&out_a_bytes, R1_READS, V14_ROWS, &r1_gate).err(), Some(Refusal::Newer), "v14 answers Newer for a Group A file");
+        let mut forged_v4 = out_a.clone();
+        forged_v4["version"] = json!(4);
+        assert_eq!(read_as_older(&serde_json::to_vec(&forged_v4).expect("json"), R1_READS, R1_ROWS, &r1_gate).err(), Some(Refusal::Invalid));
 
-        let v4_group_b = file_with(|v| {
+        // Legacy/v4 boards (holding no Group A or Group B rows) still export version 4 with
+        // `rows == 16`, so both v14 (`ROWS == 16`) and R1 (`ROWS == 40`) import them cleanly!
+        let v4_only = file_with(|v| {
+            let scene = first(v, "Scene").0;
+            records(v).push(json!([STATE_ID, { "SceneState": { "scene": scene, "more": { "rows": 16, "has_heroes": true } } }]));
+            v["version"] = json!(4);
+            v["rows"] = json!(16);
+        });
+        let (doc_v4, _) = read(&v4_only, ids(1000), &Admit::DEPLOYED).expect("v4 imports");
+        let out_v4_bytes = write(&doc_v4, Vec::new(), 0, 0);
+        let out_v4: serde_json::Value = serde_json::from_slice(&out_v4_bytes).expect("json");
+        assert_eq!(out_v4["version"], 4);
+        assert_eq!(out_v4["rows"], json!(16));
+        read_as_older(&out_v4_bytes, R1_READS, V14_ROWS, &r1_gate).expect("v14 imports R2's v4-only export");
+        read_as_older(&out_v4_bytes, R1_READS, R1_ROWS, &r1_gate).expect("R1 imports R2's v4-only export");
+
+        // A v5 file carrying any Group B row is refused as `Invalid` under `Admit::DEPLOYED`
+        // (and exports version 6 with `rows == 40` when loaded under `Admit::READS`).
+        let v5_group_b = file_with(|v| {
             let scene = first(v, "Scene").0;
             records(v).push(json!([STATE_ID, { "SceneState": { "scene": scene, "more": { "rows": 40, "has_sight": true, "has_camps": true } } }]));
-            v["version"] = json!(4);
+            v["version"] = json!(5);
             v["rows"] = json!(40);
         });
-        assert_eq!(read(&v4_group_b, ids(1000), &Admit::DEPLOYED).err(), Some(Refusal::Invalid));
-        let (doc_b, _) = read(&v4_group_b, ids(1000), &Admit::READS).expect("reads admits Group B");
+        assert_eq!(read(&v5_group_b, ids(1000), &Admit::DEPLOYED).err(), Some(Refusal::Invalid));
+        let (doc_b, _) = read(&v5_group_b, ids(1000), &Admit::READS).expect("reads admits Group B");
         let out_b: serde_json::Value = serde_json::from_slice(&write(&doc_b, Vec::new(), 0, 0)).expect("json");
         assert_eq!(out_b["version"], 6);
-        assert_eq!(out_b["rows"], json!(mapcro_schema::written_rows()));
+        assert_eq!(out_b["rows"], json!(40));
     }
 }

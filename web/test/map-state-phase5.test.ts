@@ -28,22 +28,23 @@ import { FALLBACK } from "../src/map/fallback-data";
 import { shiftEdges } from "../src/map/lanes";
 import { modelFromFallback } from "../src/map/model";
 import { groupToggleOps, isOn, toggleOps } from "../src/board/objectives";
-import { addSceneOps } from "../src/board/scenes";
+import { addSceneOps, materializeDroppedBaseline } from "../src/board/scenes";
 import type { BoardState, Player, Slot } from "../src/board/state";
-import { WRITTEN, captured, heroBuildAt, readBuild } from "../src/mapstate/build";
+import { WRITTEN, captured, heroBuildAt, moreBytes, readBuild } from "../src/mapstate/build";
 import {
   MAX_CAMPS, MAX_OBJ_HEALTH, MAX_POWERUPS,
   decodeEdges, decodeUrn, encodeCamps, encodeObjHealth, encodePowerups, encodeRift, encodeUrn, fnv1a32, markerHashIndex,
 } from "../src/mapstate/codec";
 import { pickHeroOps, toggleSightOps } from "../src/mapstate/edit";
 import { fromScene } from "../src/mapstate/scene";
-import { heroDraw } from "../src/mapstate/shown";
+import { heroDraw, sceneTokenHealth } from "../src/mapstate/shown";
 import { FEATURES, type MapState, fromTimeline } from "../src/mapstate/state";
 import { decideStep } from "../src/mapstate/undo";
 import { canRetake, matchSceneOps, opsBytes, retakeOps, sourceOf } from "../src/match/save";
 import { type CampAt, type PowerupAt, type Timeline, markerKey, sitesAt, slotKey } from "../src/match/timeline";
 import { centreTimer, effectiveCamp, effectivePowerup, effectiveRift, effectiveUrn, markerTip, tipFacts, urnItemTip } from "../src/player/Camps";
 import { markerStates } from "../src/player/markerStates";
+import { mapControlFeatures, visionKeyChoice } from "../src/player/Player";
 import { keyOf, markers, metadata, replay } from "./support/synthetic-match";
 
 const WRITTEN_A = 27;
@@ -160,13 +161,14 @@ function captureToScene(tl: Timeline, second: number, written: number, rs = rost
   return { saved, heroes, objectives, waves, sceneState, frameT, tier, rs };
 }
 
-describe("Phase 5 R1: exhaustive §9 round-trip property (Groups A & B)", () => {
-  it("R1 ships with WRITTEN = 16 and 40 rows (rows 16–39 all ahead)", () => {
-    expect(WRITTEN).toBe(16);
+describe("Phase 5 R2: exhaustive §9 round-trip property (Groups A live & B ahead)", () => {
+  it("R2 ships with WRITTEN = 27 and 40 rows (rows 0–26 live, rows 27–39 ahead)", () => {
+    expect(WRITTEN).toBe(27);
+    expect(WRITTEN).toBe(WRITTEN_A);
     const keys = Object.keys(ROWS) as RowKey[];
     expect(keys).toHaveLength(40);
     for (const k of keys) {
-      if (ROWS[k].index < 16) expect(ROWS[k].status).toBe("live");
+      if (ROWS[k].index < 27) expect(ROWS[k].status).toBe("live");
       else expect(ROWS[k].status).toBe("ahead");
     }
   });
@@ -351,7 +353,7 @@ describe("Phase 5 R1: exhaustive §9 round-trip property (Groups A & B)", () => 
       },
     };
 
-    for (const written of [WRITTEN_A, WRITTEN_B]) {
+    for (const written of [WRITTEN, WRITTEN_B]) {
       for (const second of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]) {
         const cap = captureToScene(tl, second, written, rs);
         createRoot((dispose) => {
@@ -382,7 +384,7 @@ describe("Phase 5 R1: exhaustive §9 round-trip property (Groups A & B)", () => 
 
   it("round-trips metadata tier on both written=27 and written=40 (only skulls captured from Phase 5)", () => {
     const rs = roster(metadata);
-    for (const written of [WRITTEN_A, WRITTEN_B]) {
+    for (const written of [WRITTEN, WRITTEN_B]) {
       const cap = captureToScene(metadata, 5, written, rs);
       createRoot((dispose) => {
         const p = fromTimeline({ tl: () => metadata, t: () => 5, markers: () => markers });
@@ -1096,7 +1098,7 @@ describe("Dormant Retake, re-picked slots, TD-145 undo & copy filter", () => {
     );
     const scRow = { id: cap.saved.id, scene: { name: "t3", order: "a0", clock: 3, source: { ...sourceOf(tl), t: 3 }, live: false, parent: null } };
 
-    for (const written of [WRITTEN_A, WRITTEN_B]) {
+    for (const written of [WRITTEN, WRITTEN_B]) {
       let n = 0;
       const txs = retakeOps(scRow, { id: "st0", more: cap.sceneState }, heroes, rs, tl, () => `rt${n++}`, written, markers, waves);
       // Since builds are already held, the ENTIRE Retake is one single atomic transaction!
@@ -1104,10 +1106,9 @@ describe("Dormant Retake, re-picked slots, TD-145 undo & copy filter", () => {
       const tx = txs[0]!;
       expect(tx.length).toBeLessThanOrEqual(written === WRITTEN_A ? 58 : 71);
       expect(opsBytes(tx)).toBeLessThanOrEqual(written === WRITTEN_A ? 8300 : 15600);
-      // Re-picked slot 0: gets NO `Set hero` and NO build rows, but DOES get Group A hero rows via SetIf on absent!
+      // Re-picked slot 0: gets NO `Set hero` and NO build rows, only Group A hero rows via `Set` in `sceneGroup`!
       const slot0Ops = tx.filter((o) => ("Set" in o ? o.Set.id : "SetIf" in o ? o.SetIf.id : "") === heroes[0]!.id);
-      expect(slot0Ops.some((o) => "Set" in o)).toBe(false);
-      expect(slot0Ops.every((o) => "SetIf" in o && "More" in o.SetIf.value && ["unseen", "cc", "height", "zipline"].includes(o.SetIf.value.More.key))).toBe(true);
+      expect(slot0Ops.every((o) => "Set" in o && "More" in o.Set.value && ["unseen", "cc", "height", "zipline"].includes(o.Set.value.More.key))).toBe(true);
       expect(slot0Ops.length).toBeGreaterThan(0);
     }
 
@@ -1228,10 +1229,16 @@ describe("Dormant Retake, re-picked slots, TD-145 undo & copy filter", () => {
     expect(txs).toHaveLength(1);
     const ops = txs[0]!;
     // ZERO Group A hero ops (and specifically NO `unseen` re-write on the coach-edited hero)!
-    const heroOps = ops.filter((o) => "SetIf" in o && o.SetIf.id !== "st0");
+    const heroOps = ops.filter((o) => ("Set" in o ? o.Set.id : "SetIf" in o ? o.SetIf.id : "") !== "st0");
     expect(heroOps).toEqual([]);
-    // Group B flags and rows:40 ARE written to SceneState!
-    const stateKeys = ops.flatMap((o) => ("SetIf" in o && o.SetIf.id === "st0" && "More" in o.SetIf.value ? [o.SetIf.value.More.key] : []));
+    // Group B flags (`Set`) and rows:40 (`SetIf` monotonic) ARE written to SceneState!
+    const stateKeys = ops.flatMap((o) =>
+      "Set" in o && o.Set.id === "st0" && "More" in o.Set.value
+        ? [o.Set.value.More.key]
+        : "SetIf" in o && o.SetIf.id === "st0" && "More" in o.SetIf.value
+          ? [o.SetIf.value.More.key]
+          : [],
+    );
     expect(stateKeys).toContain("has_camps");
     expect(stateKeys).toContain("rows");
     // Already-captured Group A SceneState flags are NOT re-written.
@@ -1379,5 +1386,656 @@ describe("Dormant Retake, re-picked slots, TD-145 undo & copy filter", () => {
     expect(canRetake(sc, state, tl, WRITTEN_B, undefined)).toBe(false);
     expect(canRetake(sc, state, tl, WRITTEN_B, [])).toBe(false);
     expect(canRetake(sc, state, tl, WRITTEN_B, markers)).toBe(true);
+  });
+});
+
+describe("Phase 5 R2: Writer A, health arc (Q3), TD-162 MapControls, copy materialization & Astra edge", () => {
+  it("Q3 sceneTokenHealth shows stored health only for living, visible heroes when Health is on and scene captured health", () => {
+    const tl = richReplay();
+    const rs = roster(tl);
+    // Replay scene at t=6: slot 3 (amber-3) is dead; living heroes have health 70.
+    const replayCap = captureToScene(tl, 6, WRITTEN, rs);
+    // Metadata scene at t=6: has("health") is false.
+    const metaCap = captureToScene(metadata, 6, WRITTEN, rs);
+    createRoot((dispose) => {
+      const rMs = fromScene({
+        heroes: () => replayCap.heroes, roster: () => rs, objectives: () => replayCap.objectives, waves: () => replayCap.waves,
+        state: () => replayCap.sceneState, tier: () => replayCap.tier, frame: () => replayCap.frameT, markers: () => markers,
+      });
+      const mMs = fromScene({
+        heroes: () => metaCap.heroes, roster: () => rs, objectives: () => metaCap.objectives, waves: () => metaCap.waves,
+        state: () => metaCap.sceneState, tier: () => metaCap.tier, frame: () => metaCap.frameT, markers: () => markers,
+      });
+      const legacyMs = fromScene({
+        heroes: () => replayCap.heroes, roster: () => rs, objectives: () => replayCap.objectives, waves: () => replayCap.waves,
+        state: () => undefined, tier: () => undefined, frame: () => undefined, markers: () => markers,
+      });
+
+      const a0 = rMs.hero("amber-0");
+      expect(a0.health()).toBe(70);
+      expect(sceneTokenHealth(a0, true, true, { health: true })).toBe(70);
+      expect(sceneTokenHealth(a0, true, true, { health: false })).toBeNull();
+      expect(sceneTokenHealth(a0, true, false, { health: true })).toBeNull();
+      expect(sceneTokenHealth(a0, false, true, { health: true })).toBeNull();
+
+      // Dead hero at frame: health is 0, and alive=false hides the arc.
+      const a3 = rMs.hero("amber-3");
+      expect(a3.alive()).toBe(false);
+      expect(sceneTokenHealth(a3, false, true, { health: true })).toBeNull();
+
+      // Metadata scene & pre-SceneState legacy scene: no health arc (zero DOM pin impact).
+      expect(sceneTokenHealth(mMs.hero("amber-0"), true, true, { health: true })).toBeNull();
+      expect(sceneTokenHealth(legacyMs.hero("amber-0"), true, true, { health: true })).toBeNull();
+      dispose();
+    });
+  });
+
+  it("TD-162: mapControlFeatures and visionKeyChoice activate from MapState even when no match is open", () => {
+    const tl = richReplay();
+    const rs = roster(tl);
+    const replayCap = captureToScene(tl, 6, WRITTEN, rs);
+    const metaCap = captureToScene(metadata, 6, WRITTEN, rs);
+
+    createRoot((dispose) => {
+      const rMs = fromScene({
+        heroes: () => replayCap.heroes, roster: () => rs, objectives: () => replayCap.objectives, waves: () => replayCap.waves,
+        state: () => replayCap.sceneState, tier: () => replayCap.tier, frame: () => replayCap.frameT, markers: () => markers,
+      });
+      const mMs = fromScene({
+        heroes: () => metaCap.heroes, roster: () => rs, objectives: () => metaCap.objectives, waves: () => metaCap.waves,
+        state: () => metaCap.sceneState, tier: () => metaCap.tier, frame: () => metaCap.frameT, markers: () => markers,
+      });
+      const legacyMs = fromScene({
+        heroes: () => replayCap.heroes, roster: () => rs, objectives: () => replayCap.objectives, waves: () => replayCap.waves,
+        state: () => undefined, tier: () => undefined, frame: () => undefined, markers: () => markers,
+      });
+      const objHealthOnlyMs = fromScene({
+        heroes: () => [], roster: () => rs, objectives: () => new Map(), waves: () => new Map(),
+        state: () => ({ rows: 40, has_obj_health: true }), tier: () => "metadata", frame: () => 5, markers: () => markers,
+      });
+
+      // No match open (`tl = undefined`): saved R2 replay scene enables Health, CC, Movement, and Vision!
+      expect(mapControlFeatures(undefined, rMs)).toEqual({ health: true, cc: true, movement: true, vision: true });
+      // Scene holding only obj_health still enables Health toggle.
+      expect(mapControlFeatures(undefined, objHealthOnlyMs)).toEqual({ health: true, cc: false, movement: false, vision: false });
+      // Metadata scene & hand-made scene with no match open: all 4 stay off.
+      expect(mapControlFeatures(undefined, mMs)).toEqual({ health: false, cc: false, movement: false, vision: false });
+      expect(mapControlFeatures(undefined, legacyMs)).toEqual({ health: false, cc: false, movement: false, vision: false });
+      // Open replay timeline + hand-made scene: timeline still enables all 4.
+      expect(mapControlFeatures(tl, legacyMs)).toEqual({ health: true, cc: true, movement: true, vision: true });
+      // Open metadata timeline + saved R2 replay scene: scene's MapState enables all 4.
+      expect(mapControlFeatures(metadata, rMs)).toEqual({ health: true, cc: true, movement: true, vision: true });
+      dispose();
+    });
+
+    // visionKeyChoice: 1/2/3 work when canVision is true (no player-mode gate!), silent when false or modified/in input.
+    const ev = (code: string, extra: Partial<KeyboardEvent> = {}) => ({
+      altKey: false, ctrlKey: false, metaKey: false, repeat: false, defaultPrevented: false, code, target: null, ...extra,
+    });
+    expect(visionKeyChoice(ev("Digit1"), true)).toBe("amber");
+    expect(visionKeyChoice(ev("Digit2"), true)).toBe("sapphire");
+    expect(visionKeyChoice(ev("Digit3"), true)).toBe("all");
+    expect(visionKeyChoice(ev("Numpad1"), true)).toBe("amber");
+    expect(visionKeyChoice(ev("Digit1"), false)).toBeUndefined();
+    expect(visionKeyChoice(ev("Digit1", { ctrlKey: true }), true)).toBeUndefined();
+    expect(visionKeyChoice(ev("Digit1", { repeat: true }), true)).toBeUndefined();
+    expect(visionKeyChoice(ev("Digit1", { defaultPrevented: true }), true)).toBeUndefined();
+    expect(visionKeyChoice(ev("KeyA"), true)).toBeUndefined();
+  });
+
+  it("R2 copy materialization: copying an R3 (written=40) scene on R2 (written=27) materializes all 5 Group B types without duplicating existing ObjectiveStates", () => {
+    const base = richReplay();
+    const clearedCamp = keyOf("camp", 3);
+    const unspawnedCamp = keyOf("camp", 0);
+    const aliveCamp = keyOf("camp", 1);
+    const clearedHeal = keyOf("heal", 0);
+    const clearedCrate = keyOf("crate", 0);
+    const bossKey = keyOf("midboss", 0);
+    const downPwr = keyOf("powerup", 0);
+    const upPwr = keyOf("powerup", 1);
+    const activeRift = keyOf("koth", 0);
+    const inactiveRift = keyOf("koth", 1);
+    const deliveryUrn = keyOf("urn", 1);
+    const otherUrn = keyOf("urn", 0);
+    const patronAmber = markers.find((m) => m.kind === "t3" && m.team === "amber")!.key;
+    const patronSapphire = markers.find((m) => m.kind === "t3" && m.team === "sapphire")!.key;
+
+    // Craft a frame at t=4 where all 5 Group B baseline types are non-default at once:
+    // - camps: clearedCamp (cleared), unspawnedCamp (unspawned, first_s: 10), clearedHeal (cleared),
+    //   clearedCrate (cleared), bossKey (cleared); aliveCamp is alive (must NOT materialize).
+    // - powerups: downPwr is down, upPwr is up (must NOT materialize).
+    // - rifts: activeRift is active, inactiveRift is elsewhere (must NOT materialize).
+    // - urn: carried with delivery = deliveryUrn; otherUrn must NOT materialize.
+    // - obj_health: patronAmber at stage 2 (materializes Stage2), patronSapphire at stage 1 (must NOT materialize).
+    const tl = {
+      ...base,
+      camps: [
+        ...markers
+          .filter((m) => m.kind === "camp")
+          .map((m) => ({
+            key: m.key,
+            first_s: m.key === unspawnedCamp ? 10 : 0,
+            cleared: m.key === clearedCamp ? ([[2, 40]] as Array<[number, number]>) : [],
+          })),
+        { key: bossKey, first_s: 0, cleared: [[3, 400]] as Array<[number, number]> },
+      ],
+      objective_health: [
+        { key: "walker:amber:lane1:1", at: [[0, 100], [4, 35]] },
+        { key: patronAmber, at: [[0, 100], [4, 60]], stage: [[0, 1], [3, 2]] },
+        { key: patronSapphire, at: [[0, 100], [4, 80]], stage: [[0, 1]] },
+      ],
+      urn: {
+        spawns: [{ t: 1, key: otherUrn }],
+        at: [{ t: 3, state: "carried", team: "sapphire", slot: 1, delivery: deliveryUrn }],
+      },
+    } as unknown as Timeline;
+
+    const rs = roster(tl);
+    const cap = captureToScene(tl, 4, WRITTEN_B, rs);
+    const records: Record<RecordId, Entry> = {};
+    for (const op of cap.saved.ops) {
+      if ("Create" in op) records[op.Create.id] = { record: op.Create.record, deleted: false };
+    }
+    const scId = cap.saved.id;
+    const scRec = (records[scId]!.record as { Scene: Record<string, unknown> }).Scene;
+
+    // Simulate a coach override already stored on the source scene: revived clearedCamp ("Active").
+    records["coach_override"] = {
+      record: { ObjectiveState: { scene: scId, key: clearedCamp, status: "Active" } },
+      deleted: false,
+    };
+
+    const fakeState = {
+      records,
+      sceneTree: () => [{ scene: { id: scId, scene: scRec }, parent: null, depth: 0 }],
+    } as unknown as BoardState;
+
+    // 1. Copy on R2 (WRITTEN = 27) with markers: drops Group B, lowers rows 40 -> 27, materializes all 5 types!
+    let n = 0;
+    const copy27 = addSceneOps(fakeState, { id: scId, scene: scRec as never }, false, () => `m${n++}`, "Copy", false, WRITTEN, markers);
+    expect(copy27.full).toBe(false);
+    // SceneState is strictly last in ops and in the last transaction.
+    const lastCopyOp = copy27.ops.at(-1)!;
+    const lastCopyTxOp = copy27.txs.at(-1)!.at(-1)!;
+    expect("Create" in lastCopyOp && "SceneState" in lastCopyOp.Create.record).toBe(true);
+    expect("Create" in lastCopyTxOp && "SceneState" in lastCopyTxOp.Create.record).toBe(true);
+
+    const copiedState = copy27.ops.flatMap((o) => ("Create" in o && "SceneState" in o.Create.record ? [o.Create.record.SceneState.more!] : []))[0]!;
+    expect(copiedState.rows).toBe(27);
+    for (const k of Object.keys(copiedState)) expect(ROWS[k as RowKey].index, k).toBeLessThan(27);
+
+    const objs = copy27.ops.flatMap((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [o.Create.record.ObjectiveState] : []));
+    const byKey = new Map<string, ObjectiveStatus[]>();
+    for (const o of objs) byKey.set(o.key, [...(byKey.get(o.key) ?? []), o.status]);
+
+    // No duplicate keys!
+    for (const [k, list] of byKey) expect(list, `duplicate ObjectiveState for ${k}`).toHaveLength(1);
+    // Coach override preserved, not duplicated with "Destroyed":
+    expect(byKey.get(clearedCamp)).toEqual(["Active"]);
+    // All 5 Group B baseline types materialized accurately:
+    expect(byKey.get(unspawnedCamp)).toEqual(["Destroyed"]);
+    expect(byKey.get(clearedHeal)).toEqual(["Destroyed"]);
+    expect(byKey.get(clearedCrate)).toEqual(["Destroyed"]);
+    expect(byKey.get(bossKey)).toEqual(["Destroyed"]);
+    expect(byKey.get(downPwr)).toEqual(["Destroyed"]);
+    expect(byKey.get(activeRift)).toEqual(["Active"]);
+    expect(byKey.get(deliveryUrn)).toEqual(["Active"]);
+    expect(byKey.get(patronAmber)).toEqual(["Stage2"]);
+    // Defaults NOT materialized:
+    expect(byKey.has(aliveCamp)).toBe(false);
+    expect(byKey.has(upPwr)).toBe(false);
+    expect(byKey.has(inactiveRift)).toBe(false);
+    expect(byKey.has(otherUrn)).toBe(false);
+    expect(byKey.has(patronSapphire)).toBe(false);
+    expect(byKey.has("walker:amber:lane1:1")).toBe(false);
+
+    // 2. Copy on R3 (written = 40) with markers: ZERO Group B rows dropped -> ZERO extra ObjectiveStates materialized!
+    n = 0;
+    const copy40 = addSceneOps(fakeState, { id: scId, scene: scRec as never }, false, () => `r${n++}`, "Copy", false, WRITTEN_B, markers);
+    const objs40 = copy40.ops.flatMap((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [o.Create.record.ObjectiveState] : []));
+    expect(objs40.some((o) => o.key === unspawnedCamp)).toBe(false);
+    expect(objs40.some((o) => o.key === patronAmber)).toBe(false);
+    expect(objs40.some((o) => o.key === clearedCamp && o.status === "Active")).toBe(true);
+
+    // 3. Respects `LIMITS.max_records`: materialized ObjectiveStates are counted against the cap!
+    const needCount = copy27.ops.length;
+    const padRecords = (total: number): BoardState => {
+      const padded: Record<RecordId, Entry> = { ...records };
+      let i = 0;
+      while (Object.keys(padded).length < total) {
+        padded[`pad_${i++}`] = { record: { Note: { scene: "other", text: "" } }, deleted: true };
+      }
+      return {
+        records: padded,
+        sceneTree: () => [{ scene: { id: scId, scene: scRec }, parent: null, depth: 0 }],
+      } as unknown as BoardState;
+    };
+    const atCap = addSceneOps(padRecords(LIMITS.max_records - needCount), { id: scId, scene: scRec as never }, false, () => `f${n++}`, "Copy", false, WRITTEN, markers);
+    expect(atCap.full).toBe(false);
+    expect(atCap.txs.length).toBeGreaterThan(0);
+    const overCap = addSceneOps(padRecords(LIMITS.max_records - needCount + 1), { id: scId, scene: scRec as never }, false, () => `g${n++}`, "Copy", false, WRITTEN, markers);
+    expect(overCap.full).toBe(true);
+    expect(overCap.txs).toEqual([]);
+
+    // 4. Chunking via chunkByBytes when materialized ObjectiveStates push total ops > max_ops_per_tx (256), keeping SceneState last!
+    const manyCampsTl = {
+      ...tl,
+      camps: markers.filter((m) => m.kind === "camp").map((m) => ({ key: m.key, first_s: 10, cleared: [] })),
+      heals: markers.filter((m) => m.kind === "heal").map((m) => ({ key: m.key, first_s: 10, cleared: [] })),
+      crates: markers.filter((m) => m.kind === "crate").map((m) => ({ key: m.key, first_s: 10, cleared: [] })),
+    } as unknown as Timeline;
+    const capMany = captureToScene(manyCampsTl, 4, WRITTEN_B, rs);
+    const manyRecords: Record<RecordId, Entry> = {};
+    for (const op of capMany.saved.ops) {
+      if ("Create" in op) manyRecords[op.Create.id] = { record: op.Create.record, deleted: false };
+    }
+    const scManyId = capMany.saved.id;
+    const scManyRec = (manyRecords[scManyId]!.record as { Scene: Record<string, unknown> }).Scene;
+    // Add 120 drawings so scene + heroes + materialized camps + ink > 256 ops.
+    for (let i = 0; i < 120; i++) {
+      manyRecords[`ink_${i}`] = { record: { Arrow: { scene: scManyId, from: { x: 0, y: 0 }, to: { x: 100, y: 100 }, team: null, color: null } }, deleted: false };
+    }
+    const manyState = {
+      records: manyRecords,
+      sceneTree: () => [{ scene: { id: scManyId, scene: scManyRec }, parent: null, depth: 0 }],
+    } as unknown as BoardState;
+    const chunked = addSceneOps(manyState, { id: scManyId, scene: scManyRec as never }, false, () => `k${n++}`, "Copy", true, WRITTEN, markers);
+    expect(chunked.full).toBe(false);
+    expect(chunked.ops.length).toBeGreaterThan(LIMITS.max_ops_per_tx);
+    expect(chunked.txs.length).toBeGreaterThan(1);
+    for (const tx of chunked.txs) {
+      expect(tx.length).toBeLessThanOrEqual(LIMITS.max_ops_per_tx);
+      expect(opsBytes(tx)).toBeLessThanOrEqual(LIMITS.max_tx_bytes - 1024);
+    }
+    // SceneState is strictly in the last tx, last op!
+    const lastChunkOp = chunked.txs.at(-1)!.at(-1)!;
+    expect("Create" in lastChunkOp && "SceneState" in lastChunkOp.Create.record).toBe(true);
+    expect(chunked.txs.slice(0, -1).every((tx) => tx.every((o) => !("Create" in o && "SceneState" in o.Create.record)))).toBe(true);
+
+    // 5. Ground urn with state="none" materializes nothing; direct helper sanity check.
+    expect(materializeDroppedBaseline({ rows: 40, has_urn: true, urn: [0, -1, -1, -1, -1, -1, -1] }, 27, 4, markers, new Set())).toEqual([]);
+  });
+
+  it("Astra R1 review edge: explicit { written: 40, builds: false } and { written: 27, builds: false } use bucketed overflow fallback", () => {
+    const base = richReplay();
+    const extraMarkers = [
+      ...markers,
+      ...Array.from({ length: 245 }, (_, i) => ({
+        key: `camp:neutral:lane0:extra_${i}`,
+        kind: "camp" as const,
+        team: "neutral" as const,
+        lane: null,
+        at: { x: 10 + (i % 900), y: 10 + Math.floor(i / 900) },
+      })),
+    ];
+    const tl = {
+      ...base,
+      objectives: [{ key: "guardian:sapphire:lane4:1", kind: "guardian", team: "sapphire", lane: 4, destroyed_s: 1 }],
+      camps: extraMarkers.filter((m) => m.kind === "camp").map((m) => ({ key: m.key, first_s: 100, cleared: [] })),
+    } as unknown as Timeline;
+    const rs = roster(tl);
+
+    // Legacy v14 (`written: 16, builds: false`) stays all-or-nothing and returns empty ops on > 256 ops.
+    let n = 0;
+    const v14 = matchSceneOps(rs, [], undefined, tl, 4, extraMarkers, () => `v14_${n++}`, [], {
+      source: sourceOf(tl),
+      written: 16,
+      builds: false,
+    });
+    expect(v14.ops).toEqual([]);
+
+    // Phase 5 (`written: 27` and `written: 40`, with `builds: false`) uses fitBuckets, dropping the
+    // overflowing camp bucket whole while preserving mandatory destroyed objectives + SceneState!
+    for (const written of [WRITTEN, WRITTEN_B]) {
+      n = 0;
+      const saved = matchSceneOps(rs, [], undefined, tl, 4, extraMarkers, () => `p5_${n++}`, [], {
+        source: sourceOf(tl),
+        written,
+        builds: false,
+      });
+      expect(saved.builds).toBe(false);
+      expect(saved.ops.length).toBeGreaterThan(0);
+      expect(saved.ops.length).toBeLessThanOrEqual(LIMITS.max_ops_per_tx);
+      expect(opsBytes(saved.ops)).toBeLessThanOrEqual(LIMITS.max_tx_bytes - 1024);
+      const objs = saved.ops.flatMap((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [o.Create.record.ObjectiveState] : []));
+      expect(objs.some((o) => o.key === "guardian:sapphire:lane4:1" && o.status === "Destroyed")).toBe(true);
+      expect(objs.some((o) => o.key.startsWith("camp:"))).toBe(false);
+      const st = saved.ops.flatMap((o) => ("Create" in o && "SceneState" in o.Create.record ? [o.Create.record.SceneState.more!] : []))[0]!;
+      expect(st).toEqual({ rows: written, has_heroes: true });
+    }
+  });
+
+  it("Finding #1: Retake preflights max_more_bytes so incomplete sight/CC/movement/lanes are never flagged captured or passed by rows", () => {
+    // At t=3: amber-1 (i=1) is unseen (seen [[6,23],[41,67]]), not on cc; let's force amber-1
+    // to have unseen=true, cc=20, height=1, zipline=true all at t=3!
+    const base = richReplay();
+    const tl = {
+      ...base,
+      players: base.players.map((p, i) =>
+        i === 1
+          ? { ...p, seen: [[6, 23], [41, 67]], cc: [[25, 35, 20, 255, 0]], height: [[0, 1]], zipline: [[2, 5]] }
+          : p,
+      ),
+    } as unknown as Timeline;
+    const rs = roster(tl);
+    const v14Cap = captureToScene(tl, 3, 16, rs);
+    const sceneObj = { name: "s", order: "a", clock: 3, source: { match_id: tl.match_id, t: 3, tier: "replay" } };
+    const sceneRow = { id: v14Cap.saved.id, scene: sceneObj } as never;
+
+    // Helper: craft a 100% schema-legal hero `more` with exactly `free` bytes remaining under
+    // `LIMITS.max_more_bytes` (`build_order <= 600`, `items <= 128`, `abilities <= 48`, `name <= 24`,
+    // all ints within `ROWS` bounds).
+    const padHeroMore = (baseMore: More, free: number): More => {
+      const m: More = {
+        ...baseMore,
+        build_order: Array.from({ length: 600 }, () => 4_294_967_295),
+        items: [] as number[],
+        abilities: [] as number[],
+      };
+      const items = m.items as number[];
+      while (items.length < 128 && moreBytes({ ...m, items: [...items, 4_294_967_295] }) <= LIMITS.max_more_bytes - free - 24) {
+        items.push(4_294_967_295);
+      }
+      const ab = m.abilities as number[];
+      while (ab.length < 48 && moreBytes({ ...m, abilities: [...ab, 4_294_967_295] }) <= LIMITS.max_more_bytes - free - 12) {
+        ab.push(4_294_967_295);
+      }
+      // Fine-tune exact byte count using a schema-legal `name` (`<= LIMITS.max_name = 24` chars).
+      let len = 1;
+      while (len < LIMITS.max_name && moreBytes({ ...m, name: "a".repeat(len) }) < LIMITS.max_more_bytes - free) len++;
+      const out: More = { ...m, name: "a".repeat(len) };
+      expect((out.build_order as number[]).length).toBeLessThanOrEqual(600);
+      expect((out.items as number[]).length).toBeLessThanOrEqual(128);
+      expect((out.abilities as number[]).length).toBeLessThanOrEqual(48);
+      expect((out.name as string).length).toBeLessThanOrEqual(LIMITS.max_name);
+      expect(LIMITS.max_more_bytes - moreBytes(out)).toBe(free);
+      return out;
+    };
+
+    const wavesMap = new Map(
+      [...v14Cap.waves].map(([lane, w], idx) => [lane, { id: `w${idx}`, t: w.t, ...(w.more ? { more: w.more } : {}) }]),
+    );
+    const stateEntries = (ops: Op[], id: string) =>
+      ops.flatMap((o) =>
+        "Set" in o && o.Set.id === id && "More" in o.Set.value
+          ? [[o.Set.value.More.key, o.Set.value.More.value] as const]
+          : "SetIf" in o && o.SetIf.id === id && "More" in o.SetIf.value
+            ? [[o.SetIf.value.More.key, o.SetIf.value.More.value] as const]
+            : [],
+      );
+    const stateMoreOps = (ops: Op[], id: string): More => {
+      const out: More = {};
+      for (const [k, v] of stateEntries(ops, id)) if (v !== null) out[k] = v;
+      return out;
+    };
+    const applyStateOps = (baseState: More, ops: Op[], id: string): More => {
+      const next: More = { ...baseState };
+      for (const [k, v] of stateEntries(ops, id)) {
+        if (v === null) delete next[k];
+        else next[k] = v;
+      }
+      return next;
+    };
+
+    // Case 1a: Hero 1 has only 4 bytes free -> neither `unseen` (14B), `cc` (8B), nor `height`/`zipline` fits.
+    // Retake must NOT set has_sight/has_cc/has_movement and must NOT emit partial hero writes!
+    // Lanes (`SetIf` on edges) & skulls (`Set` on SceneState) DO fit and are admitted cleanly, while
+    // `rows` uses `SetIf` expecting the observed watermark (monotonic!).
+    const heroesTight = v14Cap.heroes.map((h, i) =>
+      i === 1 ? { ...h, state: { ...h.state, more: padHeroMore(h.state.more ?? {}, 4) } } : h,
+    );
+    const st16 = { id: "st1", more: { rows: 16, has_builds: true, has_heroes: true, build: 6839 } as More };
+    let mid = 0;
+    const txsTight = retakeOps(sceneRow, st16, heroesTight, rs, tl, () => `r${mid++}`, WRITTEN, markers, wavesMap);
+    const opsTight = txsTight.flat();
+    // `rows` uses `SetIf` expecting 16 (monotonic); `Wave.more.edges` uses `SetIf` expecting null; flags use `Set`.
+    expect(opsTight).toContainEqual({ SetIf: { id: "st1", expect: { More: { key: "rows", value: 16 } }, value: { More: { key: "rows", value: ROWS.skulls.index + 1 } } } });
+    expect(opsTight.filter((o) => "SetIf" in o && o.SetIf.id.startsWith("w")).length).toBeGreaterThan(0);
+    expect(opsTight).toContainEqual({ Set: { id: "st1", value: { More: { key: "has_lanes", value: true } } } });
+    expect(opsTight).toContainEqual({ Set: { id: "st1", value: { More: { key: "has_skulls", value: true } } } });
+    const stateWrites = stateMoreOps(opsTight, "st1");
+    expect(stateWrites.has_sight).toBeUndefined();
+    expect(stateWrites.has_cc).toBeUndefined();
+    expect(stateWrites.has_movement).toBeUndefined();
+    // Lanes & skulls DO fit and are admitted cleanly!
+    expect(stateWrites.has_lanes).toBe(true);
+    expect(stateWrites.has_skulls).toBe(true);
+    expect(stateWrites.rows).toBe(ROWS.skulls.index + 1);
+    // ZERO partial unseen/cc/height/zipline writes on ANY hero!
+    const allHeroKeys = opsTight.flatMap((o) =>
+      "Set" in o && o.Set.id !== "st1" && "More" in o.Set.value ? [o.Set.value.More.key] : [],
+    );
+    expect(allHeroKeys).not.toContain("unseen");
+    expect(allHeroKeys).not.toContain("cc");
+    expect(allHeroKeys).not.toContain("height");
+    expect(allHeroKeys).not.toContain("zipline");
+
+    // Verify `captured()` reads lanes & skulls as true and sight/cc/movement as false!
+    const afterPartialState: More = applyStateOps(st16.more, opsTight, "st1");
+    expect(captured(afterPartialState)).toMatchObject({
+      sight: false,
+      cc: false,
+      movement: false,
+      lanes: true,
+      skulls: true,
+    });
+
+    // After applying lanes & skulls, `canRetake` with heroes/roster returns false (no dead no-op button while jammed),
+    // and once hero 1's space is freed (e.g. re-picked), `canRetake` returns true and Retake fills sight/cc/movement!
+    expect(canRetake(sceneObj, afterPartialState, tl, WRITTEN, markers, heroesTight, rs, wavesMap)).toBe(false);
+    expect(retakeOps(sceneRow, { id: "st1", more: afterPartialState }, heroesTight, rs, tl, () => `r${mid++}`, WRITTEN, markers, wavesMap)).toEqual([]);
+
+    expect(canRetake(sceneObj, afterPartialState, tl, WRITTEN, markers, v14Cap.heroes, rs, wavesMap)).toBe(true);
+    const txsAfterFree = retakeOps(sceneRow, { id: "st1", more: afterPartialState }, v14Cap.heroes, rs, tl, () => `r${mid++}`, WRITTEN, markers, wavesMap);
+    expect(stateMoreOps(txsAfterFree.flat(), "st1")).toMatchObject({ has_sight: true, has_cc: true, has_movement: true });
+
+    // Case 1b: When NO missing feature can fit, Retake emits [] and does NOT advance `rows` past 16!
+    const noLanesSkullsTl = { ...tl, zips: [], players: tl.players.map((p) => ({ ...p, deaths: [] })) } as unknown as Timeline;
+    const txsOnlyTight = retakeOps(sceneRow, st16, heroesTight, rs, noLanesSkullsTl, () => `z${mid++}`, ROWS.zipline.index + 1, markers, wavesMap);
+    expect(txsOnlyTight).toEqual([]);
+
+    // Case 2: Hero 1 has 24 bytes free -> `unseen` (14B) + `cc` (8B) fit (22B), `height`+`zipline` (~26B) do NOT fit.
+    // Retake (up through movement, written = ROWS.zipline.index + 1) admits sight + cc via `Set`, skips movement
+    // completely, and advances `rows` only to `ROWS.cc.index + 1` (20) — NOT past uncaptured movement!
+    const heroesMid = v14Cap.heroes.map((h, i) =>
+      i === 1 ? { ...h, state: { ...h.state, more: padHeroMore(h.state.more ?? {}, 24) } } : h,
+    );
+    const txsMid = retakeOps(sceneRow, st16, heroesMid, rs, tl, () => `m${mid++}`, ROWS.zipline.index + 1, markers, wavesMap);
+    const midStateOps = stateMoreOps(txsMid.flat(), "st1");
+    expect(midStateOps.has_sight).toBe(true);
+    expect(midStateOps.has_cc).toBe(true);
+    expect(midStateOps.has_movement).toBeUndefined();
+    expect(midStateOps.rows).toBe(ROWS.cc.index + 1);
+    expect(captured(applyStateOps(st16.more, txsMid.flat(), "st1"))).toMatchObject({ sight: true, cc: true, movement: false });
+    const midHeroKeys = txsMid.flat().flatMap((o) =>
+      "Set" in o && o.Set.id !== "st1" && "More" in o.Set.value ? [o.Set.value.More.key] : [],
+    );
+    expect(midHeroKeys).toContain("unseen");
+    expect(midHeroKeys).toContain("cc");
+    expect(midHeroKeys).not.toContain("height");
+    expect(midHeroKeys).not.toContain("zipline");
+
+    // Case 3 (Blocking #2 Half A): Dormant `true` flag beyond `rows` (`{ rows: 16, has_sight: true }`) is cleared
+    // when sight fails preflight and another feature (`lanes`/`skulls`) advances `rows` past `unseen`, so dormant
+    // flags never silently activate without data! Same for dormant `has_heroes: true` at `rows: 15`.
+    const dormantSight = { id: "st_dormant", more: { rows: 16, has_builds: true, has_heroes: true, has_sight: true } as More };
+    expect(captured(dormantSight.more).sight).toBe(false);
+    const txsDormant = retakeOps(sceneRow, dormantSight, heroesTight, rs, tl, () => `d${mid++}`, WRITTEN, markers, wavesMap);
+    const dormantClears = stateEntries(txsDormant.flat(), "st_dormant").filter(([, v]) => v === null).map(([k]) => k);
+    expect(dormantClears).toContain("has_sight");
+    const afterDormant = applyStateOps(dormantSight.more, txsDormant.flat(), "st_dormant");
+    expect(afterDormant.has_sight).toBeUndefined();
+    expect(captured(afterDormant)).toMatchObject({ sight: false, lanes: true, skulls: true });
+
+    const dormantHeroes = { id: "st_dh", more: { rows: 15, has_builds: true, has_heroes: true } as More };
+    expect(captured(dormantHeroes.more).heroes).toBe(false);
+    const txsDormantH = retakeOps(sceneRow, dormantHeroes, v14Cap.heroes, rs, tl, () => `dh${mid++}`, WRITTEN, markers, wavesMap);
+    const afterDormantH = applyStateOps(dormantHeroes.more, txsDormantH.flat(), "st_dh");
+    expect(afterDormantH.has_heroes).toBeUndefined();
+    expect(captured(afterDormantH).heroes).toBe(false);
+
+    // Case 4 (Blocking #2 Half B): Explicit `has_sight: false` (at `rows: 16` or `rows: 27`) transitions to `true`
+    // when sight is admitted, and `canRetake` becomes false once all features are captured!
+    for (const initRows of [16, 27]) {
+      const falseSight = {
+        id: "st_false",
+        more: {
+          rows: initRows,
+          has_builds: true,
+          has_heroes: true,
+          has_sight: false,
+          ...(initRows === 27 ? { has_cc: true, has_movement: true, has_lanes: true, has_skulls: true } : {}),
+        } as More,
+      };
+      expect(canRetake(sceneObj, falseSight.more, tl, WRITTEN, markers, v14Cap.heroes, rs, wavesMap)).toBe(true);
+      const txsFalse = retakeOps(sceneRow, falseSight, v14Cap.heroes, rs, tl, () => `f${mid++}`, WRITTEN, markers, wavesMap);
+      const afterFalse = applyStateOps(falseSight.more, txsFalse.flat(), "st_false");
+      expect(afterFalse.has_sight).toBe(true);
+      expect(captured(afterFalse).sight).toBe(true);
+      expect(canRetake(sceneObj, afterFalse, tl, WRITTEN, markers, v14Cap.heroes, rs, wavesMap)).toBe(false);
+    }
+
+    // Case 5 (Blocking #3): Pre-v10 near-cap hero (`rows: 11`, missing `kills`/`deaths`/`assists`/`max_health`)
+    // must NOT silently drop `max_health` or advance `rows` past 11 while jammed; once space frees up,
+    // `canRetake` returns true and Retake backfills `max_health` + Group A + `rows = 27`!
+    const preV10State = { id: "st_v10", more: { rows: 11, has_builds: true } as More };
+    const preV10Heroes = v14Cap.heroes.map((h, i) => {
+      if (i !== 1) return h;
+      const { kills: _k, deaths: _d, assists: _a, max_health: _mh, ...withoutKda } = h.state.more!;
+      return { ...h, state: { ...h.state, more: padHeroMore(withoutKda, 4) } };
+    });
+    expect(canRetake(sceneObj, preV10State.more, tl, WRITTEN, markers, preV10Heroes, rs, wavesMap)).toBe(false);
+    expect(retakeOps(sceneRow, preV10State, preV10Heroes, rs, tl, () => `v10_${mid++}`, WRITTEN, markers, wavesMap)).toEqual([]);
+    // Free hero 1's space (remove padded arrays): `canRetake` re-enables and fills K/D/A/max_health + Group A!
+    const preV10Freed = preV10Heroes.map((h, i) =>
+      i === 1 ? { ...h, state: { ...h.state, more: { hero: h.state.more!.hero! } } } : h,
+    );
+    expect(canRetake(sceneObj, preV10State.more, tl, WRITTEN, markers, preV10Freed, rs, wavesMap)).toBe(true);
+    const txsV10Freed = retakeOps(sceneRow, preV10State, preV10Freed, rs, tl, () => `v10f_${mid++}`, WRITTEN, markers, wavesMap);
+    const afterV10 = applyStateOps(preV10State.more, txsV10Freed.flat(), "st_v10");
+    expect(afterV10.rows).toBe(27);
+    expect(captured(afterV10)).toMatchObject({ builds: true, sight: true, cc: true, movement: true, lanes: true, skulls: true });
+    // Also verify v14 `builds: false` scene with hero 1 jammed omits `has_builds: true` while allowing lanes/skulls:
+    const v14NoBuilds = { id: "st_nb", more: { rows: 16, has_builds: false, has_heroes: true } as More };
+    const v14JammedHeroes = v14Cap.heroes.map((h, i) => {
+      if (i !== 1) return h;
+      const { max_health: _mh, ...withoutMh } = h.state.more!;
+      return { ...h, state: { ...h.state, more: padHeroMore(withoutMh, 4) } };
+    });
+    const txsNb = retakeOps(sceneRow, v14NoBuilds, v14JammedHeroes, rs, tl, () => `nb_${mid++}`, WRITTEN, markers, wavesMap);
+    const afterNb = applyStateOps(v14NoBuilds.more, txsNb.flat(), "st_nb");
+    expect(afterNb.has_builds).toBe(false);
+    expect(captured(afterNb)).toMatchObject({ builds: false, lanes: true, skulls: true });
+
+    // Case 6: Late-game Retake without builds reserves Group A headroom in captureBuild so sight/cc/movement all fit!
+    const hugeItems = Array.from({ length: 300 }, (_, k): [number, number, number] => [k, 1_000_000_000 + k, 0]);
+    const lateTl = {
+      ...tl,
+      players: tl.players.map((p, i) => (i === 1 ? { ...p, items: hugeItems } : p)),
+    } as unknown as Timeline;
+    const bareHeroes = v14Cap.heroes.map((h) => ({ ...h, state: { ...h.state, more: { hero: h.state.more!.hero! } } }));
+    const bareState = { id: "st_bare", more: { rows: 16, has_builds: false, has_heroes: true } as More };
+    const txsLate = retakeOps(sceneRow, bareState, bareHeroes, rs, lateTl, () => `l${mid++}`, WRITTEN, markers, wavesMap);
+    const lateStateOps = stateMoreOps(txsLate.flat(), "st_bare");
+    expect(lateStateOps).toMatchObject({ has_builds: true, has_sight: true, has_cc: true, has_movement: true, rows: 27 });
+    // Verify hero 1's resulting `more` after applying all ops stays strictly <= max_more_bytes!
+    const hero1Id = bareHeroes[1]!.id;
+    const hero1Result: More = { ...bareHeroes[1]!.state.more };
+    for (const op of txsLate.flat()) {
+      if ("Set" in op && op.Set.id === hero1Id && "More" in op.Set.value && op.Set.value.More.value !== null) {
+        hero1Result[op.Set.value.More.key] = op.Set.value.More.value;
+      }
+      if ("SetIf" in op && op.SetIf.id === hero1Id && "More" in op.SetIf.value && op.SetIf.value.More.value !== null) {
+        hero1Result[op.SetIf.value.More.key] = op.SetIf.value.More.value;
+      }
+    }
+    expect(moreBytes(hero1Result)).toBeLessThanOrEqual(LIMITS.max_more_bytes);
+    expect(hero1Result.unseen).toBe(true);
+    expect(hero1Result.cc).toBeDefined();
+    expect(hero1Result.height).toBe(1);
+    expect(hero1Result.zipline).toBe(true);
+
+    // Case 7 (Astra Round 3 #4): Dormant-flag activation when the only admitted feature already has
+    // `has_skulls: true` and 0 deaths at the frame (metadata scene `{ rows: 16, has_builds: true, has_skulls: true }`):
+    // `canRetake` is true, first `retakeOps` emits the monotonic `SetIf rows 16 -> 27`, and after applying it `canRetake` is false!
+    const metaNoDeaths = {
+      ...metadata,
+      players: metadata.players.map((p) => ({ ...p, deaths: [] })),
+    } as unknown as Timeline;
+    const metaSceneObj = { name: "m", order: "a", clock: 3, source: { match_id: metaNoDeaths.match_id, t: 3, tier: "metadata" } };
+    const metaSceneRow = { id: "sc_meta", scene: metaSceneObj } as never;
+    const metaCap = captureToScene(metaNoDeaths, 3, 16, rs);
+    const dormantSkulls = { id: "st_ds", more: { rows: 16, has_builds: true, build: 6839, has_heroes: true, has_skulls: true } as More };
+    expect(captured(dormantSkulls.more).skulls).toBe(false);
+    expect(canRetake(metaSceneObj, dormantSkulls.more, metaNoDeaths, WRITTEN, markers, metaCap.heroes, rs)).toBe(true);
+    const txsDs = retakeOps(metaSceneRow, dormantSkulls, metaCap.heroes, rs, metaNoDeaths, () => `ds_${mid++}`, WRITTEN, markers);
+    expect(txsDs).toEqual([[{ SetIf: { id: "st_ds", expect: { More: { key: "rows", value: 16 } }, value: { More: { key: "rows", value: WRITTEN } } } }]]);
+    const afterDs = applyStateOps(dormantSkulls.more, txsDs.flat(), "st_ds");
+    expect(captured(afterDs).skulls).toBe(true);
+    expect(canRetake(metaSceneObj, afterDs, metaNoDeaths, WRITTEN, markers, metaCap.heroes, rs)).toBe(false);
+  });
+
+  it("Finding #4: remapped active koth/urn/powerup markers (without rift:/urn:/powerup: prefix) emit Active/Destroyed ObjectiveStates and keep bucket priority on overflow", () => {
+    const base = richReplay();
+    const origRift = keyOf("koth", 0);
+    const origUrnDelivery = keyOf("urn", 1);
+    const origPowerup = keyOf("powerup", 0);
+
+    // Rename the board markers to custom keys that don't start with "rift:", "urn:", or "powerup:".
+    const remappedMarkers = markers.map((m) =>
+      m.key === origRift
+        ? { ...m, key: "east-gate" }
+        : m.key === origUrnDelivery
+          ? { ...m, key: "west-drop" }
+          : m.key === origPowerup
+            ? { ...m, key: "north-bridge" }
+            : m,
+    );
+    // Sanity: markerKey resolves the timeline's keys to the renamed board markers.
+    expect(markerKey(origRift, remappedMarkers)).toBe("east-gate");
+    expect(markerKey(origUrnDelivery, remappedMarkers)).toBe("west-drop");
+    expect(markerKey(origPowerup, remappedMarkers)).toBe("north-bridge");
+
+    // At t=4 in richReplay(): origRift is active (1..5), origUrnDelivery is open delivery (3..6),
+    // and origPowerup is down (available[4] === 0).
+    const rs = roster(base);
+    let n = 0;
+    const saved = matchSceneOps(rs, [], undefined, base, 4, remappedMarkers, () => `rm_${n++}`, [], {
+      source: sourceOf(base),
+      written: WRITTEN,
+    });
+    const objs = saved.ops.flatMap((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [o.Create.record.ObjectiveState] : []));
+    expect(objs).toContainEqual(expect.objectContaining({ key: "east-gate", status: "Active" }));
+    expect(objs).toContainEqual(expect.objectContaining({ key: "west-drop", status: "Active" }));
+    expect(objs).toContainEqual(expect.objectContaining({ key: "north-bridge", status: "Destroyed" }));
+
+    // Overflow (>256 ops with 245 extra down camps): "west-drop" (urn bucket) and "east-gate" (rifts bucket)
+    // BOTH survive when the overflowing camps bucket is dropped whole!
+    const overflowMarkers = [
+      ...remappedMarkers,
+      ...Array.from({ length: 245 }, (_, i) => ({
+        key: `camp:neutral:lane0:ov_${i}`,
+        kind: "camp" as const,
+        team: "neutral" as const,
+        lane: null,
+        at: { x: 10 + (i % 900), y: 10 + Math.floor(i / 900) },
+      })),
+    ];
+    const overflowTl = {
+      ...base,
+      camps: overflowMarkers.filter((m) => m.kind === "camp").map((m) => ({ key: m.key, first_s: 100, cleared: [] })),
+    } as unknown as Timeline;
+    n = 0;
+    const savedOverflow = matchSceneOps(rs, [], undefined, overflowTl, 4, overflowMarkers, () => `ov_${n++}`, [], {
+      source: sourceOf(overflowTl),
+      written: WRITTEN,
+    });
+    expect(savedOverflow.ops.length).toBeGreaterThan(0);
+    expect(savedOverflow.ops.length).toBeLessThanOrEqual(LIMITS.max_ops_per_tx);
+    const ovObjs = savedOverflow.ops.flatMap((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [o.Create.record.ObjectiveState] : []));
+    expect(ovObjs).toContainEqual(expect.objectContaining({ key: "west-drop", status: "Active" }));
+    expect(ovObjs).toContainEqual(expect.objectContaining({ key: "east-gate", status: "Active" }));
+    expect(ovObjs).toContainEqual(expect.objectContaining({ key: "north-bridge", status: "Destroyed" }));
+    expect(ovObjs.some((o) => o.key.startsWith("camp:"))).toBe(false);
   });
 });

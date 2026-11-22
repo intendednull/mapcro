@@ -350,6 +350,41 @@ It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` 
     run `just rows-lock` on the deployed commit (locks 40 rows: adds rows 16–39), commit
     `crates/schema/rows.lock`, and set `reader` in `justfile` to the deployed R1 commit before
     landing R2 (v16).
+- **Map-state phase 5, R2 (writer A, store v16):** flips Group A rows **16–26** (`has_sight`,
+  `unseen`, `has_cc`, `cc`, `has_movement`, `height`, `zipline`, `has_lanes`, `edges`,
+  `has_skulls`, `skulls`) from `Ahead` to `Live`, leaving Group B rows **27–39** `Ahead`
+  (`written_rows() == 27`, `boardfile::READS == 5`). Store step 15 → 16 is
+  `Step::NeedsReader { reader: 15 }` with no SQL, moving the floor to **15**.
+  - **Rollback target from v16 (R2):** **R1 (v15) only**, nothing older. v14 and earlier refuse to
+    start (floor 15). R1 opens the v16 database cleanly and preserves/serves all Group A records
+    without loss (R1 already ships both schema/client readers A and B); R1's older web client does
+    not show Q3 scene health arcs or TD-162 scene-only Vision/layer controls until R2 is
+    re-deployed.
+  - **On rollback to R1 (v15):**
+    - Board files exported by R2 carry the compatible `(version, rows)` pair for their records:
+      v2 exports `rows == 15` (imports on v11+), v3 exports `rows == 15` (imports on v13+),
+      v4 (`has_heroes`) exports `rows == 16` (imports on v14+), and Group A exports **version 5**
+      (`rows == 27`, imports on R2+, says "Newer file" on R1 `READS == 4`).
+    - Copies (`Duplicate` / `New scene`) made on R1 of R2 scenes drop Group A keys (`index >= 16`)
+      and lower `SceneState.more.rows` to `16`. Because R2 leaves `visible: true` on saved heroes,
+      copied heroes do **not** become faded for all viewers (manual `visible: false` marks from
+      pre-R2 scenes stay intact).
+    - Editing sight ("Mark not seen" / "Mark in vision") on an R2 scene with `has_sight` while
+      rolled back to R1 is refused (`WrongField`, since `unseen` is `Ahead` on R1).
+    - **R3 → R2 forward-compat copy rule:** `addSceneOps` already materializes `ObjectiveState`s
+      for any dropped Group B baseline (`camps`, `powerups`, `rifts`, `urn`, `obj_health` Patron
+      stage 2) when copying an R3 scene on R2, so R2 is ready as the rollback target for R3.
+  - **Deploy note:** flipping rows 16–26 changes the schema sources, so the build id changes and
+    every open R1 tab closes as `Outdated` and reloads. Back up SQLite first (`pre-v16`, below).
+    After R2 is live, verify `just rows-lock` is unchanged (still 40 rows — statuses aren't in the
+    lock) and set `reader` in `justfile` to the deployed R2 commit before landing R3 (v17).
+  - **Intentional pin updates in R2:** `web/test/pins/save-as-scene.json` (waves gained `edges`,
+    `SceneState` moved `rows: 16 → 27` and gained `has_lanes`/`has_skulls`/`skulls`),
+    `web/test/map-state-pins.test.ts`, `web/test/map-state-save.test.ts`,
+    `web/test/scene-heroes.test.ts`, `web/test/scene-hero-pick.test.ts`,
+    `web/test/scene-hero-undo.test.ts`, `web/test/from-scene.test.ts`,
+    `web/test/map-state-phase5.test.ts`, and `web/e2e/scene-builds.spec.ts` (living scene tokens
+    now draw `tok-health` arcs per Q3; exported R2 replay scene is board file version 5).
 - **`just reader-check`** (in `just test`) loads what this build's server stores on the reader
   release's own code. Its reader is `reader` in the justfile: **set it to the deployed commit
   at each deploy that changes what is stored**, with `just rows-lock`.

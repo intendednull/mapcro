@@ -97,7 +97,7 @@ export function SceneTree(p: {
   };
   const add = (asChild: boolean) => {
     const cur = order()[index()];
-    const made = addSceneOps(p.state, cur, asChild);
+    const made = addSceneOps(p.state, cur, asChild, undefined, "", false, undefined, p.art.model.markers);
     const { id } = made;
     if (!send(made)) return;
     if (asChild && cur && collapsed().has(cur.id)) toggle(cur.id);
@@ -106,7 +106,7 @@ export function SceneTree(p: {
   /** A copy of `row`'s scene (its heroes, objectives, splits and everything drawn on it: #54),
    * right after it, as its sibling. */
   const clone = (row: { id: RecordId; scene: Scene }) => {
-    const made = addSceneOps(p.state, row, false, undefined, copyName(row.scene.name), true);
+    const made = addSceneOps(p.state, row, false, undefined, copyName(row.scene.name), true, undefined, p.art.model.markers);
     if (send(made)) p.onFlip(made.id);
   };
   const remove = (id: RecordId) => {

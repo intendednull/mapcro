@@ -193,7 +193,7 @@ pub struct Store {
 }
 
 /// Database schema version. Each step in `migrate` takes the database one version forward.
-const SCHEMA_VERSION: i64 = PHASE5_READER;
+const SCHEMA_VERSION: i64 = PHASE5_WRITER_A;
 
 /// The reader of feedback #56, #59 and #60 (a scene name up to 48 characters, a comment's side,
 /// a stroke's colour as a field): deployed as ce1ec0c.
@@ -212,10 +212,14 @@ const HEROES_READER: i64 = 12;
 /// takes this number, this moves up one, and the floor stays [`HEROES_READER`].
 const HEROES_WRITER: i64 = 14;
 
-/// The reader of map-state phase 5 (rows 16–39, Groups A & B; docs/specs/map-state-phase5-plan.md).
-/// All 24 rows are `Ahead` here, so v12–v14 servers still read everything in the database:
-/// additive (floor stays 12). R2 (v16) sets floor 15; R3 (v17) sets floor 16.
+/// The reader of map-state phase 5 (rows 16–39, Groups A & B; docs/specs/map-state-phase5-plan.md):
+/// deployed as e2438b4. All 24 rows were `Ahead` there, so v12–v14 servers still opened it
+/// (additive, floor 12).
 const PHASE5_READER: i64 = 15;
+/// The writer of map-state phase 5 Group A (rows 16–26: sight/unseen, cc, movement, lane edges,
+/// skulls; docs/specs/map-state-phase5-plan.md §5 R2). No SQL; floor moves to [`PHASE5_READER`]
+/// (15), so v14 refuses to start and R1 (v15) opens v16 untouched. R3 (v17) sets floor 16.
+const PHASE5_WRITER_A: i64 = 16;
 
 /// What the step from `from` to `from + 1` asks of an older server (spec §9, docs/deploy.md
 /// "Rollbacks").
@@ -248,6 +252,7 @@ fn step(from: i64) -> Step {
         f if f + 1 == SIDES_WRITER => Step::NeedsReader { reader: SIDES_READER },
         f if f + 1 == HEROES_WRITER => Step::NeedsReader { reader: HEROES_READER },
         f if f + 1 == PHASE5_READER => Step::Additive,
+        f if f + 1 == PHASE5_WRITER_A => Step::NeedsReader { reader: PHASE5_READER },
         _ => Step::Breaking,
     }
 }
@@ -376,9 +381,14 @@ fn migrate(conn: &Connection, from: i64, to: i64) -> Result<(), StoreError> {
             // (`Step::NeedsReader { reader: 12 }`).
             f if f + 1 == HEROES_WRITER => {}
             // The reader of map-state phase 5 (`PHASE5_READER`, store v15): no SQL. This server
-            // reads rows 16–39 (Groups A & B) and takes none from a client or a file (all `Ahead`),
+            // reads rows 16–39 (Groups A & B) and took none from a client or a file (all `Ahead`),
             // so v12–v14 servers still read everything in the database: additive (floor stays 12).
             f if f + 1 == PHASE5_READER => {}
+            // The writer of map-state phase 5 Group A (`PHASE5_WRITER_A`, store v16): no SQL. From
+            // here the server takes Group A rows (16–26, `Live`). The v15 reader (`PHASE5_READER`)
+            // loads them untouched and v14 refuses to start: the floor is 15
+            // (`Step::NeedsReader { reader: 15 }`).
+            f if f + 1 == PHASE5_WRITER_A => {}
             other => return Err(StoreError::Corrupt(format!("no migration from schema {other}"))),
         }
         v += 1;
@@ -1540,6 +1550,10 @@ mod tests {
         assert_eq!(step(14), Step::Additive);
         assert_eq!(compat_floor(PHASE5_READER), 12, "v15 opens on v12, v13 and v14 servers, and on nothing older");
         assert_eq!(PHASE5_READER, 15);
+        // The writer of map-state phase 5 Group A (v16): floor moves to v15 (`PHASE5_READER`).
+        assert_eq!(step(15), Step::NeedsReader { reader: PHASE5_READER });
+        assert_eq!(compat_floor(PHASE5_WRITER_A), 15, "v16 opens on the v15 reader, and on nothing older");
+        assert_eq!(PHASE5_WRITER_A, 16);
         assert_eq!(compat_floor(SCHEMA_VERSION + 1), SCHEMA_VERSION + 1, "a step this build doesn't know counts as breaking");
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("db.sqlite");
@@ -1612,7 +1626,7 @@ mod tests {
         }
         let store = Store::open(&path).expect("migrates");
         assert_eq!(meta(&path, "schema_version"), Some(SCHEMA_VERSION.to_string()));
-        assert_eq!(meta(&path, "compat_floor"), Some(HEROES_READER.to_string()), "through the writers' steps: the v12 reader opens it");
+        assert_eq!(meta(&path, "compat_floor"), Some(PHASE5_READER.to_string()), "through the writers' steps: the v15 reader opens it");
         for (hash, role, label, revoked, parent) in [
             (&owner, LinkRole::Owner, "owner", false, None),
             (&edit, LinkRole::Edit, "coach", false, Some(&owner)),
@@ -1762,13 +1776,13 @@ mod tests {
     /// Store v15 (map-state phase 5 reader): additive over v14, so v12–v14 servers open it
     /// untouched, v11 refuses it, and a stored base/log holding Group A & B rows (Hero, Lane,
     /// Scene, including `Pos` and `Ints`) still loads cleanly even though `Admit::DEPLOYED`
-    /// refuses them from outside.
+    /// refuses `Ahead` rows from outside.
     #[tokio::test]
     async fn v15_opens_on_v12_to_v14_and_stored_phase5_rows_load() {
         use mapcro_schema::{FieldValue, LaneKey, MoreValue, Op, Record, RecordId, RowId, SceneState, TxKind, Wave, WorldPos};
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("db.sqlite");
-        Store::open(&path).expect("create v15");
+        Store::open_at(&path, PHASE5_READER).expect("create v15");
         assert_eq!(meta(&path, "schema_version").as_deref(), Some("15"));
         assert_eq!(meta(&path, "compat_floor").as_deref(), Some("12"));
         let c = Connection::open(&path).expect("open");
@@ -1782,7 +1796,7 @@ mod tests {
         let v14_path = dir.path().join("v14.sqlite");
         Store::open_at(&v14_path, 14).expect("create v14");
         assert_eq!(meta(&v14_path, "compat_floor").as_deref(), Some("12"));
-        Store::open(&v14_path).expect("migrate v14 -> v15");
+        Store::open_at(&v14_path, PHASE5_READER).expect("migrate v14 -> v15");
         assert_eq!((meta(&v14_path, "schema_version").as_deref(), meta(&v14_path, "compat_floor").as_deref()), (Some("15"), Some("12")));
 
         // Stored base and log holding Group A & Group B rows load despite `Admit::DEPLOYED`.
@@ -1840,6 +1854,30 @@ mod tests {
         let caps = LoadCaps { ops: 1000, bytes: 1 << 20, clients: 10, rejections: 10 };
         let loaded = store.load_board("p5".into(), caps, Quota::default()).await.expect("load").expect("board");
         assert_eq!(loaded.authority.doc(), &head);
+    }
+
+    /// Store v16 (map-state phase 5 R2, Writer A): `Step::NeedsReader { reader: 15 }`, no SQL,
+    /// floor 15. A v15 server (R1) opens v16 untouched; v14 and older refuse to start.
+    #[test]
+    fn only_the_v15_reader_opens_the_phase5_writer_a_database() {
+        let (v, floor) = (PHASE5_WRITER_A.to_string(), PHASE5_READER.to_string());
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("db.sqlite");
+        Store::open(&path).expect("create at v16");
+        assert_eq!((meta(&path, "schema_version"), meta(&path, "compat_floor")), (Some(v.clone()), Some(floor.clone())));
+        let c = Connection::open(&path).expect("open");
+        reconcile(&c, PHASE5_READER).expect("the v15 reader (R1) opens v16");
+        for older in 5..PHASE5_READER {
+            assert!(matches!(reconcile(&c, older), Err(StoreError::Corrupt(_))), "v{older} is below floor 15 and must refuse v16");
+        }
+        drop(c);
+        assert_eq!((meta(&path, "schema_version"), meta(&path, "compat_floor")), (Some(v.clone()), Some(floor.clone())), "v15 left v16 untouched");
+        // A v15 database in use migrates cleanly to v16, raising compat_floor from 12 to 15.
+        let v15_path = dir.path().join("v15.sqlite");
+        Store::open_at(&v15_path, PHASE5_READER).expect("create v15");
+        assert_eq!(meta(&v15_path, "compat_floor").as_deref(), Some("12"));
+        Store::open(&v15_path).expect("migrate v15 -> v16");
+        assert_eq!((meta(&v15_path, "schema_version"), meta(&v15_path, "compat_floor")), (Some(v), Some(floor)));
     }
 
     /// A session's listed links say they're a session's, as `link` does (security review of

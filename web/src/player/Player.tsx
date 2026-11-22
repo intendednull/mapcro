@@ -11,7 +11,8 @@ import type { BoardState } from "../board/state";
 import { type SceneRow, sceneName } from "../board/scenes";
 import type { RecordId } from "../gen/RecordId";
 import type { Op } from "../gen/Op";
-import { type MatchEvent, clockLabel, playersAt, tierOf } from "../match/timeline";
+import { type MatchEvent, type Timeline, clockLabel, playersAt, tierOf } from "../match/timeline";
+import type { MapState } from "../mapstate/state";
 import { chunkByBytes, matchSceneOps, matchScenesOps, slotKey, sourceOf } from "../match/save";
 import { MAX_OPS_PER_TX, chunks, clearAnnotationsOps, copyAnnotationsOps, ensureLiveOps, liveIds, takeAnnotationsOps } from "./live";
 import { FETCH_WHY, busy, jobLabel, queueLabel, staleUpload } from "./api";
@@ -646,14 +647,42 @@ function dismissDisclosure(element: () => HTMLDetailsElement | null) {
   onCleanup(() => { window.removeEventListener("pointerdown", close, true); window.removeEventListener("keydown", close); });
 }
 
+/** Which replay/scene map controls are active (TD-162): shown when either the open timeline
+ * or the active frame's `MapState` holds the feature (for Health: hero `health` or `obj_health`). */
+export function mapControlFeatures(
+  tl: Pick<Timeline, "tier" | "players"> | undefined,
+  ms?: Pick<MapState, "has">,
+): { health: boolean; cc: boolean; movement: boolean; vision: boolean } {
+  return {
+    health: tl?.tier === "replay" || !!ms?.has("health") || !!ms?.has("obj_health"),
+    cc: !!tl?.players.some((player) => player.cc?.length) || !!ms?.has("cc"),
+    movement: !!tl?.players.some((player) => player.height?.length || player.zipline?.length) || !!ms?.has("movement"),
+    vision: (!!tl && hasVision(tl as Timeline)) || !!ms?.has("sight"),
+  };
+}
+
+/** What Vision a keypress picks (TD-162): active whenever Vision is available (in Player or on
+ * a scene holding `has_sight`), outside typing, dialogs and menus. */
+export function visionKeyChoice(
+  e: Pick<KeyboardEvent, "altKey" | "ctrlKey" | "metaKey" | "repeat" | "defaultPrevented" | "code" | "target">,
+  canVision: boolean,
+): Vision | undefined {
+  if (e.altKey || e.ctrlKey || e.metaKey || e.repeat || e.defaultPrevented || !canVision) return undefined;
+  const v = visionForCode(e.code);
+  return v && boardKeys(e.target as Element | null) ? v : undefined;
+}
+
 /** Display preferences live beside the canvas, separate from annotation tools and transport. */
 export function MapControls(p: {
-  host: PlayerHost; heals: boolean; crates: boolean;
+  host: PlayerHost;
+  ms?: () => MapState;
+  heals: boolean; crates: boolean;
   toggleHeals: () => void; toggleCrates: () => void;
   flip: () => void;
   phone?: boolean;
 }) {
   const h = p.host;
+  const feat = () => mapControlFeatures(h.tl(), p.ms?.());
   let layers: HTMLDetailsElement | undefined;
   const sizePop = () => {
     if (!layers?.open || layers.closest(".p-sheet")) return;
@@ -674,105 +703,104 @@ export function MapControls(p: {
   // A change to what the map draws is your own: the view-state store stops following, and you
   // keep what you were seeing with that one change (spec §8). Player names are this browser's
   // alone, never followed.
-  useVisionKeys(h);
+  useVisionKeys(h, () => feat().vision);
   return <div class="map-controls" role="group" aria-label="Map view">
     <details class="map-layers" ref={layers} onToggle={sizePop}>
       <summary class="btn small" data-testid="map-layers-toggle">Map layers ▾</summary>
       <div class="map-layers-pop">
-        <Show when={h.tl()}>{m => <>
+        <Show when={h.tl() || feat().health || feat().cc || feat().movement}>
           <h3>Replay layers</h3>
-              <Show when={m().troopers}>
-                <button
-                  type="button"
-                  class={cx("btn ghost small", h.showTroopers() && "on")}
-                  data-testid="troopers-toggle"
-                  aria-pressed={h.showTroopers()}
-                  onClick={() => h.setShowTroopers(!h.showTroopers())}
-                >
-                  Lane troopers
-                </button>
-              </Show>
-              <Show when={m().tier === "replay"}>
-                <button
-                  type="button"
-                  class={cx("btn ghost small", h.showHealth() && "on")}
-                  data-testid="health-toggle"
-                  aria-pressed={h.showHealth()}
-                  onClick={() => h.setShowHealth(!h.showHealth())}
-                >
-                  Health bars & arcs
-                </button>
-              </Show>
-              <Show when={m().players.some((x) => x.name)}>
-                <button
-                  type="button"
-                  class={cx("btn ghost small", h.showNames() && "on")}
-                  data-testid="names-toggle"
-                  aria-pressed={h.showNames()}
-                  onClick={() => h.setShowNames(!h.showNames())}
-                >
-                  Player names
-                </button>
-              </Show>
-              <button
-                type="button"
-                class={cx("btn ghost small", h.showPings() && "on")}
-                data-testid="pings-toggle"
-                aria-pressed={h.showPings()}
-                onClick={() => h.setShowPings(!h.showPings())}
-              >
-                Event pings
-              </button>
-
-        </>}</Show>
-        <Show when={h.tl()?.players.some(player => player.cc?.length)}><button class="btn ghost small" data-testid="cc-toggle" aria-pressed={h.showCC()} onClick={() => h.setShowCC(!h.showCC())}>Crowd control</button></Show>
-        <Show when={h.tl()?.players.some(player => player.height?.length || player.zipline?.length)}><button class="btn ghost small" data-testid="movement-toggle" aria-pressed={h.showMovement()} onClick={() => h.setShowMovement(!h.showMovement())}>Elevation & ziplines</button></Show>
+        </Show>
+        <Show when={h.tl()?.troopers}>
+          <button
+            type="button"
+            class={cx("btn ghost small", h.showTroopers() && "on")}
+            data-testid="troopers-toggle"
+            aria-pressed={h.showTroopers()}
+            onClick={() => h.setShowTroopers(!h.showTroopers())}
+          >
+            Lane troopers
+          </button>
+        </Show>
+        <Show when={feat().health}>
+          <button
+            type="button"
+            class={cx("btn ghost small", h.showHealth() && "on")}
+            data-testid="health-toggle"
+            aria-pressed={h.showHealth()}
+            onClick={() => h.setShowHealth(!h.showHealth())}
+          >
+            Health bars & arcs
+          </button>
+        </Show>
+        <Show when={h.tl()?.players.some((x) => x.name)}>
+          <button
+            type="button"
+            class={cx("btn ghost small", h.showNames() && "on")}
+            data-testid="names-toggle"
+            aria-pressed={h.showNames()}
+            onClick={() => h.setShowNames(!h.showNames())}
+          >
+            Player names
+          </button>
+        </Show>
+        <Show when={h.tl()}>
+          <button
+            type="button"
+            class={cx("btn ghost small", h.showPings() && "on")}
+            data-testid="pings-toggle"
+            aria-pressed={h.showPings()}
+            onClick={() => h.setShowPings(!h.showPings())}
+          >
+            Event pings
+          </button>
+        </Show>
+        <Show when={feat().cc}><button class="btn ghost small" data-testid="cc-toggle" aria-pressed={h.showCC()} onClick={() => h.setShowCC(!h.showCC())}>Crowd control</button></Show>
+        <Show when={feat().movement}><button class="btn ghost small" data-testid="movement-toggle" aria-pressed={h.showMovement()} onClick={() => h.setShowMovement(!h.showMovement())}>Elevation & ziplines</button></Show>
         <h3>Map pickups</h3>
         <button class="btn ghost small" data-testid="heals-toggle" aria-pressed={p.heals} onClick={p.toggleHeals}>Healing pickups</button>
         <button class="btn ghost small" data-testid="crates-toggle" aria-pressed={p.crates} onClick={p.toggleCrates}>Heavy boxes</button>
       </div>
     </details>
-    <Show when={h.tl()}>{m => <>
-              <Show when={hasVision(m())}>
-                <>
-                  <select
-                    class="input pl-vision"
-                    data-testid="vision-select"
-                    aria-label="Vision"
-                    aria-keyshortcuts={p.phone ? undefined : "1 2 3"}
-                    title={p.phone ? undefined : "Vision [1 2 3]"}
-                    value={h.vision()}
-                    onChange={(e) => h.setVision(e.currentTarget.value as Vision)}
-                  >
-                    <For each={VISIONS}>{(v) => <option value={v} aria-keyshortcuts={p.phone ? undefined : visionKey(v)}>Vision: {v === "all" ? "All" : teamName(v)}{p.phone ? "" : ` [${visionKey(v)}]`}</option>}</For>
-                  </select>
-                  <Show when={h.vision() !== "all"}>
-                    <button
-                      type="button"
-                      class={cx("btn ghost small", h.showLastSeen() && "on")}
-                      data-testid="last-seen-toggle"
-                      aria-pressed={h.showLastSeen()}
-                      onClick={() => h.setShowLastSeen(!h.showLastSeen())}
-                    >
-                      Last seen
-                    </button>
-                  </Show>
-                </>
-              </Show>
-    </>}</Show>
+    <Show when={feat().vision}>
+      <>
+        <select
+          class="input pl-vision"
+          data-testid="vision-select"
+          aria-label="Vision"
+          aria-keyshortcuts={p.phone ? undefined : "1 2 3"}
+          title={p.phone ? undefined : "Vision [1 2 3]"}
+          value={h.vision()}
+          onChange={(e) => h.setVision(e.currentTarget.value as Vision)}
+        >
+          <For each={VISIONS}>{(v) => <option value={v} aria-keyshortcuts={p.phone ? undefined : visionKey(v)}>Vision: {v === "all" ? "All" : teamName(v)}{p.phone ? "" : ` [${visionKey(v)}]`}</option>}</For>
+        </select>
+        <Show when={h.vision() !== "all"}>
+          <button
+            type="button"
+            class={cx("btn ghost small", h.showLastSeen() && "on")}
+            data-testid="last-seen-toggle"
+            aria-pressed={h.showLastSeen()}
+            onClick={() => h.setShowLastSeen(!h.showLastSeen())}
+          >
+            Last seen
+          </button>
+        </Show>
+      </>
+    </Show>
     <button class="btn small map-flip" data-testid="viewpoint-flip" title="Flip map" aria-label="Flip map" onClick={p.flip}>
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 2v11M2 10l3 3 3-3M11 14V3M8 6l3-3 3 3" /></svg>
       Flip map
     </button>
-    <VisionMark host={h} />
+    <VisionMark host={h} canVision={() => feat().vision} />
   </div>;
 }
 
 /** The Vision in force, in its team's colour, and whether ghosts show (#12): a follower sees
  * the presenter's at a glance. Nothing under "All". */
-function VisionMark(p: { host: PlayerHost }) {
+function VisionMark(p: { host: PlayerHost; canVision: () => boolean }) {
   const h = p.host;
-  return <Show when={h.tl() && hasVision(h.tl()!) && h.vision() !== "all" ? (h.vision() as "amber" | "sapphire") : undefined}>{team =>
+  return <Show when={p.canVision() && h.vision() !== "all" ? (h.vision() as "amber" | "sapphire") : undefined}>{team =>
     <span class={cx("vision-mark", team())} data-testid="vision-mark" data-team={team()} data-ghosts={h.showLastSeen() ? "on" : "off"} role="status" aria-label={`${teamName(team())} vision${h.showLastSeen() ? ", Last seen" : ""}`}>
       <i aria-hidden="true" />{teamName(team())}
       <Show when={h.showLastSeen()}><small>Last seen</small></Show>
@@ -780,15 +808,13 @@ function VisionMark(p: { host: PlayerHost }) {
   }</Show>;
 }
 
-/** Vision's keys (#10, #32): 1 Hidden King, 2 Archmother, 3 All, as the list orders them; off
- * while typing, in a dialog or a menu. Changing it is your own view, so following stops. */
-function useVisionKeys(h: PlayerHost) {
+/** Vision's keys (#10, #32, TD-162): 1 Hidden King, 2 Archmother, 3 All, as the list orders them;
+ * off while typing, in a dialog or a menu. Changing it is your own view, so following stops. */
+function useVisionKeys(h: PlayerHost, canVision: () => boolean) {
   onMount(() => {
     const key = (e: KeyboardEvent) => {
-      if (e.altKey || e.ctrlKey || e.metaKey || e.repeat || e.defaultPrevented) return;
-      const v = visionForCode(e.code);
-      const tl = h.tl();
-      if (!v || !tl || !hasVision(tl) || h.mode() !== "player" || !boardKeys(e.target as Element | null)) return;
+      const v = visionKeyChoice(e, canVision());
+      if (!v) return;
       e.preventDefault();
       if (v !== h.vision()) h.setVision(v);
     };

@@ -16,7 +16,7 @@ import { capture } from "../ui/capture";
 import { cx } from "../ui/cx";
 import { MAX_RESPAWN, slotKey } from "../match/save";
 import type { Shown } from "../mapstate/frame";
-import { heroDraw, playerHero } from "../mapstate/shown";
+import { heroDraw, playerHero, sceneTokenHealth } from "../mapstate/shown";
 import type { MapState } from "../mapstate/state";
 import { colorOf } from "../core/device";
 import type { PeerPresence } from "../gen/PeerPresence";
@@ -454,27 +454,32 @@ export function Tokens(p: {
                         : {}
                   }
                 />
-                <Show when={pv()?.health != null}>
-                  {(_) => {
-                    // Player, replay tier: health as an arc round the token (operator, 2026-11-08).
-                    // Heavier than the body's stroke so it reads at the default zoom (handoff).
-                    const hr = () => r() + 4.5 * p.k;
-                    const hp = () => pv()?.health ?? 0;
-                    return (
-                      <g data-testid="tok-health" data-health={hp()}>
-                        <circle class="tok-hp tok-hp-bg" r={hr()} style={{ "stroke-width": `${5 * p.k}` }} />
-                        <circle
-                          class={cx("tok-hp tok-hp-fill", team(), hp() <= 30 && "low")}
-                          r={hr()}
-                          transform="rotate(-90)"
-                          // Measured as 0..100 so a zoom changes nothing to ease; only health does.
-                          pathLength="100"
-                          style={{ "stroke-width": `${5 * p.k}`, "stroke-dasharray": `${hp()} 100` }}
-                        />
-                      </g>
-                    );
-                  }}
-                </Show>
+                {(() => {
+                  const health = () => (live() ? (pv()?.health ?? null) : sceneTokenHealth(h(), alive(), visible(), p.frame.shown()));
+                  return (
+                    <Show when={health() != null}>
+                      {(_) => {
+                        // Player and replay-saved scenes (Q3): health as an arc round the token.
+                        // Heavier than the body's stroke so it reads at the default zoom (handoff).
+                        const hr = () => r() + 4.5 * p.k;
+                        const hp = () => health() ?? 0;
+                        return (
+                          <g data-testid="tok-health" data-health={hp()}>
+                            <circle class="tok-hp tok-hp-bg" r={hr()} style={{ "stroke-width": `${5 * p.k}` }} />
+                            <circle
+                              class={cx("tok-hp tok-hp-fill", team(), hp() <= 30 && "low")}
+                              r={hr()}
+                              transform="rotate(-90)"
+                              // Measured as 0..100 so a zoom changes nothing to ease; only health does.
+                              pathLength="100"
+                              style={{ "stroke-width": `${5 * p.k}`, "stroke-dasharray": `${hp()} 100` }}
+                            />
+                          </g>
+                        );
+                      }}
+                    </Show>
+                  );
+                })()}
                 <Show
                   when={hero()?.portrait}
                   fallback={
@@ -493,8 +498,7 @@ export function Tokens(p: {
                   )}
                 </Show>
                 {(() => {
-                  // Living, seen heroes show movement and CC in both Player and scenes (plan §3, §5 R1;
-                  // scene health arc stays off until R2 so existing v14 scenes don't change on R1).
+                  // Living, seen heroes show movement and CC in both Player and scenes (plan §3, §5 R2).
                   const statusOn = () => (live() ? !leaving() && ghost() == null && !!raw()?.pos : alive() && visible() && h().pos() != null);
                   const zipline = () => (live() ? !!raw()?.zipline : p.frame.shown().movement && h().zipline());
                   const height = () => (live() ? raw()?.height : p.frame.shown().movement ? h().height() : undefined);

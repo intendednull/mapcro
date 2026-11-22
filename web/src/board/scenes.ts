@@ -3,16 +3,79 @@
 import { keyBetween } from "../core/order";
 import { LIMITS } from "../gen/limits";
 import type { More } from "../gen/More";
+import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { Op } from "../gen/Op";
 import type { Record as Rec } from "../gen/Record";
 import type { RecordId } from "../gen/RecordId";
 import { ROWS, type RowKey } from "../gen/rows";
 import type { Scene } from "../gen/Scene";
-import { WRITTEN } from "../mapstate/build";
+import { WRITTEN, captured } from "../mapstate/build";
+import { decodeCamps, decodeObjHealth, decodePowerups, decodeRift, decodeUrn, isCampKind } from "../mapstate/codec";
+import type { FrameMarkers } from "../mapstate/frame";
 import { chunkByBytes, fitsTx } from "../match/save";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { canNest } from "./tree";
 import type { BoardState } from "./state";
+
+/**
+ * R2 copy materialization rule (docs/specs/map-state-phase5-plan.md §5 R2):
+ * When `addSceneOps` drops Group B rows (`index >= written`) from a copied scene's `SceneState`
+ * (reachable after an R3 → R2 rollback), decode the source scene's dropped Group B baseline
+ * against `markers` and materialize an `ObjectiveState` for every marker that has no
+ * `ObjectiveState` in the source scene and differs from the board's default:
+ * - `has_camps` dropped: `camp.state !== "alive"` (camp, heal, crate, Mid-Boss) → `"Destroyed"`
+ * - `has_powerups` dropped: `powerup.state === "down"` → `"Destroyed"`
+ * - `has_rifts` dropped: `rift.state === "active"` → `"Active"`
+ * - `has_urn` dropped: `urn.delivery === key` → `"Active"`
+ * - `has_obj_health` dropped: `health.stage === 2` (Patron) → `"Stage2"`
+ */
+export function materializeDroppedBaseline(
+  stateMore: More | undefined,
+  written: number,
+  frame: number,
+  markers: FrameMarkers,
+  existing: ReadonlySet<string>,
+): Array<{ key: string; status: ObjectiveStatus }> {
+  if (!stateMore || !markers.length) return [];
+  const snap = captured(stateMore);
+  const kindByKey = new Map(markers.map((m) => [m.key, m.kind]));
+  const seen = new Set(existing);
+  const out: Array<{ key: string; status: ObjectiveStatus }> = [];
+  const add = (key: string, status: ObjectiveStatus) => {
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ key, status });
+  };
+
+  if (snap.camps && ROWS.camps.index >= written) {
+    for (const [key, camp] of decodeCamps(stateMore.camps, frame, markers)) {
+      if (camp.state !== "alive" && isCampKind(kindByKey.get(key) ?? "")) add(key, "Destroyed");
+    }
+  }
+  if (snap.powerups && ROWS.powerups.index >= written) {
+    for (const [key, pw] of decodePowerups(stateMore.powerups, frame, markers)) {
+      if (pw.state === "down" && kindByKey.get(key) === "powerup") add(key, "Destroyed");
+    }
+  }
+  if (snap.rifts && ROWS.rift.index >= written) {
+    const r = decodeRift(stateMore.rift, frame, markers);
+    if (r?.activeKey && r.active?.state === "active" && kindByKey.get(r.activeKey) === "koth") {
+      add(r.activeKey, "Active");
+    }
+  }
+  if (snap.urn && ROWS.urn_at.index >= written) {
+    const u = decodeUrn(stateMore.urn, stateMore.urn_at, frame, markers, () => null);
+    if (u?.delivery && kindByKey.get(u.delivery) === "urn") {
+      add(u.delivery, "Active");
+    }
+  }
+  if (snap.obj_health && ROWS.obj_health.index >= written) {
+    for (const [key, oh] of decodeObjHealth(stateMore.obj_health, markers)) {
+      if (oh.stage === 2 && kindByKey.get(key) === "t3") add(key, "Stage2");
+    }
+  }
+  return out;
+}
 
 /** Drop keys this build does not write (`index >= written`, plan §5 copy filter). */
 function filterMore(more: More | undefined, written: number): { more?: More; dropped: boolean } {
@@ -81,6 +144,7 @@ export function addSceneOps(
   name = "",
   ink = false,
   written: number = WRITTEN,
+  markers: FrameMarkers = [],
 ): { id: RecordId; ops: Op[]; txs: Op[][]; full: boolean } {
   const { parentOf, kids } = treeOf(state);
   const parent = from ? (asChild ? from.id : (parentOf.get(from.id) ?? null)) : null;
@@ -106,6 +170,7 @@ export function addSceneOps(
   const rest: Op[] = [];
   const drawn: Op[] = [];
   const rawStates: Array<{ more?: More }> = [];
+  const existingObjectives = new Set<string>();
   let anyDropped = false;
   for (const [, e] of Object.entries(state.records)) {
     if (e.deleted) continue;
@@ -130,6 +195,7 @@ export function addSceneOps(
       const { more, ...fields } = r.ObjectiveState;
       const f = filterMore(more, written);
       if (f.dropped) anyDropped = true;
+      existingObjectives.add(fields.key);
       rest.push(create({ ObjectiveState: { ...fields, scene: id, ...(f.more ? { more: f.more } : {}) } }));
     }
     if (ink) {
@@ -142,7 +208,12 @@ export function addSceneOps(
     // `more` above. Without it the copied values would be stored and never drawn.
     if ("SceneState" in r && r.SceneState.scene === src) rawStates.push(r.SceneState);
   }
+  const frame = from?.scene.source?.t ?? 0;
   const states: Op[] = rawStates.map((st) => {
+    for (const m of materializeDroppedBaseline(st.more, written, frame, markers, existingObjectives)) {
+      existingObjectives.add(m.key);
+      rest.push(create({ ObjectiveState: { scene: id, key: m.key, status: m.status } }));
+    }
     const f = filterMore(st.more, written);
     if (f.dropped) anyDropped = true;
     let more = f.more;

@@ -17,12 +17,15 @@ import { BoardSession, type SocketLike } from "../src/core/session";
 import type { More } from "../src/gen/More";
 import type { PlayerState } from "../src/gen/PlayerState";
 import type { RecordId } from "../src/gen/RecordId";
+import { LIMITS } from "../src/gen/limits";
 import { ROWS } from "../src/gen/rows";
 import type { Op } from "../src/gen/Op";
 import type { RosterSlot } from "../src/gen/RosterSlot";
-import { BUILD_KEYS, captureBuild, captureScene, heroBuildAt, sceneHero } from "../src/mapstate/build";
+import { BUILD_KEYS, captureBuild, captureScene, captured, heroBuildAt, moreBytes, sceneHero } from "../src/mapstate/build";
 import { holdsBuild } from "../src/mapstate/buildView";
+import { encodeCC } from "../src/mapstate/codec";
 import { pickHeroOps } from "../src/mapstate/edit";
+import { secondPart, tenthPart } from "../src/mapstate/frame";
 import { retakeOps, slotKey } from "../src/match/save";
 import { replay } from "./support/synthetic-match";
 
@@ -195,10 +198,25 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
     expect(await until(() => b.records.has(state) && heroes.every((id) => typeof hero(b, id).more?.hero === "number"))).toBe(true);
     const id = heroes[SLOT]!;
     const row = { id: scene, scene: { name: "s", order: "a", clock: T, source: { match_id: tl.match_id, t: T, tier: "replay" } } } as never;
+    const pl = matchOf(id);
+    const idx = tl.players.indexOf(pl);
+    const sec = secondPart(tl, T, []);
+    const ten = tenthPart(tl, T);
+    const groupA: More = {};
+    if (ten.sight[idx] !== true) groupA.unseen = true;
+    const cc = encodeCC(ten.cc[idx]);
+    if (cc !== undefined) groupA.cc = cc;
+    const mv = sec.movement[idx];
+    if (mv?.height === 1 || mv?.height === 2) groupA.height = mv.height;
+    if (mv?.zipline) groupA.zipline = true;
+    expect(Object.keys(groupA).length).toBeGreaterThan(0);
+    const build = captureBuild(heroBuildAt(tl, pl, T));
     return {
       a, b, ga, gb, id, heroes, state: { id: state, more }, row, rosterOf,
-      matchHero: matchOf(id).hero_id,
-      build: captureBuild(heroBuildAt(tl, matchOf(id), T)),
+      matchHero: pl.hero_id,
+      build,
+      groupA,
+      retaken: { ...build, ...groupA } as More,
     };
   }
   type Saved = Awaited<ReturnType<typeof saved>>;
@@ -213,7 +231,8 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
       ...BUILD_KEYS.filter((k) => more?.[k] !== undefined).map((key): Op => ({ Set: { id: s.id, value: { More: { key, value: null } } } })),
     ] as Op[];
   };
-  const oldRetake = (s: Saved) => retake(s).map((tx) => tx.flatMap((o): Op[] => ("Set" in o ? [] : [o])));
+  const oldRetake = (s: Saved) =>
+    retake(s).map((tx) => tx.flatMap((o): Op[] => ("Set" in o && "More" in o.Set.value && o.Set.value.More.key === "hero" ? [] : [o])));
 
   const held = (s: BoardSession) => JSON.stringify([...s.records].sort(([x], [y]) => (x < y ? -1 : 1)));
   /** `first` is decided by the server while `second`, made at the same moment, is still on its
@@ -240,18 +259,18 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
   }
   const stop = (s: Saved) => [s.a, s.b].forEach((x) => x.stop());
 
-  it("the Retake decided first: the pick wins the slot, the new hero with no build", async () => {
+  it("the Retake decided first: the pick wins the slot, the new hero with no build (Group A kept)", async () => {
     const s = await saved();
     await race(s, "retake");
-    expect(agreed(s)).toEqual({ hero: PICKED });
+    expect(agreed(s)).toEqual({ hero: PICKED, ...s.groupA });
     expect(holdsBuild(hero(s.b, s.id).more, LATER, PICKED, true)).toBe(false);
     stop(s);
   });
 
-  it("the pick decided first: the Retake wins the slot, the match's hero with its own build", async () => {
+  it("the pick decided first: the Retake wins the slot, the match's hero with its own build and Group A", async () => {
     const s = await saved();
     await race(s, "pick");
-    expect(agreed(s)).toEqual(s.build);
+    expect(agreed(s)).toEqual(s.retaken);
     expect(holdsBuild(hero(s.b, s.id).more, LATER, s.matchHero, true)).toBe(true);
     stop(s);
   });
@@ -268,14 +287,14 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
     stop(s);
   });
 
-  it("undoing the pick that lost nothing: the match's hero again, and nobody's build on another hero", async () => {
+  it("undoing the pick that lost nothing: the match's hero again, and nobody's build on another hero (Group A kept)", async () => {
     const s = await saved();
     await race(s, "retake");
     s.a.undo();
     expect(await settled(s.a, s.b)).toBe(true);
     expect(await until(() => hero(s.b, s.id).more?.hero === s.matchHero)).toBe(true);
-    // The pick never saw the build, so its undo can't bring it back (TD-146).
-    expect(agreed(s)).toEqual({ hero: s.matchHero });
+    // The pick never saw the build, so its undo can't bring it back (TD-146); Group A stays (plan §6).
+    expect(agreed(s)).toEqual({ hero: s.matchHero, ...s.groupA });
     stop(s);
   });
 
@@ -285,7 +304,7 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
     s.a.undo();
     expect(await settled(s.a, s.b)).toBe(true);
     expect(await until(() => held(s.a) === held(s.b))).toBe(true);
-    expect(agreed(s)).toEqual(s.build);
+    expect(agreed(s)).toEqual(s.retaken);
     stop(s);
   });
 
@@ -306,17 +325,17 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
       return { s, lacks };
     }
 
-    it("the pick decided first: the match's hero with its whole build, not a fragment", async () => {
+    it("the pick decided first: the match's hero with its whole build and Group A, not a fragment", async () => {
       const { s } = await partly();
       await race(s, "pick");
-      expect(agreed(s)).toEqual(s.build);
+      expect(agreed(s)).toEqual(s.retaken);
       stop(s);
     });
 
-    it("the Retake decided first: the new hero with no build", async () => {
+    it("the Retake decided first: the new hero with no build (Group A kept)", async () => {
       const { s } = await partly();
       await race(s, "retake");
-      expect(agreed(s)).toEqual({ hero: PICKED });
+      expect(agreed(s)).toEqual({ hero: PICKED, ...s.groupA });
       stop(s);
     });
 
@@ -330,7 +349,7 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
       expect(await settled(s.a)).toBe(true);
       s.gb.release();
       await sync(s);
-      expect(agreed(s)).toEqual({ ...s.build, [kept]: theirs });
+      expect(agreed(s)).toEqual({ ...s.retaken, [kept]: theirs });
       stop(s);
     });
 
@@ -357,27 +376,199 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
     it("this pick, an older Retake: the pick decided last is whole; decided first is as today", async () => {
       const last = await saved();
       await race(last, "retake", { pick, retake: oldRetake });
-      expect(agreed(last)).toEqual({ hero: PICKED });
+      expect(agreed(last)).toEqual({ hero: PICKED, ...last.groupA });
       stop(last);
       const first = await saved();
       await race(first, "pick", { pick, retake: oldRetake });
       const { hero: who, ...rest } = hero(first.a, first.id).more!;
       expect(who).toBe(PICKED);
-      expect(Object.keys(rest).length).toBeGreaterThan(0);
+      expect(BUILD_KEYS.some((k) => rest[k] !== undefined)).toBe(true);
       stop(first);
     });
 
     it("this Retake, an older pick: the Retake decided last is whole; decided first is as today", async () => {
       const last = await saved();
       await race(last, "pick", { pick: oldPick, retake });
-      expect(agreed(last)).toEqual(last.build);
+      expect(agreed(last)).toEqual(last.retaken);
       stop(last);
       const first = await saved();
       await race(first, "retake", { pick: oldPick, retake });
       const { hero: who, ...rest } = hero(first.a, first.id).more!;
       expect(who).toBe(PICKED);
-      expect(Object.keys(rest).length).toBeGreaterThan(0);
+      expect(BUILD_KEYS.some((k) => rest[k] !== undefined)).toBe(true);
       stop(first);
     });
+  });
+
+  // Helper: seed a v14 scene (`rows: 16, has_builds: true, has_heroes: true`) with an unseen hero
+  // padded to a 100% schema-legal `more` leaving ~30 bytes free under `max_more_bytes`, plus waves.
+  async function nearCapScene() {
+    const [ga, gb] = [heldSocket(), heldSocket()];
+    const { a, b, scene, heroes } = await board([ga.open, gb.open]);
+    const rosterOf = (s: BoardSession) => [...s.records].flatMap(([id, e]) => ("RosterSlot" in e.record ? [{ id, slot: e.record.RosterSlot as RosterSlot }] : []));
+    const wavesOf = (s: BoardSession) =>
+      new Map(
+        [...s.records].flatMap(([id, e]) =>
+          !e.deleted && "Wave" in e.record && e.record.Wave.scene === scene
+            ? [[e.record.Wave.lane, { id, t: e.record.Wave.t, ...(e.record.Wave.more ? { more: e.record.Wave.more } : {}) }] as const]
+            : [],
+        ),
+      );
+    const match = new Map(tl.players.map((p) => [slotKey(p.team, p.slot), p]));
+    const matchOf = (id: RecordId) => {
+      const r = rosterOf(a).find((x) => x.id === hero(a, id).slot)!.slot;
+      return match.get(slotKey(r.team === "Amber" ? "amber" : "sapphire", r.slot))!;
+    };
+    const ten = tenthPart(tl, T);
+    // Pick a hero that is unseen at T=4 (`unseen: true` = 14B, `height: 1` = 11B -> 25B total).
+    const target = heroes.find((h) => ten.sight[tl.players.indexOf(matchOf(h))] !== true)!;
+    expect(target).toBeDefined();
+
+    // 100% schema-legal `more` on `target` leaving ~30 bytes free under `max_more_bytes`
+    // (`build_order <= 600`, `items <= 128`, `abilities <= 48`, no `name` yet).
+    const targetMore: More = {
+      ...captureBuild(heroBuildAt(tl, matchOf(target), T)),
+      build_order: Array.from({ length: 600 }, () => 4_294_967_295),
+      items: [] as number[],
+      abilities: [] as number[],
+    };
+    const items = targetMore.items as number[];
+    while (items.length < 128 && moreBytes({ ...targetMore, items: [...items, 4_294_967_295] }) <= LIMITS.max_more_bytes - 42) {
+      items.push(4_294_967_295);
+    }
+    const ab = targetMore.abilities as number[];
+    while (ab.length < 48 && moreBytes({ ...targetMore, abilities: [...ab, 4_294_967_295] }) <= LIMITS.max_more_bytes - 30) {
+      ab.push(4_294_967_295);
+    }
+    const rem = LIMITS.max_more_bytes - 30 - moreBytes(targetMore);
+    if (rem >= 2 && ab.length < 48) {
+      const digits = Math.min(10, rem - 1);
+      ab.push(digits === 10 ? 1_000_000_000 : Number("1".repeat(digits)));
+    }
+    const free = LIMITS.max_more_bytes - moreBytes(targetMore);
+    expect(free).toBeGreaterThanOrEqual(25);
+    expect(free).toBeLessThanOrEqual(34);
+
+    // Seed v14 SceneState (`rows: 16, has_builds: true, has_heroes: true`), builds on all 12 heroes, and lanes.
+    const stateId = newRecordId();
+    const stateMore: More = { rows: 16, has_builds: true, has_heroes: true, build: 6839 };
+    expect(
+      a.edit([
+        { Create: { id: stateId, record: { SceneState: { scene, more: stateMore } } } },
+        ...["lane1", "lane4", "lane6"].map((lane): Op => ({ Create: { id: newRecordId(), record: { Wave: { scene, lane, t: 500 } } } })),
+      ]),
+    ).toBe(true);
+    for (const h of heroes) {
+      const m = h === target ? targetMore : captureBuild(heroBuildAt(tl, matchOf(h), T));
+      expect(a.edit(Object.entries(m).map(([key, value]): Op => ({ Set: { id: h, value: { More: { key, value } } } })))).toBe(true);
+    }
+    expect(await settled(a, b)).toBe(true);
+    expect(await until(() => held(a) === held(b))).toBe(true);
+    const row = { id: scene, scene: { name: "s", order: "a", clock: T, source: { match_id: tl.match_id, t: T, tier: "replay" } } } as never;
+    const stateOf = (s: BoardSession) => (s.records.get(stateId)!.record as { SceneState: { more?: More } }).SceneState.more;
+    const nameLen = Math.min(LIMITS.max_name, Math.max(1, free - 10 - 4));
+    return { a, b, ga, gb, scene, heroes, target, stateId, stateMore, row, rosterOf, wavesOf, stateOf, nameLen };
+  }
+
+  // Blocking #1 (Astra Round 2 + Round 3 polish): when a peer concurrently eats the remaining bytes
+  // under `max_more_bytes` while a Retake's `sceneGroup` is in flight, `Op::Set` on the hero's
+  // Group A key fails `check_more_fits?` (`TxTooLarge`) and aborts the ENTIRE `sceneGroup`
+  // transaction atomically on the server — so `has_sight` and `rows` never commit without `unseen`!
+  it("a concurrent peer eating max_more_bytes aborts Retake's sceneGroup atomically (no false has_sight or rows bump)", async () => {
+    const { a, b, ga, heroes, target, stateId, stateMore, row, rosterOf, wavesOf, stateOf, nameLen } = await nearCapScene();
+
+    // Hold Peer A while Peer A plans & submits Retake (preflight passes; waves passed as in TopBar.tsx).
+    const beforeProblems = a.problems.length;
+    ga.hold();
+    const txs = retakeOps(
+      row,
+      { id: stateId, more: stateMore },
+      heroes.map((h) => ({ id: h, state: hero(a, h) })) as never,
+      rosterOf(a) as never,
+      tl,
+      newRecordId,
+      undefined,
+      undefined,
+      wavesOf(a),
+    );
+    expect(txs).toHaveLength(1);
+    expect(txs[0]!).toContainEqual({ Set: { id: target, value: { More: { key: "unseen", value: true } } } });
+    expect(a.edit(txs[0]!)).toBe(true);
+
+    // Concurrently, Peer B sets a schema-legal `name` (`<= 24` chars) consuming almost all free bytes.
+    expect(b.edit([{ Set: { id: target, value: { More: { key: "name", value: "a".repeat(nameLen) } } } }])).toBe(true);
+    expect(await settled(b)).toBe(true);
+    expect(LIMITS.max_more_bytes - moreBytes(hero(b, target).more!)).toBeLessThan(14);
+
+    // Release Peer A: server rejects `sceneGroup` atomically (`TxTooLarge`); neither `unseen` nor
+    // `has_sight` nor `rows` commits, and both replicas agree!
+    ga.release();
+    expect(await until(() => a.problems.length > beforeProblems)).toBe(true);
+    expect(a.problems.slice(beforeProblems).join(" ")).toMatch(/TxTooLarge/);
+    expect(await settled(a, b)).toBe(true);
+    expect(await until(() => held(a) === held(b))).toBe(true);
+
+    for (const s of [a, b]) {
+      expect(hero(s, target).more?.unseen).toBeUndefined();
+      expect(hero(s, target).more?.height).toBeUndefined();
+      expect(hero(s, target).more?.name).toBe("a".repeat(nameLen));
+      expect(stateOf(s)?.has_sight).toBeUndefined();
+      expect(stateOf(s)?.has_movement).toBeUndefined();
+      expect(stateOf(s)?.rows).toBe(16);
+      expect(captured(stateOf(s)).sight).toBe(false);
+    }
+    [a, b].forEach((x) => x.stop());
+  });
+
+  // Astra Round 3 #3: complete Group A Retake -> undo -> Peer B consumes freed hero bytes with a
+  // `name` edit -> Peer A redoes -> `decideStep` drops the redo (never leaving `has_sight` set
+  // without `unseen` on either replica!).
+  it("redoing an undone Group A Retake after a peer consumes max_more_bytes does not falsely re-capture sight", async () => {
+    const { a, b, heroes, target, stateId, stateMore, row, rosterOf, wavesOf, stateOf, nameLen } = await nearCapScene();
+
+    // 1. Peer A runs Retake and settles (Group A captured, including `unseen` on `target`).
+    const txs = retakeOps(
+      row,
+      { id: stateId, more: stateMore },
+      heroes.map((h) => ({ id: h, state: hero(a, h) })) as never,
+      rosterOf(a) as never,
+      tl,
+      newRecordId,
+      undefined,
+      undefined,
+      wavesOf(a),
+    );
+    expect(txs).toHaveLength(1);
+    expect(a.edit(txs[0]!)).toBe(true);
+    expect(await settled(a, b)).toBe(true);
+    expect(await until(() => held(a) === held(b))).toBe(true);
+    expect(hero(b, target).more?.unseen).toBe(true);
+    expect(captured(stateOf(b)).sight).toBe(true);
+
+    // 2. Peer A undoes the Group A Retake (`unseen`, `height`, `has_sight`, `rows` all revert).
+    a.undo();
+    expect(await settled(a, b)).toBe(true);
+    expect(await until(() => held(a) === held(b))).toBe(true);
+    expect(hero(b, target).more?.unseen).toBeUndefined();
+    expect(captured(stateOf(b)).sight).toBe(false);
+
+    // 3. Peer B consumes the freed bytes with a legal `name` edit.
+    expect(b.edit([{ Set: { id: target, value: { More: { key: "name", value: "a".repeat(nameLen) } } } }])).toBe(true);
+    expect(await settled(a, b)).toBe(true);
+    expect(await until(() => held(a) === held(b))).toBe(true);
+
+    // 4. Peer A redoes: `decideStep` preflights and drops the capture redo step cleanly!
+    a.redo();
+    expect(await settled(a, b)).toBe(true);
+    expect(await until(() => held(a) === held(b))).toBe(true);
+    for (const s of [a, b]) {
+      expect(hero(s, target).more?.unseen).toBeUndefined();
+      expect(hero(s, target).more?.height).toBeUndefined();
+      expect(hero(s, target).more?.name).toBe("a".repeat(nameLen));
+      expect(stateOf(s)?.has_sight).toBeUndefined();
+      expect(stateOf(s)?.rows).toBe(16);
+      expect(captured(stateOf(s)).sight).toBe(false);
+    }
+    [a, b].forEach((x) => x.stop());
   });
 });
