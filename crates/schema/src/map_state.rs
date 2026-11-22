@@ -119,18 +119,18 @@ pub const ROWS: &[Row] = &[
     // v14 (`HEROES_WRITER` in the server's `store.rs`), whose floor is 12.
     row("has_heroes", Entity::Scene, Kind::Bool),
     // Phase 5, Group A: heroes and lanes (rows 16–26; docs/specs/map-state-phase5-plan.md §3).
-    // Reader lands in R1 (store v15, all Ahead); writer in R2 (store v16).
-    ahead("has_sight", Entity::Scene, Kind::Bool),
-    ahead("unseen", Entity::Hero, Kind::Bool),
-    ahead("has_cc", Entity::Scene, Kind::Bool),
-    ahead("cc", Entity::Hero, Kind::Int { min: 0, max: 15 }),
-    ahead("has_movement", Entity::Scene, Kind::Bool),
-    ahead("height", Entity::Hero, Kind::Int { min: 0, max: 15 }),
-    ahead("zipline", Entity::Hero, Kind::Bool),
-    ahead("has_lanes", Entity::Scene, Kind::Bool),
-    ahead("edges", Entity::Lane, Kind::Ints { len: 2, min: 0, max: 1000 }),
-    ahead("has_skulls", Entity::Scene, Kind::Bool),
-    ahead("skulls", Entity::Scene, Kind::Ints { len: 36, min: 0, max: 255 }),
+    // Reader landed in R1 (store v15, e2438b4); writer in R2 (store v16, floor 15).
+    row("has_sight", Entity::Scene, Kind::Bool),
+    row("unseen", Entity::Hero, Kind::Bool),
+    row("has_cc", Entity::Scene, Kind::Bool),
+    row("cc", Entity::Hero, Kind::Int { min: 0, max: 15 }),
+    row("has_movement", Entity::Scene, Kind::Bool),
+    row("height", Entity::Hero, Kind::Int { min: 0, max: 15 }),
+    row("zipline", Entity::Hero, Kind::Bool),
+    row("has_lanes", Entity::Scene, Kind::Bool),
+    row("edges", Entity::Lane, Kind::Ints { len: 2, min: 0, max: 1000 }),
+    row("has_skulls", Entity::Scene, Kind::Bool),
+    row("skulls", Entity::Scene, Kind::Ints { len: 36, min: 0, max: 255 }),
     // Phase 5, Group B: the marker baseline (rows 27–39; all on SceneState).
     // Reader lands in R1 (store v15, all Ahead); writer in R3 (store v17).
     ahead("has_camps", Entity::Scene, Kind::Bool),
@@ -1222,15 +1222,16 @@ mod tests {
     fn the_file_version_table_covers_every_gated_version_and_derives_reads() {
         use crate::records::{Scene, Stroke};
         assert_eq!(ROWS.len(), 40);
-        assert_eq!(written_rows(), 16);
+        assert_eq!(written_rows(), 27);
         assert_eq!(ROWS[15].key, "has_heroes");
         assert_eq!(ROWS[16].key, "has_sight");
         assert_eq!(ROWS[26].key, "skulls");
         assert_eq!(ROWS[27].key, "has_camps");
         assert_eq!(ROWS[39].key, "rejuv");
-        // In R1, rows 16–39 are all Ahead, so `reads_file_version()` is 4.
-        assert_eq!(reads_file_version(), 4);
-        assert_eq!(FILE_VERSIONS.iter().map(|v| (v.version, v.live)).collect::<Vec<_>>(), [(3, true), (4, true), (5, false), (6, false)]);
+        // In R2, Group A (rows 16–26) is Live and Group B (rows 27–39) is Ahead, so
+        // `reads_file_version()` is 5.
+        assert_eq!(reads_file_version(), 5);
+        assert_eq!(FILE_VERSIONS.iter().map(|v| (v.version, v.live)).collect::<Vec<_>>(), [(3, true), (4, true), (5, true), (6, false)]);
 
         // `max_more_ints` exact sums per entity (all <= 1280).
         let ints_of = |entity: Entity| -> usize {
@@ -1297,7 +1298,7 @@ mod tests {
     }
 
     #[test]
-    fn phase5_rows_are_all_ahead_and_refused_by_deployed_gate_with_valid_values_and_clears() {
+    fn phase5_group_a_rows_are_live_and_group_b_rows_remain_ahead_and_refused_by_deployed_gate() {
         let valid_value = |kind: Kind| -> MoreValue {
             match kind {
                 Kind::Bool => MoreValue::Bool(true),
@@ -1310,20 +1311,22 @@ mod tests {
         let pos = FieldValue::PlayerPos(WorldPos::default());
         for i in 16..ROWS.len() {
             let r = RowId(i as u16);
-            assert_eq!(r.row().status, Status::Ahead, "{} must be Ahead in R1", r.key());
+            let is_group_a = i <= 26;
+            assert_eq!(r.row().status, if is_group_a { Status::Live } else { Status::Ahead }, "{} status in R2", r.key());
             let v = valid_value(r.row().kind);
             assert_eq!(v.check(r.row()), Ok(()), "valid value for {}", r.key());
-            // Set, clear, SetIf (both sides) all refused by Admit::DEPLOYED, admitted by Admit::READS.
+            // Set, clear, SetIf (both sides): admitted for Group A (16–26), refused for Group B (27–39).
+            let want_deployed = if is_group_a { Ok(()) } else { Err(Reject::WrongField) };
             for op in [
                 set(FieldValue::More { key: r, value: Some(v.clone()) }),
                 set(FieldValue::More { key: r, value: None }),
                 Op::SetIf { id: RecordId(5), expect: FieldValue::More { key: r, value: None }, value: pos.clone() },
                 Op::SetIf { id: RecordId(5), expect: pos.clone(), value: FieldValue::More { key: r, value: Some(v.clone()) } },
             ] {
-                assert_eq!(Admit::DEPLOYED.tx(&tx(vec![op.clone()])), Err(Reject::WrongField), "{} refused", r.key());
+                assert_eq!(Admit::DEPLOYED.tx(&tx(vec![op.clone()])), want_deployed, "{} deployed", r.key());
                 assert_eq!(Admit::READS.tx(&tx(vec![op])), Ok(()), "{} admitted by READS", r.key());
             }
-            // Record creation on its real entity with a valid value is also refused by DEPLOYED.
+            // Record creation on its real entity with a valid value follows the same gate.
             let m: More = [(r, v)].into_iter().collect();
             assert_eq!(m.check(r.row().entity), Ok(()), "{} map valid", r.key());
             let rec = match r.row().entity {
@@ -1332,7 +1335,7 @@ mod tests {
                 Entity::Scene => scene_state(m),
                 Entity::Marker => unreachable!(),
             };
-            assert_eq!(Admit::DEPLOYED.record(&rec), Err(Reject::WrongField), "{} record refused", r.key());
+            assert_eq!(Admit::DEPLOYED.record(&rec), want_deployed, "{} record deployed", r.key());
             assert_eq!(Admit::READS.record(&rec), Ok(()), "{} record admitted by READS", r.key());
         }
     }

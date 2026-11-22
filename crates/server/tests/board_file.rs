@@ -149,10 +149,11 @@ fn an_export_imports_as_the_same_board_under_fresh_ids() {
     assert_eq!(first["version"], 2, "the writer: version 1 plus the `rows` header");
     // The rows this build writes, not the ones it only reads: the reader release takes it.
     assert_eq!(first["rows"], json!(mapcro_schema::written_rows()));
-    // In R1, rows 0..16 (`hero`..`has_heroes`) are written and rows 16..40 (phase 5 Groups A & B)
-    // are `Ahead`: the export says `written_rows() == 16`, which v12–v14 builds know too.
-    let last_live = mapcro_schema::ROWS.iter().position(|r| r.key == "has_heroes").expect("the row");
+    // In R2, rows 0..27 (`hero`..`skulls`, including Group A) are written and rows 27..40 (phase 5
+    // Group B) remain `Ahead`: the export says `written_rows() == 27`, which R1 (v15) reads too.
+    let last_live = mapcro_schema::ROWS.iter().position(|r| r.key == "skulls").expect("the row");
     assert_eq!(mapcro_schema::written_rows(), last_live + 1);
+    assert_eq!(mapcro_schema::written_rows(), 27);
     assert_eq!(mapcro_schema::ROWS.len(), 40);
     assert!(mapcro_schema::ROWS[last_live + 1..].iter().all(|r| r.status == mapcro_schema::Status::Ahead));
     assert!(first["build"].as_str().is_some_and(|b| b.len() == 16), "the server's build");
@@ -302,8 +303,20 @@ fn a_file_with_map_state_imports_and_a_row_still_ahead_makes_no_board() {
         let flags: Vec<Value> = records(&mut out).iter().filter_map(|r| r[1].get("SceneState").map(|s| s["more"].clone())).collect();
         assert_eq!(flags, [json!({ "rows": ROWS.len(), "has_heroes": true })]);
         server.import_ok(&out);
-        // Every row whose reader is this build (rows 16–39) is still refused on its real entity
-        // with a valid value, alone or beside written ones.
+        // A scene holding Group A (rows 16–26) and no Group B imports, and exports version 5
+        // (`head.rows == 27`), which R1 (`READS == 4`) answers "Newer file" for.
+        let group_a = versioned(&|v| {
+            let scene = scene_of(v);
+            hero(v, json!({ "hero": 13, "unseen": true, "cc": 2, "height": 1, "zipline": true }));
+            records(v).push(json!(["00000000000000000000000000005008", { "Wave": { "scene": scene, "lane": "lane4", "t": 500, "more": { "edges": [420, 580] } } }]));
+            state(v, json!({ "rows": 27, "has_heroes": true, "has_sight": true, "has_cc": true, "has_movement": true, "has_lanes": true, "has_skulls": true, "skulls": [3, 12, 1] }));
+        });
+        let (board, owner, _) = server.import_ok(&group_a);
+        let out = server.export_json(&board, &owner);
+        assert_eq!((&out["version"], &out["rows"]), (&json!(5), &json!(27)), "Group A exports v5 at version {version}");
+        server.import_ok(&out);
+        // Every row still Ahead (Group B, rows 27–39) is refused on its real entity with a valid
+        // value, alone or beside written ones.
         let valid_json = |kind: mapcro_schema::Kind| -> Value {
             match kind {
                 mapcro_schema::Kind::Bool => json!(true),
@@ -362,11 +375,11 @@ fn bad_files_are_refused_with_a_code_and_make_no_board() {
     let send = |v: &Value| code(server.import(v.to_string().as_bytes()));
     let title_at = |v: &mut Value| -> usize { records(v).iter().position(|r| r[1].get("BoardMeta").is_some()).expect("meta") };
 
-    // A newer build's file: refused whole, whatever its body. Versions 2 to 4 are read
-    // (below); a file whose writer knew more map-state rows than this build is newer at any
-    // version.
+    // A newer build's file: refused whole, whatever its body. Versions 2 to 5 are read in R2
+    // (version 6 is Group B / R3); a file whose writer knew more map-state rows than this build is
+    // newer at any version.
     let rows = mapcro_schema::ROWS.len();
-    assert_eq!(send(&with(|v| v["version"] = json!(5))), (422, "newer".into()));
+    assert_eq!(send(&with(|v| v["version"] = json!(6))), (422, "newer".into()));
     assert_eq!(send(&with(|v| { v["version"] = json!(99); v["records"] = json!(marker); })), (422, "newer".into()));
     assert_eq!(send(&with(|v| { v["version"] = json!(2); v["rows"] = json!(rows + 1); v["records"] = json!(marker); })), (422, "newer".into()));
     assert_eq!(send(&with(|v| v["rows"] = json!(rows + 1))), (422, "newer".into()));

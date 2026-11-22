@@ -558,16 +558,17 @@ async fn a_client_writes_map_state_that_is_live_and_not_a_row_still_ahead() {
     let (scene, player) = (scene_of(a.replica()), players(a.replica())[0]);
     let more = |key: &str, value| FieldValue::More { key: row(key), value };
     let state = mapcro_schema::RecordId(0x5000);
-    let snapshot: More = [(row("rows"), MoreValue::Int(11)), (row("has_builds"), MoreValue::Bool(true))].into_iter().collect();
+    let snapshot: More = [(row("rows"), MoreValue::Int(27)), (row("has_builds"), MoreValue::Bool(true)), (row("has_sight"), MoreValue::Bool(true))].into_iter().collect();
     let mut edits: Vec<Vec<Op>> = vec![
         vec![Op::Set { id: player, value: more("hero", Some(MoreValue::Int(13))) }, Op::Create { id: state, record: Record::SceneState(SceneState { scene, more: snapshot.clone() }) }],
-        vec![Op::Set { id: player, value: more("items", Some(MoreValue::ints(vec![9000, -1, 2, -1]))) }],
+        vec![Op::Set { id: player, value: more("items", Some(MoreValue::ints(vec![9000, -1, 2, -1]))) }, Op::Set { id: player, value: more("unseen", Some(MoreValue::Bool(true))) }],
         vec![Op::Set { id: player, value: more("level", Some(MoreValue::Int(12))) }, Op::Set { id: player, value: more("level", None) }],
     ];
     let mut expected = vec![];
-    // A row still ahead, beside a valid edit: the whole transaction goes (with a valid value of
-    // its kind so local validation passes and the server's `Admit::DEPLOYED` refuses it).
-    if let Some(ahead) = RowId::all().find(|r| r.row().status == Status::Ahead && r.row().entity == mapcro_schema::Entity::Hero) {
+    // A row still ahead (Group B in R2, on SceneState), beside a valid edit: the whole transaction
+    // goes (with a valid value of its kind so local validation passes and `Admit::DEPLOYED` refuses).
+    if let Some(ahead) = RowId::all().find(|r| r.row().status == Status::Ahead && matches!(r.row().entity, mapcro_schema::Entity::Hero | mapcro_schema::Entity::Scene)) {
+        let target = if ahead.row().entity == mapcro_schema::Entity::Hero { player } else { state };
         let val = match ahead.row().kind {
             mapcro_schema::Kind::Bool => MoreValue::Bool(true),
             mapcro_schema::Kind::Int { min, .. } => MoreValue::Int(min),
@@ -575,9 +576,10 @@ async fn a_client_writes_map_state_that_is_live_and_not_a_row_still_ahead() {
             mapcro_schema::Kind::Pos => MoreValue::Pos(WorldPos::default()),
             mapcro_schema::Kind::Ints { min, .. } => MoreValue::ints(vec![min]),
         };
-        edits.push(vec![Op::Set { id: player, value: FieldValue::PlayerPos(WorldPos { x: 900, y: 900 }) }, Op::Set { id: player, value: FieldValue::More { key: ahead, value: Some(val) } }]);
+        edits.push(vec![Op::Set { id: player, value: FieldValue::PlayerPos(WorldPos { x: 900, y: 900 }) }, Op::Set { id: target, value: FieldValue::More { key: ahead, value: Some(val) } }]);
         expected.push(Reject::WrongField);
     }
+    assert!(!expected.is_empty(), "R2 keeps Group B Ahead so the refused-Ahead case runs");
     assert_eq!(edits_until_decided(&mut a, edits.len(), |_, i| edits[i].clone()).await, expected);
 
     let (d, port) = server.kill9();
@@ -586,7 +588,7 @@ async fn a_client_writes_map_state_that_is_live_and_not_a_row_still_ahead() {
     assert_eq!(fresh.replica().last_seq(), 3, "the three valid transactions were logged");
     let view = fresh.replica().view();
     let Some(Record::PlayerState(p)) = view.live(player) else { panic!("player") };
-    assert_eq!(p.more.iter().collect::<Vec<_>>(), vec![(row("hero"), &MoreValue::Int(13)), (row("items"), &MoreValue::ints(vec![9000, -1, 2, -1]))]);
+    assert_eq!(p.more.iter().collect::<Vec<_>>(), vec![(row("hero"), &MoreValue::Int(13)), (row("items"), &MoreValue::ints(vec![9000, -1, 2, -1])), (row("unseen"), &MoreValue::Bool(true))]);
     assert_ne!(p.pos, WorldPos { x: 900, y: 900 }, "the refused transaction's valid half is not stored either");
     assert_eq!(view.live(state), Some(&Record::SceneState(SceneState { scene, more: snapshot })));
 }
@@ -2005,7 +2007,8 @@ async fn a_real_v4_database_migrates_and_its_board_compacts_and_rebases() {
     {
         let c = rusqlite::Connection::open(&path).expect("open");
         let v: String = c.query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |r| r.get(0)).expect("version");
-        assert_eq!(v, "15", "migrated to the current schema");
+        let floor: String = c.query_row("SELECT value FROM meta WHERE key = 'compat_floor'", [], |r| r.get(0)).expect("floor");
+        assert_eq!((v.as_str(), floor.as_str()), ("16", "15"), "migrated to v16 (floor 15)");
         let codecs: i64 = c.query_row("SELECT COUNT(*) FROM ops WHERE codec = 'zstd-v1'", [], |r| r.get(0)).expect("ops");
         assert_eq!(codecs as u64, entries, "the v4 rows are untouched");
     }
@@ -2138,7 +2141,8 @@ async fn a_migration_interrupted_by_a_crash_still_boots() {
     let fresh = fresh_catch_up(server.port, &board, &owner, 0x3f3, fx["entries"].as_u64().expect("entries")).await;
     assert!(fresh.replica().view().live(mapcro_schema::RecordId(0xa0a0)).is_some());
     let v: String = rusqlite::Connection::open(&path).expect("open").query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |r| r.get(0)).expect("v");
-    assert_eq!(v, "15", "migrated to the current schema");
+    let floor: String = rusqlite::Connection::open(&path).expect("open").query_row("SELECT value FROM meta WHERE key = 'compat_floor'", [], |r| r.get(0)).expect("f");
+    assert_eq!((v.as_str(), floor.as_str()), ("16", "15"), "migrated to v16 (floor 15)");
 }
 
 #[tokio::test(flavor = "multi_thread")]

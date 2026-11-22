@@ -641,43 +641,72 @@ mod tests {
         assert_eq!(read(&twice, ids(1000), &Admit::READS).err(), Some(Refusal::Invalid));
     }
 
-    /// TD-108: `READS` derives from `FILE_VERSIONS` (4 in R1), `rows` header is `written_rows()`
-    /// (16 in R1), v5/v6 files are refused as `Newer` on R1, and exporting a board loaded with
-    /// Group A / Group B rows tags it v5 / v6 respectively.
+    /// TD-108: in R2, `READS` derives from `FILE_VERSIONS` as 5, `rows` header is `written_rows()`
+    /// (27), files holding Group A (and no Group B) export version 5 (saying `Newer` on R1
+    /// `READS = 4`), legacy/v4 files stay <= 4, and Group B rows remain refused (`Invalid` at v5,
+    /// `Newer` at v6).
     #[test]
-    fn phase5_file_versions_are_derived_from_the_table_and_refused_as_newer_in_r1() {
+    fn phase5_file_versions_are_derived_from_the_table_and_v5_is_live_in_r2() {
+        use mapcro_schema::Status;
         use serde_json::json;
-        assert_eq!(READS, 4);
-        assert_eq!(VERSION, 4);
-        // v5 and v6 files are refused as `Newer` on R1 (before body parsing).
-        for version in [5u64, 6u64] {
-            let bytes = file_with(|v| v["version"] = json!(version));
-            assert_eq!(read(&bytes, ids(1000), &Admit::DEPLOYED).err(), Some(Refusal::Newer), "v{version}");
-        }
-        // A v4 file carrying a Group A or Group B row is refused as `Invalid` under `Admit::DEPLOYED`
-        // (even though `head.rows == 40` is within `ROWS.len()`).
-        let v4_group_a = file_with(|v| {
+        assert_eq!(READS, 5);
+        assert_eq!(VERSION, 5);
+        assert_eq!(mapcro_schema::written_rows(), 27);
+        // v6 files are refused as `Newer` on R2 (before body parsing).
+        let v6_bytes = file_with(|v| v["version"] = json!(6));
+        assert_eq!(read(&v6_bytes, ids(1000), &Admit::DEPLOYED).err(), Some(Refusal::Newer));
+
+        // A v5 file carrying Group A (and no Group B) imports under `Admit::DEPLOYED`, exports as
+        // version 5 with `rows == 27`, and is refused as `Newer` on R1 (`R1_READS == 4`).
+        let v5_group_a = file_with(|v| {
             let scene = first(v, "Scene").0;
-            records(v).push(json!([STATE_ID, { "SceneState": { "scene": scene, "more": { "rows": 27, "has_sight": true } } }]));
-            v["version"] = json!(4);
+            first(v, "PlayerState").1["more"] = json!({ "unseen": true, "cc": 1, "height": 2, "zipline": true });
+            records(v).push(json!(["00000000000000000000000000005002", { "Wave": { "scene": scene, "lane": "lane4", "t": 500, "more": { "edges": [420, 580] } } }]));
+            records(v).push(json!([STATE_ID, { "SceneState": { "scene": scene, "more": { "rows": 27, "has_heroes": true, "has_sight": true, "has_cc": true, "has_movement": true, "has_lanes": true, "has_skulls": true, "skulls": [3, 10, 1] } } }]));
+            v["version"] = json!(5);
             v["rows"] = json!(27);
         });
-        assert_eq!(read(&v4_group_a, ids(1000), &Admit::DEPLOYED).err(), Some(Refusal::Invalid));
-        let (doc_a, _) = read(&v4_group_a, ids(1000), &Admit::READS).expect("reads admits Group A");
-        let out_a: serde_json::Value = serde_json::from_slice(&write(&doc_a, Vec::new(), 0, 0)).expect("json");
+        let (doc_a, _) = read(&v5_group_a, ids(1000), &Admit::DEPLOYED).expect("R2 admits Group A");
+        let out_a_bytes = write(&doc_a, Vec::new(), 0, 0);
+        let out_a: serde_json::Value = serde_json::from_slice(&out_a_bytes).expect("json");
         assert_eq!(out_a["version"], 5);
-        assert_eq!(out_a["rows"], json!(mapcro_schema::written_rows()));
+        assert_eq!(out_a["rows"], json!(27));
+        // On R1 (`READS == 4`, rows 16..40 Ahead): v5 says `Newer`; forged as v4 it is `Invalid`.
+        const R1_READS: u64 = 4;
+        let r1_gate = Admit {
+            row: |r| if mapcro_schema::ROWS.iter().position(|x| x.key == r.key()).unwrap_or(0) >= 16 { Status::Ahead } else { r.row().status },
+            ..Admit::DEPLOYED
+        };
+        let r1_head: Head = serde_json::from_slice(&out_a_bytes).expect("head");
+        assert!(r1_head.version > R1_READS, "R1 answers Newer for a Group A file");
+        let mut forged_v4 = out_a.clone();
+        forged_v4["version"] = json!(4);
+        assert_eq!(read(&serde_json::to_vec(&forged_v4).expect("json"), ids(1000), &r1_gate).err(), Some(Refusal::Invalid));
 
-        let v4_group_b = file_with(|v| {
+        // Legacy/v4 boards (holding no Group A or Group B rows) still export <= 4.
+        let v4_only = file_with(|v| {
+            let scene = first(v, "Scene").0;
+            records(v).push(json!([STATE_ID, { "SceneState": { "scene": scene, "more": { "rows": 16, "has_heroes": true } } }]));
+            v["version"] = json!(4);
+            v["rows"] = json!(16);
+        });
+        let (doc_v4, _) = read(&v4_only, ids(1000), &Admit::DEPLOYED).expect("v4 imports");
+        let out_v4: serde_json::Value = serde_json::from_slice(&write(&doc_v4, Vec::new(), 0, 0)).expect("json");
+        assert_eq!(out_v4["version"], 4);
+        assert_eq!(out_v4["rows"], json!(27));
+
+        // A v5 file carrying any Group B row is refused as `Invalid` under `Admit::DEPLOYED`
+        // (and exports version 6 when loaded under `Admit::READS`).
+        let v5_group_b = file_with(|v| {
             let scene = first(v, "Scene").0;
             records(v).push(json!([STATE_ID, { "SceneState": { "scene": scene, "more": { "rows": 40, "has_sight": true, "has_camps": true } } }]));
-            v["version"] = json!(4);
+            v["version"] = json!(5);
             v["rows"] = json!(40);
         });
-        assert_eq!(read(&v4_group_b, ids(1000), &Admit::DEPLOYED).err(), Some(Refusal::Invalid));
-        let (doc_b, _) = read(&v4_group_b, ids(1000), &Admit::READS).expect("reads admits Group B");
+        assert_eq!(read(&v5_group_b, ids(1000), &Admit::DEPLOYED).err(), Some(Refusal::Invalid));
+        let (doc_b, _) = read(&v5_group_b, ids(1000), &Admit::READS).expect("reads admits Group B");
         let out_b: serde_json::Value = serde_json::from_slice(&write(&doc_b, Vec::new(), 0, 0)).expect("json");
         assert_eq!(out_b["version"], 6);
-        assert_eq!(out_b["rows"], json!(mapcro_schema::written_rows()));
+        assert_eq!(out_b["rows"], json!(27));
     }
 }
