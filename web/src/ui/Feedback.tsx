@@ -175,13 +175,15 @@ export function FeedbackButton(p: { variant: "bar" | "link"; match?: () => Feedb
         class={p.variant === "bar" ? "btn ghost" : "linkish"}
         type="button"
         data-testid="feedback-open"
+        aria-label={p.variant === "bar" ? "Feedback" : undefined}
+        title={p.variant === "bar" ? "Feedback" : undefined}
         aria-haspopup="dialog"
         onClick={() => setOpen({ match: p.match?.() })}
       >
-        <Show when={p.variant === "bar"}>
+        <Show when={p.variant === "bar"} fallback={"Feedback"}>
           <Ico d={BUBBLE} />
+          <span class="feedback-label">Feedback</span>
         </Show>
-        Feedback
       </button>
       <Show when={open()}>
         {(o) => <FeedbackDialog match={o().match} onClose={() => setOpen(undefined)} />}
