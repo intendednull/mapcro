@@ -6,10 +6,10 @@ what it is, and what it depends on.
 
 ## Exploratory QA Pass 004 findings (2026-11-22)
 
-Found during [QA Pass 004](qa/passes/2026-11-22-pass-004-prod-cycle2-verify.md) live on production (`e2438b4`, reference replay `129738985`). All 15 other Cycle 1 fixes and Phase 5 R1 checks passed live on prod:
+Found during [QA Pass 004](qa/passes/2026-11-22-pass-004-prod-cycle2-verify.md) live on production (`e2438b4`, reference replay `129738985`) — **both resolved** on `qa-p4-phone-feedback` (2026-11-22, Argon responsive fix; all 15 other Cycle 1 fixes and Phase 5 R1 checks passed live on prod):
 
-- **Phone (`390×844 --touch`) Session Scene `.p-top` header overflows by `+78 px` (`468 / 390`) when live-prod `Feedback` is enabled, crushing `role-chip` to `16 px` (`"C"`) and clipping `Feedback` off-screen** (`bug-minor`, `FM-130`, `FM-014`). On live prod where GitHub feedback is configured, `[data-testid="feedback-open"]` (`109 px`, `flex: none`) + `wordmark` (`87 px`, since `board.css:1091` only hides `.wordmark span` at `<= 360px`) + `games-open` (`145 px` on match-titled games) + `save-status` (`73 px`) starve `[data-testid="role-chip"]` down to `16 px` and overflow the `390 px` viewport. Route header compaction to an approved design model.
-- **Phone header overflow regressions escape automated e2e because local/CI servers omit `[data-testid="feedback-open"]`** (`test-gap`, `FM-130`, `FM-014`). Add a phone header fit test with feedback enabled (or mock feedback config) so production header chrome is covered in CI.
+- ~~**Phone (`390×844 --touch`) Session Scene `.p-top` header overflows by `+78 px` (`468 / 390`) when live-prod `Feedback` is enabled, crushing `role-chip` to `16 px` (`"C"`) and clipping `Feedback` off-screen** (`bug-minor`, `FM-130`, `FM-014`).~~ **Fixed** (`fdc19da`, `d05f50d`, Argon: icon-only 44×44 `feedback-open` on `.phone .p-top` preserving `aria-label="Feedback"`/`title="Feedback"`, `.save` dot compaction when crowded, `.wordmark span` hide at `<= 420px` + `.games-open` `34vw` cap, and hiding `.pl-tier-wrap` on phone Session Scene tabs so all `.p-top` combos fit cleanly at `390×844`, `360×800`, and `344×615`).
+- ~~**Phone header overflow regressions escape automated e2e because local/CI servers omit `[data-testid="feedback-open"]`** (`test-gap`, `FM-130`, `FM-014`).~~ **Fixed** (`fdc19da`, `d05f50d`: added phone `390×844` & `360×800` Session Scene + `390×844` Session Player→Scene with `matchId()` loaded tests in `web/e2e/feedback.spec.ts` against the fake-GitHub server).
 
 
 ## Exploratory QA Pass 003 findings (2026-11-21)
