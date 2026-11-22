@@ -381,6 +381,27 @@ test("phone 390×844 session Player .p-top and More feedback fit with match load
   expect(fbBox.width).toBeGreaterThanOrEqual(44);
   expect(fbBox.height).toBeGreaterThanOrEqual(44);
 
+  // Switch from Player to Scene 1 via Scenes drawer: matchId(), games-open, role-chip, save, and feedback-open are all active simultaneously.
+  await phone.getByTestId("scene-drawer").tap();
+  await expect(phone.getByTestId("scene-card")).toHaveCount(1);
+  await phone.getByTestId("scene-card").first().tap();
+  await expect(phone.locator(".phone:not(.phone-player)")).toBeVisible();
+  expect(await top.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
+
+  const roleChip = phone.getByTestId("role-chip");
+  await expect(roleChip).toBeVisible();
+  expect(await roleChip.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
+  expect((await roleChip.boundingBox())!.width).toBeGreaterThanOrEqual(50);
+
+  const sceneFb = phone.locator('.p-top > [data-testid="feedback-open"]');
+  await expect(sceneFb).toBeVisible();
+  const sceneFbBox = (await sceneFb.boundingBox())!;
+  expect(sceneFbBox.x).toBeGreaterThanOrEqual(0);
+  expect(sceneFbBox.x + sceneFbBox.width).toBeLessThanOrEqual(390);
+  expect(sceneFbBox.width).toBeGreaterThanOrEqual(44);
+  expect(sceneFbBox.height).toBeGreaterThanOrEqual(44);
+  await checkPhoneLayout(phone);
+
   await ctx.close();
   await desk.context().close();
 });
