@@ -575,6 +575,83 @@ function sceneBuilds(
 /** `,"more":` on a record. */
 const MORE_KEY = 8;
 
+/** Plan missing build backfill ops per eligible hero, checking `LIMITS.max_more_bytes`.
+ * `buildComplete` is `false` iff any eligible hero had a missing build key (after `captureBuild`
+ * trims `build_order`) or missing `hero` id that could not fit under `max_more_bytes`; that jammed
+ * hero emits no partial build ops so its headroom stays intact and Retake stays retryable. */
+function planRetakeBuilds(
+  tl: Timeline,
+  second: number,
+  tier: string | null,
+  own: boolean,
+  heroes: Player[],
+  roster: Slot[],
+  fd: CapturedFrameData | undefined,
+  missingFeatures: ReadonlySet<Phase5Feature>,
+  written: number,
+): { buildGroups: Op[][]; buildComplete: boolean; projectedHero: Map<RecordId, More> } {
+  const players = new Map(tl.players.map((p) => [slotKey(p.team, p.slot), p]));
+  const slots = new Map(roster.map((s) => [s.id, s]));
+  const absent = (id: RecordId, key: string, value: MoreValue): Op => ({ SetIf: { id, expect: { More: { key, value: null } }, value: { More: { key, value } } } });
+  const buildGroups: Op[][] = [];
+  const projectedHero = new Map<RecordId, More>();
+  for (const h of heroes) projectedHero.set(h.id, { ...(h.state.more ?? {}) });
+  const buildSet = new Set<string>(["hero", ...BUILD_KEYS]);
+  let buildComplete = true;
+
+  for (const h of heroes) {
+    const s = slots.get(h.state.slot);
+    const key = s && slotKey(s.slot.team, s.slot.slot);
+    const p = key ? players.get(key) : undefined;
+    if (!p || !key) continue;
+    const have = h.state.more ?? {};
+    // A slot given another hero in a scene that holds its heroes: the match's build is not
+    // that hero's, and stays out.
+    if (typeof have.hero === "number" && have.hero !== p.hero_id) continue;
+    // Reserve space for existing non-build keys (e.g. `name`) and any missing Group A hero keys
+    // so a late-game build backfill trims `build_order` instead of starving sight/CC/movement.
+    const reserve: More = {};
+    for (const [k, v] of Object.entries(have)) {
+      if (!buildSet.has(k)) reserve[k] = v;
+    }
+    if (fd && missingFeatures.size > 0) {
+      for (const [k, v] of Object.entries(heroExtraFrom(fd, missingFeatures, key))) {
+        if (have[k] === undefined && ROWS[k as RowKey].index < written) reserve[k] = v;
+      }
+    }
+    const reserveBytes = Object.keys(reserve).length ? moreBytes(reserve) : 0;
+    const buildBudget = Math.max(0, LIMITS.max_more_bytes - reserveBytes);
+    const candidateProj: More = { ...have };
+    const ops: Op[] = [];
+    let heroFits = true;
+    for (const [bk, bv] of Object.entries(captureBuild(heroBuildAt(tl, p, second, tier), buildBudget))) {
+      if (have[bk] !== undefined || (own && bk === "hero")) continue;
+      if (moreBytes({ ...candidateProj, [bk]: bv }) > LIMITS.max_more_bytes) {
+        heroFits = false;
+        break;
+      }
+      candidateProj[bk] = bv;
+      ops.push(absent(h.id, bk, bv));
+    }
+    if (heroFits && own && (ops.length || have.hero === undefined)) {
+      if (have.hero === undefined && moreBytes({ ...candidateProj, hero: p.hero_id }) > LIMITS.max_more_bytes) {
+        heroFits = false;
+      } else {
+        candidateProj.hero = p.hero_id;
+        const held = BUILD_KEYS.filter((bk) => have[bk] !== undefined).map((bk) => absent(h.id, bk, have[bk]!));
+        ops.unshift({ Set: { id: h.id, value: { More: { key: "hero", value: p.hero_id } } } }, ...held);
+      }
+    }
+    if (!heroFits) {
+      buildComplete = false;
+      continue;
+    }
+    projectedHero.set(h.id, candidateProj);
+    if (ops.length) buildGroups.push(ops);
+  }
+  return { buildGroups, buildComplete, projectedHero };
+}
+
 /** Whether Retake has anything to give a scene: it came from `tl`'s match, and holds no build
  * snapshot, or lacks features that `tl` supplies, this build writes (`written`), and (when
  * records are supplied) fit under `max_more_bytes`. Never offers a no-op Retake (TD-161, plan §6). */
@@ -591,16 +668,26 @@ export function canRetake(
   if (!tl || scene.source?.match_id !== tl.match_id || !retakesFrom(scene.source.tier, tl)) return false;
   const c = captured(state);
   if (written <= 16) return !c.builds || c.rows < retakeRows(written);
-  if (!c.builds || c.rows < 15) return true;
   const full = tl as Timeline;
   const feat = featuresOf(full);
   const missing = PHASE5_FEATURES.filter((f) => ROWS[f.lastRow].index < written && !c[f.flag] && f.hasIn(feat));
-  if (!missing.length) return false;
+  const needsBuilds = !c.builds || c.rows < 15;
+  if (!needsBuilds && !missing.length) return false;
   if (heroes && roster && scene.source?.t != null) {
-    const fd = captureFrameData(full, Math.floor(scene.source.t), markers ?? [], written);
-    const { admitted } = preflightRetakeFeatures(full, state, heroes, roster, fd, new Set(missing.filter((f) => fd.available.has(f.feature)).map((f) => f.feature)), written, waves);
+    const second = scene.source.t;
+    const tier = scene.source.tier ?? null;
+    const fd = captureFrameData(full, Math.floor(second), markers ?? [], written);
+    const missingSet = new Set(missing.filter((f) => fd.available.has(f.feature)).map((f) => f.feature));
+    const { buildGroups, buildComplete, projectedHero } = planRetakeBuilds(full, second, tier, c.heroes, heroes, roster, fd, missingSet, written);
+    // When `c.rows < 15`, advancing past row 14 would falsely claim rows 11–14 are captured;
+    // gate Phase 5 features behind `buildComplete` so `rows` never crosses 14 with missing build keys.
+    if (c.rows < 15 && !buildComplete) return buildGroups.length > 0;
+    if (needsBuilds && (buildGroups.length > 0 || buildComplete)) return true;
+    if (!missingSet.size) return false;
+    const { admitted } = preflightRetakeFeatures(full, state, heroes, roster, fd, missingSet, written, waves, projectedHero, buildComplete);
     return admitted.size > 0;
   }
+  if (needsBuilds) return true;
   // If any Group A feature or `rejuv` is missing, it always fits (no list cap / hash collision).
   const simple = missing.some((f) => f.feature === "sight" || f.feature === "cc" || f.feature === "movement" || f.feature === "lanes" || f.feature === "skulls" || f.feature === "rejuv");
   if (simple) return true;
@@ -612,9 +699,8 @@ export function canRetake(
 
 /** Preflight each missing Phase 5 feature against `LIMITS.max_more_bytes` on every touched hero,
  * wave, and `SceneState` record (using projected `more` maps after any earlier writes in the same
- * Retake). Because the engine skips an over-cap `SetIf` and continues the transaction, emitting a
- * `has_*` flag when any required per-record write can't fit would permanently mark incomplete data
- * as captured. Features that don't fit are omitted whole alongside their `has_*` flag. */
+ * Retake). Combined with `Op::Set` in `sceneGroup` (so a concurrent peer eating space aborts the
+ * whole transaction atomically on the server), incomplete data is never marked captured. */
 function preflightRetakeFeatures(
   tl: Timeline,
   stateMore: More | undefined,
@@ -625,16 +711,16 @@ function preflightRetakeFeatures(
   written: number,
   waves?: ReadonlyMap<string, { id: RecordId; t: number; more?: More }>,
   projectedHeroes?: Map<RecordId, More>,
+  buildComplete = true,
 ): { admitted: Set<Phase5Feature>; skipped: Array<(typeof PHASE5_FEATURES)[number]> } {
   const players = new Map(tl.players.map((p) => [slotKey(p.team, p.slot), p]));
   const slots = new Map(roster.map((s) => [s.id, s]));
   const heroMore = new Map<RecordId, More>();
   for (const h of heroes) heroMore.set(h.id, { ...(projectedHeroes?.get(h.id) ?? h.state.more ?? {}) });
-  const baseState = captureScene(tl, { heroes: false, written });
+  const baseState = captureScene(tl, { builds: buildComplete, heroes: false, written });
   const stateProj: More = { ...(stateMore ?? {}) };
-  for (const [k, v] of Object.entries(baseState)) {
-    if (k !== "rows" && stateProj[k] === undefined) stateProj[k] = v;
-  }
+  if (buildComplete && stateProj.has_builds !== true) stateProj.has_builds = true;
+  if (baseState.build !== undefined && stateProj.build === undefined) stateProj.build = baseState.build;
   const admitted = new Set<Phase5Feature>();
   const skipped: Array<(typeof PHASE5_FEATURES)[number]> = [];
 
@@ -677,10 +763,11 @@ function preflightRetakeFeatures(
       }
     }
 
-    const stateCap = captureScene(tl, { heroes: false, written, ...sceneCaptureFrom(fd, new Set<Phase5Feature>([f])) });
+    const stateCap = captureScene(tl, { builds: buildComplete, heroes: false, written, ...sceneCaptureFrom(fd, new Set<Phase5Feature>([f])) });
     const stateAdd: More = {};
     for (const [k, v] of Object.entries(stateCap)) {
-      if (k !== "rows" && stateProj[k] === undefined) stateAdd[k] = v;
+      if (k === "rows" || k === "has_builds" || k === "build" || k === "has_heroes") continue;
+      if (JSON.stringify(stateProj[k]) !== JSON.stringify(v)) stateAdd[k] = v;
     }
     if (fits && moreBytes({ ...stateProj, ...stateAdd, rows: written }) > LIMITS.max_more_bytes) {
       fits = false;
@@ -699,18 +786,18 @@ function preflightRetakeFeatures(
 
 /**
  * Retake (map-state spec §2 D10, §4.4; plan §6): what a scene saved from this match didn't
- * capture, from its own moment (`source.t`) of the open match. Every write is a `SetIf` on a
- * value that is absent (or, for the watermark, on the one read), so nothing a person set since
- * is overwritten, and two people retaking at once write the same.
+ * capture, from its own moment (`source.t`) of the open match.
  *
- * All Group A ops (hero `unseen`/`cc`/`height`/`zipline`, lane `edges`, `SceneState` Group A
- * flags + `skulls`) plus `SceneState`'s Group B rows and watermark bump go in ONE indivisible
- * scene-state group, emitted last (after any per-hero build groups), so Group A's data and flags
- * always commit atomically.
+ * Per-hero build backfills use `SetIf` on absent (preserving TD-119 / manual build edits).
+ * All Phase 5 ops (Group A hero `unseen`/`cc`/`height`/`zipline`, lane `edges`, and `SceneState`
+ * flags, payloads, dormant flag clears, and watermark bump) go in ONE indivisible `sceneGroup`
+ * transaction using `Op::Set`, emitted last: on the server, `Op::Set` invokes `check_more_fits?`
+ * and aborts the entire transaction atomically on `TxTooLarge` if a concurrent peer consumed the
+ * remaining bytes under `max_more_bytes`.
  *
  * Re-picked slot rule (plan §6): build rows are skipped for a re-picked slot; Group A hero rows
- * are slot-at-the-frame facts and are filled for every matched slot (re-picked or not) via `SetIf`
- * on absent without triggering `Set hero`.
+ * are slot-at-the-frame facts and are filled for every matched slot (re-picked or not) without
+ * triggering `Set hero`.
  */
 export function retakeOps(
   scene: SceneRow,
@@ -728,8 +815,7 @@ export function retakeOps(
   if (second == null || !retakesFrom(tier, tl)) return [];
   const players = new Map(tl.players.map((p) => [slotKey(p.team, p.slot), p]));
   const slots = new Map(roster.map((s) => [s.id, s]));
-  const absent = (id: RecordId, key: string, value: MoreValue): Op => ({ SetIf: { id, expect: { More: { key, value: null } }, value: { More: { key, value } } } });
-  const groups: Op[][] = [];
+  const setOp = (id: RecordId, key: string, value: MoreValue | null): Op => ({ Set: { id, value: { More: { key, value } } } });
   const c = captured(state?.more);
   const own = c.heroes;
   const fd = written > 16 ? captureFrameData(tl, Math.floor(second), markers ?? [], written) : undefined;
@@ -743,57 +829,19 @@ export function retakeOps(
       }
     }
   }
-  const projectedHero = new Map<RecordId, More>();
-  for (const h of heroes) projectedHero.set(h.id, { ...(h.state.more ?? {}) });
-  const buildSet = new Set<string>(["hero", ...BUILD_KEYS]);
-  for (const h of heroes) {
-    const s = slots.get(h.state.slot);
-    const key = s && slotKey(s.slot.team, s.slot.slot);
-    const p = key ? players.get(key) : undefined;
-    if (!p || !key) continue;
-    const have = h.state.more ?? {};
-    // A slot given another hero in a scene that holds its heroes: the match's build is not
-    // that hero's, and stays out.
-    if (typeof have.hero === "number" && have.hero !== p.hero_id) continue;
-    // Reserve space for existing non-build keys (e.g. `name`) and any missing Group A hero keys
-    // so a late-game build backfill trims `build_order` instead of starving sight/CC/movement.
-    const reserve: More = {};
-    for (const [k, v] of Object.entries(have)) {
-      if (!buildSet.has(k)) reserve[k] = v;
-    }
-    if (fd && missingFeatures.size > 0) {
-      for (const [k, v] of Object.entries(heroExtraFrom(fd, missingFeatures, key))) {
-        if (have[k] === undefined && ROWS[k as RowKey].index < written) reserve[k] = v;
-      }
-    }
-    const reserveBytes = Object.keys(reserve).length ? moreBytes(reserve) : 0;
-    const buildBudget = Math.max(0, LIMITS.max_more_bytes - reserveBytes);
-    const proj = projectedHero.get(h.id)!;
-    const ops: Op[] = [];
-    for (const [bk, bv] of Object.entries(captureBuild(heroBuildAt(tl, p, second, tier), buildBudget))) {
-      if (have[bk] !== undefined || (own && bk === "hero")) continue;
-      if (moreBytes({ ...proj, [bk]: bv }) > LIMITS.max_more_bytes) continue;
-      proj[bk] = bv;
-      ops.push(absent(h.id, bk, bv));
-    }
-    if (own && (ops.length || have.hero === undefined)) {
-      if (have.hero !== undefined || moreBytes({ ...proj, hero: p.hero_id }) <= LIMITS.max_more_bytes) {
-        proj.hero = p.hero_id;
-        const held = BUILD_KEYS.filter((bk) => have[bk] !== undefined).map((bk) => absent(h.id, bk, have[bk]!));
-        ops.unshift({ Set: { id: h.id, value: { More: { key: "hero", value: p.hero_id } } } }, ...held);
-      }
-    }
-    if (ops.length) groups.push(ops);
-  }
+  const { buildGroups, buildComplete, projectedHero } = planRetakeBuilds(tl, second, tier, own, heroes, roster, fd, missingFeatures, written);
+  const groups: Op[][] = [...buildGroups];
 
-  // Preflight every missing Phase 5 feature against `LIMITS.max_more_bytes` on heroes, waves, and
-  // `SceneState` so an over-cap `SetIf` skip can never leave `has_*` set with missing data.
-  const { admitted: admittedFeatures, skipped: skippedForCap } = fd && missingFeatures.size > 0
-    ? preflightRetakeFeatures(tl, state?.more, heroes, roster, fd, missingFeatures, written, waves, projectedHero)
+  // If `c.rows < 15` and a required build key couldn't fit (`!buildComplete`), do not advance
+  // `rows` past 14 or enter Phase 5 features (which would falsely mark rows 11–14 as captured).
+  const allowPhase5 = c.rows >= 15 || buildComplete;
+  const { admitted: admittedFeatures, skipped: skippedForCap } = fd && allowPhase5 && missingFeatures.size > 0
+    ? preflightRetakeFeatures(tl, state?.more, heroes, roster, fd, missingFeatures, written, waves, projectedHero, buildComplete)
     : { admitted: new Set<Phase5Feature>(), skipped: [] as Array<(typeof PHASE5_FEATURES)[number]> };
 
   // One indivisible scene-state group, emitted last (plan §6): all admitted Group A hero/lane ops
-  // plus SceneState (admitted Group A + Group B + honest watermark bump).
+  // plus SceneState (admitted Group A + Group B + dormant flag clears + honest watermark bump),
+  // emitted as `Op::Set` so concurrent near-cap overflow aborts the whole transaction atomically.
   const sceneGroup: Op[] = [];
   if (fd && admittedFeatures.size > 0) {
     // Group A hero rows: filled for EVERY matched slot (re-picked or not), never triggering `Set hero`.
@@ -805,7 +853,7 @@ export function retakeOps(
       const have = h.state.more ?? {};
       const extra = heroExtraFrom(fd, admittedFeatures, key);
       for (const [k, v] of Object.entries(extra)) {
-        if (have[k] === undefined && ROWS[k as RowKey].index < written) sceneGroup.push(absent(h.id, k, v));
+        if (have[k] === undefined && ROWS[k as RowKey].index < written) sceneGroup.push(setOp(h.id, k, v));
       }
     }
     // Group A lane edges: fill absent `edges` on existing Waves, or create Wave on metadata-upgraded scenes.
@@ -815,7 +863,7 @@ export function retakeOps(
         if (!edges) continue;
         const existing = waves?.get(lane);
         if (existing) {
-          if (existing.more?.edges === undefined) sceneGroup.push(absent(existing.id, "edges", edges));
+          if (existing.more?.edges === undefined) sceneGroup.push(setOp(existing.id, "edges", edges));
         } else if (waves !== undefined) {
           sceneGroup.push({ Create: { id: mint(), record: { Wave: { scene: scene.id, lane, t: Math.round((w.amber + w.sapphire) / 2), more: { edges } } } } });
         }
@@ -824,32 +872,55 @@ export function retakeOps(
   }
   // Advance `SceneState.rows` only as high as the highest admitted feature (because `captured()`
   // requires `ROWS[lastRow].index < rows` to read an admitted `has_*` flag); never advance past
-  // the admitted features when any feature was skipped, and never bump `rows` on a no-op Retake.
+  // 14 when `c.rows < 15 && !buildComplete`, never advance past admitted features when any feature
+  // was skipped, and never bump `rows` on a no-op Retake.
   const rowByFeature = new Map(PHASE5_FEATURES.map((f) => [f.feature, ROWS[f.lastRow].index + 1]));
-  const targetRows = skippedForCap.length === 0
-    ? written
-    : Math.max(
-        c.rows,
-        groups.length > 0 || c.rows < 15 ? Math.min(written, 15) : 0,
-        ...[...admittedFeatures].map((f) => rowByFeature.get(f) ?? 0),
-      );
+  const targetRows = !allowPhase5
+    ? c.rows
+    : skippedForCap.length === 0
+      ? written
+      : Math.max(
+          c.rows,
+          buildComplete && (buildGroups.length > 0 || c.rows < 15) ? Math.min(written, 15) : 0,
+          ...[...admittedFeatures].map((f) => rowByFeature.get(f) ?? 0),
+        );
   // Never `has_heroes`: a scene saved before it draws the board roster's heroes, and stays so.
-  const want = captureScene(tl, { heroes: false, written, ...(fd ? sceneCaptureFrom(fd, admittedFeatures) : {}) });
+  // Only set `has_builds: true` when `buildComplete` holds.
+  const want = captureScene(tl, { builds: buildComplete, heroes: false, written, ...(fd ? sceneCaptureFrom(fd, admittedFeatures) : {}) });
   want.rows = targetRows;
   if (!state) {
-    if (groups.length > 0 || sceneGroup.length > 0 || admittedFeatures.size > 0 || skippedForCap.length === 0) {
+    if (buildComplete || admittedFeatures.size > 0) {
       sceneGroup.push({ Create: { id: mint(), record: { SceneState: { scene: scene.id, more: want } } } });
     }
   } else {
     const have = state.more ?? {};
-    const stateOps = Object.entries(want)
-      .filter(([key]) => key !== "rows" && have[key] === undefined)
-      .map(([key, value]) => absent(state.id, key, value));
-    sceneGroup.push(...stateOps);
-    const hasWork = groups.length > 0 || sceneGroup.length > 0 || c.rows < 15;
-    if (hasWork) {
-      if (have.rows === undefined) sceneGroup.push(absent(state.id, "rows", targetRows));
-      else if (c.rows < targetRows) sceneGroup.push({ SetIf: { id: state.id, expect: { More: { key: "rows", value: have.rows } }, value: { More: { key: "rows", value: targetRows } } } });
+    for (const [key, value] of Object.entries(want)) {
+      if (key === "rows") continue;
+      if (key === "build") {
+        if (have[key] === undefined) sceneGroup.push(setOp(state.id, key, value));
+      } else if (key.startsWith("has_")) {
+        // Transitions BOTH absent and explicit `false` flags to `true`.
+        if (have[key] !== true) sceneGroup.push(setOp(state.id, key, value));
+      } else if (JSON.stringify(have[key]) !== JSON.stringify(value)) {
+        sceneGroup.push(setOp(state.id, key, value));
+      }
+    }
+    // Clear any dormant `true` flag beyond the old watermark that `targetRows` would otherwise
+    // activate without its data having been captured (e.g. imported `{ rows: 16, has_sight: true }`).
+    for (const f of PHASE5_FEATURES) {
+      if (!c[f.flag] && !admittedFeatures.has(f.feature) && targetRows > ROWS[f.lastRow].index && have[f.firstRow] === true) {
+        sceneGroup.push(setOp(state.id, f.firstRow, null));
+      }
+    }
+    if (!c.builds && !buildComplete && targetRows > 0 && have.has_builds === true) {
+      sceneGroup.push(setOp(state.id, "has_builds", null));
+    }
+    if (!c.heroes && targetRows > ROWS.has_heroes.index && have.has_heroes === true) {
+      sceneGroup.push(setOp(state.id, "has_heroes", null));
+    }
+    const hasWork = buildGroups.length > 0 || sceneGroup.length > 0 || (buildComplete && c.rows < 15);
+    if (hasWork && (have.rows === undefined || c.rows < targetRows)) {
+      sceneGroup.push(setOp(state.id, "rows", targetRows));
     }
   }
   if (sceneGroup.length) groups.push(sceneGroup);

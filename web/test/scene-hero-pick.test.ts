@@ -17,10 +17,11 @@ import { BoardSession, type SocketLike } from "../src/core/session";
 import type { More } from "../src/gen/More";
 import type { PlayerState } from "../src/gen/PlayerState";
 import type { RecordId } from "../src/gen/RecordId";
+import { LIMITS } from "../src/gen/limits";
 import { ROWS } from "../src/gen/rows";
 import type { Op } from "../src/gen/Op";
 import type { RosterSlot } from "../src/gen/RosterSlot";
-import { BUILD_KEYS, captureBuild, captureScene, heroBuildAt, sceneHero } from "../src/mapstate/build";
+import { BUILD_KEYS, captureBuild, captureScene, captured, heroBuildAt, moreBytes, sceneHero } from "../src/mapstate/build";
 import { holdsBuild } from "../src/mapstate/buildView";
 import { encodeCC } from "../src/mapstate/codec";
 import { pickHeroOps } from "../src/mapstate/edit";
@@ -230,7 +231,8 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
       ...BUILD_KEYS.filter((k) => more?.[k] !== undefined).map((key): Op => ({ Set: { id: s.id, value: { More: { key, value: null } } } })),
     ] as Op[];
   };
-  const oldRetake = (s: Saved) => retake(s).map((tx) => tx.flatMap((o): Op[] => ("Set" in o ? [] : [o])));
+  const oldRetake = (s: Saved) =>
+    retake(s).map((tx) => tx.flatMap((o): Op[] => ("Set" in o && "More" in o.Set.value && o.Set.value.More.key === "hero" ? [] : [o])));
 
   const held = (s: BoardSession) => JSON.stringify([...s.records].sort(([x], [y]) => (x < y ? -1 : 1)));
   /** `first` is decided by the server while `second`, made at the same moment, is still on its
@@ -396,5 +398,98 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
       expect(BUILD_KEYS.some((k) => rest[k] !== undefined)).toBe(true);
       stop(first);
     });
+  });
+
+  // Blocking #1 (Astra Round 2): when a peer concurrently eats the remaining bytes under
+  // `max_more_bytes` while a Retake's `sceneGroup` is in flight, `Op::Set` on the hero's Group A
+  // key fails `check_more_fits?` (`TxTooLarge`) and aborts the ENTIRE `sceneGroup` transaction
+  // atomically on the server — so `has_sight` and `rows` never commit without `unseen`!
+  it("a concurrent peer eating max_more_bytes aborts Retake's sceneGroup atomically (no false has_sight or rows bump)", async () => {
+    const [ga, gb] = [heldSocket(), heldSocket()];
+    const { a, b, scene, heroes } = await board([ga.open, gb.open]);
+    const rosterOf = (s: BoardSession) => [...s.records].flatMap(([id, e]) => ("RosterSlot" in e.record ? [{ id, slot: e.record.RosterSlot as RosterSlot }] : []));
+    const match = new Map(tl.players.map((p) => [slotKey(p.team, p.slot), p]));
+    const matchOf = (id: RecordId) => {
+      const r = rosterOf(a).find((x) => x.id === hero(a, id).slot)!.slot;
+      return match.get(slotKey(r.team === "Amber" ? "amber" : "sapphire", r.slot))!;
+    };
+    const ten = tenthPart(tl, T);
+    // Pick a hero that is unseen at T=4 (`unseen: true` = 14B, `height: 1` = 11B -> 25B total).
+    const target = heroes.find((h) => ten.sight[tl.players.indexOf(matchOf(h))] !== true)!;
+    expect(target).toBeDefined();
+
+    // Build a 100% schema-legal `more` on `target` leaving exactly 30 bytes free under `max_more_bytes`
+    // (`build_order` <= 600 ints, `items` <= 128 ints, `abilities` <= 48 ints, no `name` yet).
+    const targetMore: More = {
+      ...captureBuild(heroBuildAt(tl, matchOf(target), T)),
+      build_order: Array.from({ length: 600 }, () => 4_294_967_295),
+      items: Array.from({ length: 128 }, () => 4_294_967_295),
+      abilities: [] as number[],
+    };
+    const ab = targetMore.abilities as number[];
+    while (ab.length < 48 && moreBytes({ ...targetMore, abilities: [...ab, 4_294_967_295] }) <= LIMITS.max_more_bytes - 30) {
+      ab.push(4_294_967_295);
+    }
+    const rem = LIMITS.max_more_bytes - 30 - moreBytes(targetMore);
+    if (rem >= 2 && ab.length < 48) {
+      const digits = Math.min(10, rem - 1);
+      ab.push(digits === 10 ? 1_000_000_000 : Number("1".repeat(digits)));
+    }
+    const free = LIMITS.max_more_bytes - moreBytes(targetMore);
+    expect(free).toBeGreaterThanOrEqual(25);
+    expect(free).toBeLessThanOrEqual(34);
+
+    // Seed a v14 scene (`rows: 16, has_builds: true, has_heroes: true`) with builds on all 12 heroes.
+    const stateId = newRecordId();
+    const stateMore: More = { rows: 16, has_builds: true, has_heroes: true, build: 6839 };
+    expect(a.edit([{ Create: { id: stateId, record: { SceneState: { scene, more: stateMore } } } }])).toBe(true);
+    for (const h of heroes) {
+      const m = h === target ? targetMore : captureBuild(heroBuildAt(tl, matchOf(h), T));
+      expect(a.edit(Object.entries(m).map(([key, value]): Op => ({ Set: { id: h, value: { More: { key, value } } } })))).toBe(true);
+    }
+    expect(await settled(a, b)).toBe(true);
+    expect(await until(() => held(a) === held(b))).toBe(true);
+
+    // Hold Peer A while Peer A plans & submits Retake (preflight passes: 25B <= free <= 34B!).
+    const row = { id: scene, scene: { name: "s", order: "a", clock: T, source: { match_id: tl.match_id, t: T, tier: "replay" } } } as never;
+    const beforeProblems = a.problems.length;
+    ga.hold();
+    const txs = retakeOps(
+      row,
+      { id: stateId, more: stateMore },
+      heroes.map((h) => ({ id: h, state: hero(a, h) })) as never,
+      rosterOf(a) as never,
+      tl,
+      newRecordId,
+    );
+    expect(txs).toHaveLength(1);
+    expect(a.edit(txs[0]!)).toBe(true);
+
+    // Concurrently, Peer B sets a schema-legal `name` (`<= 24` chars) consuming almost all free bytes
+    // (`,"name":"..."` = 10 + nameLen bytes), leaving < 10 bytes free under `max_more_bytes`.
+    const nameLen = Math.min(LIMITS.max_name, Math.max(1, free - 10 - 4));
+    expect(b.edit([{ Set: { id: target, value: { More: { key: "name", value: "a".repeat(nameLen) } } } }])).toBe(true);
+    expect(await settled(b)).toBe(true);
+    expect(LIMITS.max_more_bytes - moreBytes(hero(b, target).more!)).toBeLessThan(14);
+
+    // Release Peer A: server rejects `sceneGroup` atomically (`TxTooLarge`); neither `unseen` nor
+    // `has_sight` nor `rows` commits, and both replicas agree!
+    ga.release();
+    expect(await until(() => a.problems.length > beforeProblems)).toBe(true);
+    expect(a.problems.slice(beforeProblems).join(" ")).toMatch(/TxTooLarge/);
+    expect(await settled(a, b)).toBe(true);
+    expect(await until(() => held(a) === held(b))).toBe(true);
+
+    const stateOf = (s: BoardSession) => (s.records.get(stateId)!.record as { SceneState: { more?: More } }).SceneState.more;
+    for (const s of [a, b]) {
+      expect(hero(s, target).more?.unseen).toBeUndefined();
+      expect(hero(s, target).more?.height).toBeUndefined();
+      expect(hero(s, target).more?.name).toBe("a".repeat(nameLen));
+      expect(stateOf(s)?.has_sight).toBeUndefined();
+      expect(stateOf(s)?.has_movement).toBeUndefined();
+      expect(stateOf(s)?.rows).toBe(16);
+      expect(captured(stateOf(s)).sight).toBe(false);
+    }
+    [a, b].forEach((x) => x.stop());
   });
 });

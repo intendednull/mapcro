@@ -203,17 +203,17 @@ describe("Retake", () => {
 
   it("writes only what is absent, and moves an older watermark up", () => {
     const heroes = heroesOf(save(tl).ops);
-    // A snapshot from before `level` was a row, with one hero's items edited since.
+    // A snapshot from before `level` was a row (no `has_heroes`), with one hero's items edited since.
     const rows = ROWS.level.index;
-    const state = { id: "state", more: { ...captureScene(tl), rows } as More };
+    const state = { id: "state", more: { ...captureScene(tl, { heroes: false }), rows } as More };
     const partial = heroes.map((h) => ({ id: h.id, state: { ...h.state, more: Object.fromEntries(Object.entries(h.state.more!).filter(([k]) => ROWS[k as keyof typeof ROWS].index < rows)) } }));
     const ops = retakeOps(scene(2), state, partial, roster as never, tl, minter()).flat();
     const keys = new Set(ops.flatMap((o) => (setIf(o) && setIf(o)!.id !== "state" && "More" in setIf(o)!.value ? [(setIf(o)!.value as { More: { key: string } }).More.key] : [])));
     expect([...keys].sort()).toEqual(Object.keys(ROWS).filter((k) => ROWS[k as keyof typeof ROWS].entity === "hero" && ROWS[k as keyof typeof ROWS].index >= rows && ROWS[k as keyof typeof ROWS].index < WRITTEN && k in captureBuild(heroBuildAt(tl, tl.players[0]!, 2))).sort());
-    // The watermark moves from the value read to this build's, and missing Group A flags (`has_skulls`) are set.
-    expect(ops.filter((o) => setIf(o)?.id === "state")).toEqual([
-      { SetIf: { id: "state", expect: { More: { key: "has_skulls", value: null } }, value: { More: { key: "has_skulls", value: true } } } },
-      { SetIf: { id: "state", expect: { More: { key: "rows", value: rows } }, value: { More: { key: "rows", value: WRITTEN } } } },
+    // The watermark moves from the value read to this build's, and missing Group A flags (`has_skulls`) are set via `Set` in `sceneGroup`.
+    expect(ops.filter((o) => "Set" in o && o.Set.id === "state")).toEqual([
+      { Set: { id: "state", value: { More: { key: "has_skulls", value: true } } } },
+      { Set: { id: "state", value: { More: { key: "rows", value: WRITTEN } } } },
     ]);
     expect(captured({ ...state.more, rows: WRITTEN }).builds).toBe(true);
     // Nothing to do on a scene that holds it all, or one with no moment.

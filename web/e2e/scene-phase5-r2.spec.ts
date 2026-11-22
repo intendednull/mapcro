@@ -185,10 +185,14 @@ test("R2 saved scene: Vision × Show last seen (6 combos), health arcs (Q3), sta
   await expect(skull).toHaveCount(0);
   await p.getByTestId("vision-select").selectOption("amber");
   await expect(skull).toHaveCount(1);
+  await expect(skull).not.toHaveAttribute("data-recap");
+  await expect(skull).not.toHaveAttribute("role", "button");
   await skull.click({ force: true });
   await expect(p.getByTestId("skull-recap")).toHaveCount(0);
   await p.getByTestId("vision-select").selectOption("all");
   await expect(skull).toHaveCount(1);
+  await expect(skull).not.toHaveAttribute("data-recap");
+  await expect(skull).not.toHaveAttribute("role", "button");
   await skull.click({ force: true });
   await expect(p.getByTestId("skull-recap")).toHaveCount(0);
 

@@ -328,14 +328,14 @@ describe("as it was before TD-119", () => {
       const want = Object.entries(captureBuild(heroBuildAt(tl, tl.players[i]!, 4))).filter(([k]) => h.state.more?.[k] === undefined);
       expect(on(ops, h.id)).toEqual(want.map(([k, v]) => absent(h.id, k, v)));
     });
-    expect(ops.some((o) => "Set" in o)).toBe(false);
+    expect(ops.some((o) => "Set" in o && o.Set.id !== "state")).toBe(false);
   });
 
   it("without the flag, a record that holds its hero is filled with SetIfs alone, its hero not written", () => {
     const heroes = records({ written: LATER, builds: false });
     expect(heroes.every((h) => typeof h.state.more?.hero === "number")).toBe(true);
     const ops = retakeOps(scene, { id: "state", more: { rows: BEFORE } }, heroes, roster() as never, tl, minter()).flat();
-    expect(ops.some((o) => "Set" in o)).toBe(false);
+    expect(ops.some((o) => "Set" in o && o.Set.id !== "state" && "More" in o.Set.value && o.Set.value.More.key === "hero")).toBe(false);
     for (const h of heroes) expect(on(ops, h.id).some((o) => "SetIf" in o && "More" in o.SetIf.value && o.SetIf.value.More.key === "hero")).toBe(false);
   });
 
@@ -379,12 +379,12 @@ describe("Retake and the scene's heroes", () => {
       expect(state[0]!.r.more?.has_heroes).toBeUndefined();
       expect(captured(state[0]!.r.more).heroes).toBe(false);
     }
-    // Onto a state that exists: the builds' flag and patch, the watermark moved up, no more.
+    // Onto a state that exists: the builds' flag and patch, the watermark moved up, no more (`Set` in `sceneGroup`).
     const onto = retakeOps(scene(4), { id: "state", more: { rows: 3 } }, old, roster() as never, tl, minter(), LATER).flat();
-    const keys = onto.flatMap((o) => ("SetIf" in o && o.SetIf.id === "state" && "More" in o.SetIf.value ? [o.SetIf.value.More.key] : []));
+    const keys = onto.flatMap((o) => ("Set" in o && o.Set.id === "state" && "More" in o.Set.value ? [o.Set.value.More.key] : []));
     expect(keys.sort()).toEqual(["build", "has_builds", "rows"]);
     // The watermark goes to the rows the retaking build writes.
-    expect(onto.find((o) => "SetIf" in o && "More" in o.SetIf.value && o.SetIf.value.More.key === "rows")).toEqual({ SetIf: { id: "state", expect: { More: { key: "rows", value: 3 } }, value: { More: { key: "rows", value: LATER } } } });
+    expect(onto.find((o) => "Set" in o && o.Set.id === "state" && "More" in o.Set.value && o.Set.value.More.key === "rows")).toEqual({ Set: { id: "state", value: { More: { key: "rows", value: LATER } } } });
   });
 
   it("is not offered just because the row came to be written", () => {
@@ -420,11 +420,11 @@ describe("Retake and the scene's heroes", () => {
     // A record with nothing to fill gets nothing, its hero included.
     const whole = heroesOf(save({ written: LATER }).ops);
     const none = retakeOps(scene(4), state, whole, roster() as never, tl, minter(), LATER).flat();
-    expect(none.some((o) => "Set" in o)).toBe(false);
+    expect(none.some((o) => "Set" in o && o.Set.id !== "state")).toBe(false);
     // A record that holds a build and no hero is still told its hero.
     const bare = whole.map((h) => { const { hero: _, ...more } = h.state.more!; return { ...h, state: { ...h.state, more } }; });
     const told = retakeOps(scene(4), state, bare, roster() as never, tl, minter(), LATER).flat();
-    expect(told.filter((o) => "Set" in o)).toEqual(bare.map((h, i) => ({ Set: { id: h.id, value: { More: { key: "hero", value: tl.players[i]!.hero_id } } } })));
+    expect(told.filter((o) => "Set" in o && o.Set.id !== "state")).toEqual(bare.map((h, i) => ({ Set: { id: h.id, value: { More: { key: "hero", value: tl.players[i]!.hero_id } } } })));
     // And the rows it holds go with its hero, for a pick that cleared them on the way.
     const put = (id: string, key: string, value: unknown) => ({ SetIf: { id, expect: { More: { key, value: null } }, value: { More: { key, value } } } });
     expect(told.filter((o) => "SetIf" in o && o.SetIf.id !== "state")).toEqual(bare.flatMap((h) => BUILD_KEYS.filter((k) => h.state.more[k] !== undefined).map((k) => put(h.id, k, h.state.more[k]))));

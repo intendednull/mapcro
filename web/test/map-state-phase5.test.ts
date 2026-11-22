@@ -1106,10 +1106,9 @@ describe("Dormant Retake, re-picked slots, TD-145 undo & copy filter", () => {
       const tx = txs[0]!;
       expect(tx.length).toBeLessThanOrEqual(written === WRITTEN_A ? 58 : 71);
       expect(opsBytes(tx)).toBeLessThanOrEqual(written === WRITTEN_A ? 8300 : 15600);
-      // Re-picked slot 0: gets NO `Set hero` and NO build rows, but DOES get Group A hero rows via SetIf on absent!
+      // Re-picked slot 0: gets NO `Set hero` and NO build rows, only Group A hero rows via `Set` in `sceneGroup`!
       const slot0Ops = tx.filter((o) => ("Set" in o ? o.Set.id : "SetIf" in o ? o.SetIf.id : "") === heroes[0]!.id);
-      expect(slot0Ops.some((o) => "Set" in o)).toBe(false);
-      expect(slot0Ops.every((o) => "SetIf" in o && "More" in o.SetIf.value && ["unseen", "cc", "height", "zipline"].includes(o.SetIf.value.More.key))).toBe(true);
+      expect(slot0Ops.every((o) => "Set" in o && "More" in o.Set.value && ["unseen", "cc", "height", "zipline"].includes(o.Set.value.More.key))).toBe(true);
       expect(slot0Ops.length).toBeGreaterThan(0);
     }
 
@@ -1230,10 +1229,10 @@ describe("Dormant Retake, re-picked slots, TD-145 undo & copy filter", () => {
     expect(txs).toHaveLength(1);
     const ops = txs[0]!;
     // ZERO Group A hero ops (and specifically NO `unseen` re-write on the coach-edited hero)!
-    const heroOps = ops.filter((o) => "SetIf" in o && o.SetIf.id !== "st0");
+    const heroOps = ops.filter((o) => ("Set" in o ? o.Set.id : "SetIf" in o ? o.SetIf.id : "") !== "st0");
     expect(heroOps).toEqual([]);
-    // Group B flags and rows:40 ARE written to SceneState!
-    const stateKeys = ops.flatMap((o) => ("SetIf" in o && o.SetIf.id === "st0" && "More" in o.SetIf.value ? [o.SetIf.value.More.key] : []));
+    // Group B flags and rows:40 ARE written to SceneState via `Set`!
+    const stateKeys = ops.flatMap((o) => ("Set" in o && o.Set.id === "st0" && "More" in o.Set.value ? [o.Set.value.More.key] : []));
     expect(stateKeys).toContain("has_camps");
     expect(stateKeys).toContain("rows");
     // Already-captured Group A SceneState flags are NOT re-written.
@@ -1717,14 +1716,32 @@ describe("Phase 5 R2: Writer A, health arc (Q3), TD-162 MapControls, copy materi
     const sceneObj = { name: "s", order: "a", clock: 3, source: { match_id: tl.match_id, t: 3, tier: "replay" } };
     const sceneRow = { id: v14Cap.saved.id, scene: sceneObj } as never;
 
-    // Helper: craft a valid hero `more` with exactly `free` bytes remaining under `LIMITS.max_more_bytes`.
+    // Helper: craft a 100% schema-legal hero `more` with exactly `free` bytes remaining under
+    // `LIMITS.max_more_bytes` (`build_order <= 600`, `items <= 128`, `abilities <= 48`, `name <= 24`,
+    // all ints within `ROWS` bounds).
     const padHeroMore = (baseMore: More, free: number): More => {
-      const m: More = { ...baseMore, build_order: Array.from({ length: 500 }, (_, i) => 1_000_000_000 + i) };
-      while (moreBytes(m) < LIMITS.max_more_bytes - free - 30) (m.build_order as number[]).push(1_000_000_000);
-      // Fine-tune exact byte length via `name` (ASCII chars; `,"name":""` is 10 bytes + len).
+      const m: More = {
+        ...baseMore,
+        build_order: Array.from({ length: 600 }, () => 4_294_967_295),
+        items: [] as number[],
+        abilities: [] as number[],
+      };
+      const items = m.items as number[];
+      while (items.length < 128 && moreBytes({ ...m, items: [...items, 4_294_967_295] }) <= LIMITS.max_more_bytes - free - 24) {
+        items.push(4_294_967_295);
+      }
+      const ab = m.abilities as number[];
+      while (ab.length < 48 && moreBytes({ ...m, abilities: [...ab, 4_294_967_295] }) <= LIMITS.max_more_bytes - free - 12) {
+        ab.push(4_294_967_295);
+      }
+      // Fine-tune exact byte count using a schema-legal `name` (`<= LIMITS.max_name = 24` chars).
       let len = 1;
-      while (moreBytes({ ...m, name: "a".repeat(len) }) < LIMITS.max_more_bytes - free) len++;
+      while (len < LIMITS.max_name && moreBytes({ ...m, name: "a".repeat(len) }) < LIMITS.max_more_bytes - free) len++;
       const out: More = { ...m, name: "a".repeat(len) };
+      expect((out.build_order as number[]).length).toBeLessThanOrEqual(600);
+      expect((out.items as number[]).length).toBeLessThanOrEqual(128);
+      expect((out.abilities as number[]).length).toBeLessThanOrEqual(48);
+      expect((out.name as string).length).toBeLessThanOrEqual(LIMITS.max_name);
       expect(LIMITS.max_more_bytes - moreBytes(out)).toBe(free);
       return out;
     };
@@ -1732,19 +1749,30 @@ describe("Phase 5 R2: Writer A, health arc (Q3), TD-162 MapControls, copy materi
     const wavesMap = new Map(
       [...v14Cap.waves].map(([lane, w], idx) => [lane, { id: `w${idx}`, t: w.t, ...(w.more ? { more: w.more } : {}) }]),
     );
-    const stateMoreOps = (ops: Op[], id: string): More =>
-      Object.fromEntries(
-        ops.flatMap((o) =>
-          "SetIf" in o && o.SetIf.id === id && "More" in o.SetIf.value && o.SetIf.value.More.value !== null
-            ? [[o.SetIf.value.More.key, o.SetIf.value.More.value]]
-            : [],
-        ),
+    const setMoreEntries = (ops: Op[], id: string) =>
+      ops.flatMap((o) =>
+        "Set" in o && o.Set.id === id && "More" in o.Set.value
+          ? [[o.Set.value.More.key, o.Set.value.More.value] as const]
+          : [],
       );
+    const stateMoreOps = (ops: Op[], id: string): More => {
+      const out: More = {};
+      for (const [k, v] of setMoreEntries(ops, id)) if (v !== null) out[k] = v;
+      return out;
+    };
+    const applyStateOps = (baseState: More, ops: Op[], id: string): More => {
+      const next: More = { ...baseState };
+      for (const [k, v] of setMoreEntries(ops, id)) {
+        if (v === null) delete next[k];
+        else next[k] = v;
+      }
+      return next;
+    };
 
     // Case 1a: Hero 1 has only 4 bytes free -> neither `unseen` (14B), `cc` (8B), nor `height`/`zipline` fits.
     // Retake must NOT set has_sight/has_cc/has_movement and must NOT emit partial hero writes!
-    // Lanes & skulls DO fit and are admitted cleanly (with `rows` covering skulls=27 so `captured()` reads them,
-    // while `has_sight`/`has_cc`/`has_movement` stay absent so `captured()` keeps them false).
+    // Lanes & skulls DO fit and are admitted via `Op::Set` (with `rows` covering skulls=27 so `captured()`
+    // reads them, while `has_sight`/`has_cc`/`has_movement` stay absent so `captured()` keeps them false).
     const heroesTight = v14Cap.heroes.map((h, i) =>
       i === 1 ? { ...h, state: { ...h.state, more: padHeroMore(h.state.more ?? {}, 4) } } : h,
     );
@@ -1752,6 +1780,8 @@ describe("Phase 5 R2: Writer A, health arc (Q3), TD-162 MapControls, copy materi
     let mid = 0;
     const txsTight = retakeOps(sceneRow, st16, heroesTight, rs, tl, () => `r${mid++}`, WRITTEN, markers, wavesMap);
     const opsTight = txsTight.flat();
+    // All `sceneGroup` writes use `Op::Set` (for authoritative server rollback on concurrent overflow).
+    expect(opsTight.every((o) => "Set" in o)).toBe(true);
     const stateWrites = stateMoreOps(opsTight, "st1");
     expect(stateWrites.has_sight).toBeUndefined();
     expect(stateWrites.has_cc).toBeUndefined();
@@ -1762,7 +1792,7 @@ describe("Phase 5 R2: Writer A, health arc (Q3), TD-162 MapControls, copy materi
     expect(stateWrites.rows).toBe(ROWS.skulls.index + 1);
     // ZERO partial unseen/cc/height/zipline writes on ANY hero!
     const allHeroKeys = opsTight.flatMap((o) =>
-      "SetIf" in o && o.SetIf.id !== "st1" && "More" in o.SetIf.value ? [o.SetIf.value.More.key] : [],
+      "Set" in o && o.Set.id !== "st1" && "More" in o.Set.value ? [o.Set.value.More.key] : [],
     );
     expect(allHeroKeys).not.toContain("unseen");
     expect(allHeroKeys).not.toContain("cc");
@@ -1770,7 +1800,7 @@ describe("Phase 5 R2: Writer A, health arc (Q3), TD-162 MapControls, copy materi
     expect(allHeroKeys).not.toContain("zipline");
 
     // Verify `captured()` reads lanes & skulls as true and sight/cc/movement as false!
-    const afterPartialState: More = { ...st16.more, ...stateWrites };
+    const afterPartialState: More = applyStateOps(st16.more, opsTight, "st1");
     expect(captured(afterPartialState)).toMatchObject({
       sight: false,
       cc: false,
@@ -1786,24 +1816,16 @@ describe("Phase 5 R2: Writer A, health arc (Q3), TD-162 MapControls, copy materi
 
     expect(canRetake(sceneObj, afterPartialState, tl, WRITTEN, markers, v14Cap.heroes, rs, wavesMap)).toBe(true);
     const txsAfterFree = retakeOps(sceneRow, { id: "st1", more: afterPartialState }, v14Cap.heroes, rs, tl, () => `r${mid++}`, WRITTEN, markers, wavesMap);
-    const freeStateOps = Object.fromEntries(
-      txsAfterFree.flat().flatMap((o) => ("SetIf" in o && o.SetIf.id === "st1" && "More" in o.SetIf.value ? [[o.SetIf.value.More.key, o.SetIf.value.More.value]] : [])),
-    );
-    expect(freeStateOps).toMatchObject({ has_sight: true, has_cc: true, has_movement: true });
+    expect(stateMoreOps(txsAfterFree.flat(), "st1")).toMatchObject({ has_sight: true, has_cc: true, has_movement: true });
 
-    // Case 1b: When NO missing feature can fit (e.g. a timeline with only sight/cc/movement, no zips/deaths,
-    // or a scene where nothing else is missing), Retake emits [] and does NOT advance `rows` past 16!
+    // Case 1b: When NO missing feature can fit, Retake emits [] and does NOT advance `rows` past 16!
     const noLanesSkullsTl = { ...tl, zips: [], players: tl.players.map((p) => ({ ...p, deaths: [] })) } as unknown as Timeline;
-    // Also mark skulls already present on st16 so only sight/cc/movement are missing:
-    const stOnlyHeroMissing = { id: "st1", more: { rows: 16, has_builds: true, has_heroes: true, has_skulls: true } as More };
-    // Even with `has_skulls` flagged below rows, let's test on a fresh state with rows=16 and no lanes:
-    const txsOnlyTight = retakeOps(sceneRow, st16, heroesTight, rs, { ...noLanesSkullsTl, zips: [] } as unknown as Timeline, () => `z${mid++}`, ROWS.zipline.index + 1, markers, wavesMap);
+    const txsOnlyTight = retakeOps(sceneRow, st16, heroesTight, rs, noLanesSkullsTl, () => `z${mid++}`, ROWS.zipline.index + 1, markers, wavesMap);
     expect(txsOnlyTight).toEqual([]);
-    expect(stOnlyHeroMissing.more.rows).toBe(16);
 
     // Case 2: Hero 1 has 24 bytes free -> `unseen` (14B) + `cc` (8B) fit (22B), `height`+`zipline` (~26B) do NOT fit.
-    // Retake (up through movement, written = ROWS.zipline.index + 1) admits sight + cc, skips movement completely,
-    // and advances `rows` only to `ROWS.cc.index + 1` (20) — NOT past uncaptured movement!
+    // Retake (up through movement, written = ROWS.zipline.index + 1) admits sight + cc via `Set`, skips movement
+    // completely, and advances `rows` only to `ROWS.cc.index + 1` (20) — NOT past uncaptured movement!
     const heroesMid = v14Cap.heroes.map((h, i) =>
       i === 1 ? { ...h, state: { ...h.state, more: padHeroMore(h.state.more ?? {}, 24) } } : h,
     );
@@ -1813,30 +1835,88 @@ describe("Phase 5 R2: Writer A, health arc (Q3), TD-162 MapControls, copy materi
     expect(midStateOps.has_cc).toBe(true);
     expect(midStateOps.has_movement).toBeUndefined();
     expect(midStateOps.rows).toBe(ROWS.cc.index + 1);
-    expect(captured({ ...st16.more, ...midStateOps })).toMatchObject({ sight: true, cc: true, movement: false });
+    expect(captured(applyStateOps(st16.more, txsMid.flat(), "st1"))).toMatchObject({ sight: true, cc: true, movement: false });
     const midHeroKeys = txsMid.flat().flatMap((o) =>
-      "SetIf" in o && o.SetIf.id !== "st1" && "More" in o.SetIf.value ? [o.SetIf.value.More.key] : [],
+      "Set" in o && o.Set.id !== "st1" && "More" in o.Set.value ? [o.Set.value.More.key] : [],
     );
     expect(midHeroKeys).toContain("unseen");
     expect(midHeroKeys).toContain("cc");
     expect(midHeroKeys).not.toContain("height");
     expect(midHeroKeys).not.toContain("zipline");
 
-    // Case 3: Near-cap Wave.more prevents `has_lanes` from being set when `edges` doesn't fit,
-    // and with written up through lanes (25), `rows` stops at `ROWS.zipline.index + 1` (23)!
-    const stuffedWaves = new Map(wavesMap);
-    const lane1 = stuffedWaves.get("lane1")!;
-    stuffedWaves.set("lane1", { ...lane1, more: { name: "x".repeat(LIMITS.max_more_bytes - 12) } as More });
-    const txsWave = retakeOps(sceneRow, st16, v14Cap.heroes, rs, tl, () => `w${mid++}`, ROWS.edges.index + 1, markers, stuffedWaves);
-    const waveStateOps = stateMoreOps(txsWave.flat(), "st1");
-    expect(waveStateOps.has_sight).toBe(true);
-    expect(waveStateOps.has_cc).toBe(true);
-    expect(waveStateOps.has_movement).toBe(true);
-    expect(waveStateOps.has_lanes).toBeUndefined();
-    expect(waveStateOps.rows).toBe(ROWS.zipline.index + 1);
-    expect(captured({ ...st16.more, ...waveStateOps })).toMatchObject({ sight: true, cc: true, movement: true, lanes: false });
+    // Case 3 (Blocking #2 Half A): Dormant `true` flag beyond `rows` (`{ rows: 16, has_sight: true }`) is cleared
+    // when sight fails preflight and another feature (`lanes`/`skulls`) advances `rows` past `unseen`, so dormant
+    // flags never silently activate without data! Same for dormant `has_heroes: true` at `rows: 15`.
+    const dormantSight = { id: "st_dormant", more: { rows: 16, has_builds: true, has_heroes: true, has_sight: true } as More };
+    expect(captured(dormantSight.more).sight).toBe(false);
+    const txsDormant = retakeOps(sceneRow, dormantSight, heroesTight, rs, tl, () => `d${mid++}`, WRITTEN, markers, wavesMap);
+    const dormantClears = setMoreEntries(txsDormant.flat(), "st_dormant").filter(([, v]) => v === null).map(([k]) => k);
+    expect(dormantClears).toContain("has_sight");
+    const afterDormant = applyStateOps(dormantSight.more, txsDormant.flat(), "st_dormant");
+    expect(afterDormant.has_sight).toBeUndefined();
+    expect(captured(afterDormant)).toMatchObject({ sight: false, lanes: true, skulls: true });
 
-    // Case 4: Late-game Retake without builds reserves Group A headroom in captureBuild so sight/cc/movement all fit!
+    const dormantHeroes = { id: "st_dh", more: { rows: 15, has_builds: true, has_heroes: true } as More };
+    expect(captured(dormantHeroes.more).heroes).toBe(false);
+    const txsDormantH = retakeOps(sceneRow, dormantHeroes, v14Cap.heroes, rs, tl, () => `dh${mid++}`, WRITTEN, markers, wavesMap);
+    const afterDormantH = applyStateOps(dormantHeroes.more, txsDormantH.flat(), "st_dh");
+    expect(afterDormantH.has_heroes).toBeUndefined();
+    expect(captured(afterDormantH).heroes).toBe(false);
+
+    // Case 4 (Blocking #2 Half B): Explicit `has_sight: false` (at `rows: 16` or `rows: 27`) transitions to `true`
+    // when sight is admitted, and `canRetake` becomes false once all features are captured!
+    for (const initRows of [16, 27]) {
+      const falseSight = {
+        id: "st_false",
+        more: {
+          rows: initRows,
+          has_builds: true,
+          has_heroes: true,
+          has_sight: false,
+          ...(initRows === 27 ? { has_cc: true, has_movement: true, has_lanes: true, has_skulls: true } : {}),
+        } as More,
+      };
+      expect(canRetake(sceneObj, falseSight.more, tl, WRITTEN, markers, v14Cap.heroes, rs, wavesMap)).toBe(true);
+      const txsFalse = retakeOps(sceneRow, falseSight, v14Cap.heroes, rs, tl, () => `f${mid++}`, WRITTEN, markers, wavesMap);
+      const afterFalse = applyStateOps(falseSight.more, txsFalse.flat(), "st_false");
+      expect(afterFalse.has_sight).toBe(true);
+      expect(captured(afterFalse).sight).toBe(true);
+      expect(canRetake(sceneObj, afterFalse, tl, WRITTEN, markers, v14Cap.heroes, rs, wavesMap)).toBe(false);
+    }
+
+    // Case 5 (Blocking #3): Pre-v10 near-cap hero (`rows: 11`, missing `kills`/`deaths`/`assists`/`max_health`)
+    // must NOT silently drop `max_health` or advance `rows` past 11 while jammed; once space frees up,
+    // `canRetake` returns true and Retake backfills `max_health` + Group A + `rows = 27`!
+    const preV10State = { id: "st_v10", more: { rows: 11, has_builds: true } as More };
+    const preV10Heroes = v14Cap.heroes.map((h, i) => {
+      if (i !== 1) return h;
+      const { kills: _k, deaths: _d, assists: _a, max_health: _mh, ...withoutKda } = h.state.more!;
+      return { ...h, state: { ...h.state, more: padHeroMore(withoutKda, 4) } };
+    });
+    expect(canRetake(sceneObj, preV10State.more, tl, WRITTEN, markers, preV10Heroes, rs, wavesMap)).toBe(false);
+    expect(retakeOps(sceneRow, preV10State, preV10Heroes, rs, tl, () => `v10_${mid++}`, WRITTEN, markers, wavesMap)).toEqual([]);
+    // Free hero 1's space (remove padded arrays): `canRetake` re-enables and fills K/D/A/max_health + Group A!
+    const preV10Freed = preV10Heroes.map((h, i) =>
+      i === 1 ? { ...h, state: { ...h.state, more: { hero: h.state.more!.hero! } } } : h,
+    );
+    expect(canRetake(sceneObj, preV10State.more, tl, WRITTEN, markers, preV10Freed, rs, wavesMap)).toBe(true);
+    const txsV10Freed = retakeOps(sceneRow, preV10State, preV10Freed, rs, tl, () => `v10f_${mid++}`, WRITTEN, markers, wavesMap);
+    const afterV10 = applyStateOps(preV10State.more, txsV10Freed.flat(), "st_v10");
+    expect(afterV10.rows).toBe(27);
+    expect(captured(afterV10)).toMatchObject({ builds: true, sight: true, cc: true, movement: true, lanes: true, skulls: true });
+    // Also verify v14 `builds: false` scene with hero 1 jammed omits `has_builds: true` while allowing lanes/skulls:
+    const v14NoBuilds = { id: "st_nb", more: { rows: 16, has_builds: false, has_heroes: true } as More };
+    const v14JammedHeroes = v14Cap.heroes.map((h, i) => {
+      if (i !== 1) return h;
+      const { max_health: _mh, ...withoutMh } = h.state.more!;
+      return { ...h, state: { ...h.state, more: padHeroMore(withoutMh, 4) } };
+    });
+    const txsNb = retakeOps(sceneRow, v14NoBuilds, v14JammedHeroes, rs, tl, () => `nb_${mid++}`, WRITTEN, markers, wavesMap);
+    const afterNb = applyStateOps(v14NoBuilds.more, txsNb.flat(), "st_nb");
+    expect(afterNb.has_builds).toBe(false);
+    expect(captured(afterNb)).toMatchObject({ builds: false, lanes: true, skulls: true });
+
+    // Case 6: Late-game Retake without builds reserves Group A headroom in captureBuild so sight/cc/movement all fit!
     const hugeItems = Array.from({ length: 300 }, (_, k): [number, number, number] => [k, 1_000_000_000 + k, 0]);
     const lateTl = {
       ...tl,
@@ -1845,10 +1925,8 @@ describe("Phase 5 R2: Writer A, health arc (Q3), TD-162 MapControls, copy materi
     const bareHeroes = v14Cap.heroes.map((h) => ({ ...h, state: { ...h.state, more: { hero: h.state.more!.hero! } } }));
     const bareState = { id: "st_bare", more: { rows: 16, has_builds: false, has_heroes: true } as More };
     const txsLate = retakeOps(sceneRow, bareState, bareHeroes, rs, lateTl, () => `l${mid++}`, WRITTEN, markers, wavesMap);
-    const lateStateOps = Object.fromEntries(
-      txsLate.flat().flatMap((o) => ("SetIf" in o && o.SetIf.id === "st_bare" && "More" in o.SetIf.value ? [[o.SetIf.value.More.key, o.SetIf.value.More.value]] : [])),
-    );
-    expect(lateStateOps).toMatchObject({ has_sight: true, has_cc: true, has_movement: true, rows: 27 });
+    const lateStateOps = stateMoreOps(txsLate.flat(), "st_bare");
+    expect(lateStateOps).toMatchObject({ has_builds: true, has_sight: true, has_cc: true, has_movement: true, rows: 27 });
     // Verify hero 1's resulting `more` after applying all ops stays strictly <= max_more_bytes!
     const hero1Id = bareHeroes[1]!.id;
     const hero1Result: More = { ...bareHeroes[1]!.state.more };

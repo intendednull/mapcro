@@ -362,9 +362,9 @@ It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` 
     re-deployed.
   - **On rollback to R1 (v15):**
     - Board files exported by R2 carry the compatible `(version, rows)` pair for their records:
-      legacy/v3 boards export `rows == 15` (import on v11..R1), v4 (`has_heroes`) boards export
-      `rows == 16` (import on v14/R1), and Group A boards export **version 5** (`rows == 27`),
-      which says "Newer file" on R1 (`READS == 4`).
+      v2 exports `rows == 15` (imports on v11+), v3 exports `rows == 15` (imports on v13+),
+      v4 (`has_heroes`) exports `rows == 16` (imports on v14+), and Group A exports **version 5**
+      (`rows == 27`, imports on R2+, says "Newer file" on R1 `READS == 4`).
     - Copies (`Duplicate` / `New scene`) made on R1 of R2 scenes drop Group A keys (`index >= 16`)
       and lower `SceneState.more.rows` to `16`. Because R2 leaves `visible: true` on saved heroes,
       copied heroes do **not** become faded for all viewers (manual `visible: false` marks from
