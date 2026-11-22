@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
 import { joinNew, openMore, revealControls, useSummary } from "./helpers";
+import { checkPhoneLayout, phoneContext } from "./phone-layout";
 import { ROOT, Server, newBoardUrl } from "./server";
 
 const ISSUE = "https://github.com/intendednull/mapcro/issues/7";
@@ -270,3 +271,138 @@ test("on a board with a match open, the issue names the match and the time; unti
   await expect(dlg).toBeVisible();
   await expect(dlg.getByTestId("feedback-match")).toHaveCount(0);
 });
+
+for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 800 }] as const) {
+  test(`phone ${viewport.width}×${viewport.height} session Scene .p-top header fits with Feedback enabled`, async ({ browser }) => {
+    const links = [await newBoardUrl(on, "Match 129738985"), await newBoardUrl(on, "Blank board")];
+    const [, board, token] = /\/b\/([^#]+)#(.+)$/.exec(links[0]!)!;
+    const r = await fetch(`${on.url}/api/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Match 129738985", board, board_token: token }),
+    });
+    const s = (await r.json()) as { session: string; owner_token: string };
+    const url = `${on.url}/s/${s.session}#${s.owner_token}`;
+    const desk = await joinNew(browser, url, "Coach");
+    await desk.getByTestId("add-game").click();
+    await desk.getByTestId("add-paste").fill(links[1]!);
+    await desk.getByTestId("add-paste-go").click();
+    await expect(desk.getByTestId("game-tab")).toHaveCount(2);
+
+    const ctx = await phoneContext(browser, viewport, { hasTouch: true });
+    const phone = await ctx.newPage();
+    await phone.goto(url);
+    await phone.locator("#join-name").fill("Student");
+    await phone.keyboard.press("Enter");
+    await expect(phone.getByTestId("join-card")).toBeHidden();
+    await expect(phone.getByTestId("board")).toHaveAttribute("data-layout", "phone");
+
+    const top = phone.locator(".p-top");
+    await expect(top).toBeVisible();
+    expect(await top.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
+
+    const gamesBtn = phone.getByTestId("games-open");
+    await expect(gamesBtn).toBeVisible();
+    const gamesBox = (await gamesBtn.boundingBox())!;
+    expect(gamesBox.x).toBeGreaterThanOrEqual(0);
+    expect(gamesBox.x + gamesBox.width).toBeLessThanOrEqual(viewport.width);
+    expect(gamesBox.width).toBeGreaterThanOrEqual(44);
+    expect(gamesBox.height).toBeGreaterThanOrEqual(44);
+
+    const roleChip = phone.getByTestId("role-chip");
+    await expect(roleChip).toBeVisible();
+    expect(await roleChip.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
+    const roleBox = (await roleChip.boundingBox())!;
+    expect(roleBox.width).toBeGreaterThanOrEqual(50);
+
+    const fb = phone.getByTestId("feedback-open");
+    await expect(fb).toBeVisible();
+    const fbBox = (await fb.boundingBox())!;
+    expect(fbBox.x).toBeGreaterThanOrEqual(0);
+    expect(fbBox.x + fbBox.width).toBeLessThanOrEqual(viewport.width);
+    expect(fbBox.width).toBeGreaterThanOrEqual(44);
+    expect(fbBox.height).toBeGreaterThanOrEqual(44);
+
+    await checkPhoneLayout(phone);
+
+    await fb.tap();
+    const dlg = phone.getByTestId("feedback-dialog");
+    await expect(dlg).toBeVisible();
+    await dlg.getByTestId("feedback-cancel").tap();
+    await expect(dlg).toHaveCount(0);
+
+    await ctx.close();
+    await desk.context().close();
+  });
+}
+
+test("phone 390×844 session Player .p-top and More feedback fit with match loaded", async ({ browser }) => {
+  const links = [await newBoardUrl(player, `Match ${MATCH}`), await newBoardUrl(player, "Game 2")];
+  const [, board, token] = /\/b\/([^#]+)#(.+)$/.exec(links[0]!)!;
+  const r = await fetch(`${player.url}/api/sessions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title: `Match ${MATCH}`, board, board_token: token }),
+  });
+  const s = (await r.json()) as { session: string; owner_token: string };
+  const url = `${player.url}/s/${s.session}#${s.owner_token}`;
+  const desk = await joinNew(browser, url, "Coach");
+  await desk.getByTestId("add-game").click();
+  await desk.getByTestId("add-paste").fill(links[1]!);
+  await desk.getByTestId("add-paste-go").click();
+  await expect(desk.getByTestId("game-tab")).toHaveCount(2);
+  await desk.getByTestId("game-tab").first().click();
+  await desk.getByTestId("mode-player").click();
+  await revealControls(desk, "match-id");
+  await desk.getByTestId("match-id").fill(MATCH);
+  await desk.getByTestId("match-load").click();
+  await expect(desk.getByTestId("match-tier")).toHaveText("API summary");
+  await useSummary(desk);
+
+  const ctx = await phoneContext(browser, { width: 390, height: 844 }, { hasTouch: true });
+  const phone = await ctx.newPage();
+  await phone.goto(url);
+  await phone.locator("#join-name").fill("Student");
+  await phone.keyboard.press("Enter");
+  await expect(phone.getByTestId("join-card")).toBeHidden();
+  await expect(phone.locator(".phone.phone-player")).toBeVisible();
+  await expect(phone.getByTestId("match-tier")).toHaveText("API summary");
+
+  const top = phone.locator(".p-top");
+  expect(await top.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
+  await checkPhoneLayout(phone);
+
+  await phone.getByTestId("phone-more").tap();
+  const fb = phone.getByTestId("feedback-open");
+  await expect(fb).toBeVisible();
+  const fbBox = (await fb.boundingBox())!;
+  expect(fbBox.x).toBeGreaterThanOrEqual(0);
+  expect(fbBox.x + fbBox.width).toBeLessThanOrEqual(390);
+  expect(fbBox.width).toBeGreaterThanOrEqual(44);
+  expect(fbBox.height).toBeGreaterThanOrEqual(44);
+
+  // Switch from Player to Scene 1 via Scenes drawer: matchId(), games-open, role-chip, save, and feedback-open are all active simultaneously.
+  await phone.getByTestId("scene-drawer").tap();
+  await expect(phone.getByTestId("scene-card")).toHaveCount(1);
+  await phone.getByTestId("scene-card").first().tap();
+  await expect(phone.locator(".phone:not(.phone-player)")).toBeVisible();
+  expect(await top.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
+
+  const roleChip = phone.getByTestId("role-chip");
+  await expect(roleChip).toBeVisible();
+  expect(await roleChip.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
+  expect((await roleChip.boundingBox())!.width).toBeGreaterThanOrEqual(50);
+
+  const sceneFb = phone.locator('.p-top > [data-testid="feedback-open"]');
+  await expect(sceneFb).toBeVisible();
+  const sceneFbBox = (await sceneFb.boundingBox())!;
+  expect(sceneFbBox.x).toBeGreaterThanOrEqual(0);
+  expect(sceneFbBox.x + sceneFbBox.width).toBeLessThanOrEqual(390);
+  expect(sceneFbBox.width).toBeGreaterThanOrEqual(44);
+  expect(sceneFbBox.height).toBeGreaterThanOrEqual(44);
+  await checkPhoneLayout(phone);
+
+  await ctx.close();
+  await desk.context().close();
+});
+

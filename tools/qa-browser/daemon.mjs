@@ -333,6 +333,11 @@ function parseViewport(spec) {
 function buildSnapshotInPage(maxInteractive) {
   const vis = (el) => {
     if (!el || !(el instanceof Element)) return false;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return false;
+    if (r.bottom <= 0 || r.top >= window.innerHeight || r.right <= 0 || r.left >= window.innerWidth) {
+      return false;
+    }
     for (let cur = el; cur; cur = cur.parentElement) {
       const style = window.getComputedStyle(cur);
       if (
@@ -352,22 +357,27 @@ function buildSnapshotInPage(maxInteractive) {
       ) {
         return false;
       }
-      // Skip elements clipped inside a collapsed overflow-hidden ancestor.
-      if (
-        cur !== el &&
-        (style.overflow === "hidden" ||
-          style.overflow === "clip" ||
+      // Skip elements clipped outside a collapsed or scrollable ancestor (e.g. off-scroll Events rows).
+      if (cur !== el) {
+        const clipY =
           style.overflowY === "hidden" ||
           style.overflowY === "clip" ||
+          style.overflowY === "auto" ||
+          style.overflowY === "scroll";
+        const clipX =
           style.overflowX === "hidden" ||
-          style.overflowX === "clip")
-      ) {
-        const cr = cur.getBoundingClientRect();
-        if (cr.width <= 0 || cr.height <= 0) return false;
+          style.overflowX === "clip" ||
+          style.overflowX === "auto" ||
+          style.overflowX === "scroll";
+        if (clipX || clipY) {
+          const cr = cur.getBoundingClientRect();
+          if (cr.width <= 0 || cr.height <= 0) return false;
+          if (clipY && (r.bottom <= cr.top || r.top >= cr.bottom)) return false;
+          if (clipX && (r.right <= cr.left || r.left >= cr.right)) return false;
+        }
       }
     }
-    const r = el.getBoundingClientRect();
-    return r.width > 0 && r.height > 0;
+    return true;
   };
   const clip = (s, n = 64) => {
     const t = String(s || "").replace(/\s+/g, " ").trim();
@@ -421,13 +431,16 @@ function buildSnapshotInPage(maxInteractive) {
     "[data-testid]",
   ].join(", ");
 
-  // Exclude dense non-interactive SVG visualization data-testids so snapshot's cap focuses on controls.
+  // Exclude dense non-interactive SVG/list visualization data-testids so snapshot's cap focuses on controls.
   const IGNORE_TESTIDS = new Set([
     "trooper",
     "tok-health",
     "scrub-tick",
     "lane-edge",
     "lane-path",
+    "recap-hit",
+    "recap-icon",
+    "death-recap",
   ]);
 
   const all = [...document.querySelectorAll(interSel)].filter(vis);
@@ -873,6 +886,27 @@ async function main() {
         mkdirSync(dirname(outPath), { recursive: true });
         await entry.page.screenshot({ path: outPath, fullPage: Boolean(args.full) });
         return { ok: true, tab: args.tab, path: outPath, full: Boolean(args.full) };
+      }
+
+      case "download": {
+        const entry = requireTab(args.tab);
+        const sel = normalizeSelector(args.selector);
+        const outPath = validateShotPath(args.out);
+        mkdirSync(dirname(outPath), { recursive: true });
+        const loc = args.any ? entry.page.locator(sel).first() : entry.page.locator(sel).filter({ visible: true }).first();
+        const [dl] = await Promise.all([
+          entry.page.waitForEvent("download", { timeout }),
+          loc.click({ timeout }),
+        ]);
+        await dl.saveAs(outPath);
+        return {
+          ok: true,
+          tab: args.tab,
+          action: "download",
+          selector: sel,
+          suggestedFilename: dl.suggestedFilename(),
+          path: outPath,
+        };
       }
 
       case "logs": {

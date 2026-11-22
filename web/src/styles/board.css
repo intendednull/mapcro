@@ -1084,12 +1084,20 @@ kbd {
 .phone .p-callouts b, .phone .map-layers-pop h3, .phone .pl-tier { font-size: 12px; }
 .phone .p-top { height: auto; min-height: 52px; gap: 6px; padding: 4px 8px; }
 .phone .p-top > .games-open { flex: 0 1 auto; }
+.phone .p-top > .pl-tier-wrap { flex: 0 1 auto; min-width: 0; }
+.phone .p-top > .pl-tier-wrap .pl-tier { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.phone:not(.phone-player) .p-top:has(.games-open) > .pl-tier-wrap { display: none; }
+.phone .p-top > [data-testid="feedback-open"] { padding: 0 10px; gap: 0; }
+.phone .p-top > [data-testid="feedback-open"] .feedback-label { display: none; }
 .phone .p-top:has(.games-open, .pl-tier-wrap, [data-testid="feedback-open"]) .viewonly .role-side { display: none; }
+.phone .p-top:has(.games-open, .pl-tier-wrap, [data-testid="feedback-open"]) .save:is(.saved, .syncing) { max-width: 22px; padding: 0 4px; overflow: hidden; }
 @media (max-width: 420px) {
   .phone .p-top .viewonly .role-side { display: none; }
+  .phone .p-top:has(.games-open, .pl-tier-wrap) .wordmark span { display: none; }
+  .phone .p-top:has(.games-open) > .games-open { max-width: 34vw; }
 }
 @media (max-width: 360px) {
-  .phone .p-top:has(.games-open) .wordmark span { display: none; }
+  .phone .p-top .wordmark span { display: none; }
 }
 .phone .p-top .viewonly, .phone .p-top .save, .phone .ord, .phone .where { font-size: 12px; }
 /* The board's map is square, as everywhere (the art is drawn at 100% x 100%: a 50dvh-tall pane
