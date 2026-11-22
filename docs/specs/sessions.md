@@ -758,9 +758,8 @@ By decision 1 of the view-state plan, new view state is a registry row:
   ("Not a board link": a tab from another session is phase 6). In the app, Open link and Ctrl+L
   open either. `desktop/core/src/link.rs` `parse` answers a `Link` (`Board` or `Session`, neither
   `Debug` printing its token), and the app opens it on its own site. A session's tab offers the
-  session's link, on the open tab, as its "Open in app" (never the board's own). Held at deploy
-  (`APP_OPENS_SESSIONS`, TD-117): the released app parses only `mapcro://b/`, so until a desktop
-  release with this parser has been out a while, a session's tab offers no Open in app.
+  session's link, on the open tab, as its "Open in app" (never the board's own). Was held at deploy
+  (`APP_OPENS_SESSIONS`, TD-117) until desktop 0.2.4 shipped with the parser; enabled in TD-117.
 
 ### 7.2 Editing the strip
 

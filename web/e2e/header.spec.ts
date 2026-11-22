@@ -259,14 +259,29 @@ test("More's menu: its rows by role and app, the update dot, the rows' testids",
   await viewer.getByTestId("more").click();
   await expect(rows(viewer)).toHaveText(["Download", "Open in app", "Get the app"]);
 
-  // Through a session grant (another device on the session's link): no Open in app until the
-  // released app opens session links (TD-117); then it's the session's own link, on the open tab.
+  // Through a session grant (another device on the session's link): offers the session's own link,
+  // on the open tab, carrying the guest's own session token (never the board's or owner's).
   await owner.keyboard.press("Escape");
   await owner.getByTestId("add-game").click();
   await expect(owner.getByTestId("session-share")).toBeVisible();
-  const guest = await enter(browser, owner.url(), "Vexa");
+  const ownerSession = new URL(owner.url());
+  const sessionId = ownerSession.pathname.slice(3);
+  const ownerSessionToken = ownerSession.hash.slice(1);
+  const guestToken = (
+    (await (
+      await fetch(`${server.url}/api/sessions/${sessionId}/links`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${ownerSessionToken}` },
+        body: JSON.stringify({ role: "edit", label: "guest" }),
+      })
+    ).json()) as { token: string }
+  ).token;
+  const guest = await enter(browser, `${server.url}/s/${sessionId}#${guestToken}`, "Vexa");
+  await expect.poll(() => new URL(guest.url()).searchParams.get("tab")).toBeTruthy();
+  const guestTab = new URL(guest.url()).searchParams.get("tab")!;
   await guest.getByTestId("more").click();
-  await expect(rows(guest)).toHaveText(["Clone", "Download"]);
+  await expect(rows(guest)).toHaveText(["Clone", "Download", "Open in app", "Get the app"]);
+  await expect(guest.locator('[role="menu"] [data-testid="open-in-app"]')).toHaveAttribute("href", `mapcro://s/${sessionId}?tab=${guestTab}#${guestToken}`);
 
   // The portable app with an update: Update available first, and a dot on More.
   const app = await enter(browser, url, "Marrow", { update: true });

@@ -300,10 +300,7 @@ test("in the app, Open link takes a session's link, in either form, on the tab i
   await ctx.close();
 });
 
-// Held until the released app opens session links (TD-117): no Open in app through the session's
-// grant. When `APP_OPENS_SESSIONS` turns on, this row expects the session's own link again:
-// `mapcro://s/<session>?tab=<tab>#<token>`, never the board's.
-test("in a Windows browser, a session's tab through its grant offers no Open in app yet", async ({ browser }) => {
+test("in a Windows browser, a session's tab offers the session's own link in the app, on the open tab", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, userAgent: WINDOWS_UA });
   const p = await ctx.newPage();
   const s = await newSession("App session");
@@ -311,7 +308,25 @@ test("in a Windows browser, a session's tab through its grant offers no Open in 
   await joinHere(p);
   await expect(p.getByTestId("game-tab")).toHaveCount(1);
   await openMore(p);
-  await expect(p.getByTestId("download")).toBeVisible();
-  await expect(p.getByTestId("open-in-app")).toHaveCount(0);
+  await expect(p.getByTestId("open-in-app")).toHaveAttribute("href", `mapcro://s/${s.session}?tab=${s.tab}#${s.owner_token}`);
+  // Never the board's own link: the board opened through the session.
+  await expect(p.getByTestId("open-in-app")).not.toHaveAttribute("href", /mapcro:\/\/b\//);
+
+  // A guest's link carries the guest's own session token, never the owner's or the board's.
+  const r = await fetch(`${server.url}/api/sessions/${s.session}/links`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${s.owner_token}` },
+    body: JSON.stringify({ role: "view", label: "guest" }),
+  });
+  const guest = ((await r.json()) as { token: string }).token;
+  const gctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, userAgent: WINDOWS_UA });
+  const gp = await gctx.newPage();
+  await gp.goto(`${server.url}/s/${s.session}#${guest}`);
+  await joinHere(gp);
+  await expect(gp.getByTestId("game-tab")).toHaveCount(1);
+  await openMore(gp);
+  await expect(gp.getByTestId("open-in-app")).toHaveAttribute("href", `mapcro://s/${s.session}?tab=${s.tab}#${guest}`);
+  await expect(gp.getByTestId("open-in-app")).not.toHaveAttribute("href", /mapcro:\/\/b\//);
+  await gctx.close();
   await ctx.close();
 });
