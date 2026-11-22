@@ -152,8 +152,11 @@ test("upload a replay, scrub ults, rifts, powerups and zipline colours, save the
   await expect(status(b, "rift:neutral:lane6:1")).toHaveAttribute("data-status", "Active");
   await expect(status(b, "powerup:neutral:lane1:1")).toHaveAttribute("data-status", "Destroyed");
   await expect(status(b, "powerup:neutral:lane6:1")).toHaveAttribute("data-status", "Active");
-  // One split per lane in a scene: the middle of the zipline colours' gap.
-  await expect(split(b, "lane4")).toHaveAttribute("data-t", "540");
-  await expect(split(b, "lane1")).toHaveAttribute("data-t", "520");
-  await expect(split(b, "lane6")).toHaveAttribute("data-t", "650");
+  // Both zipline colour edges carry into the saved scene (phase 5 R2: `has_lanes` / `Wave.more.edges`).
+  await expect(split(b, "lane4")).toHaveAttribute("data-amber", "500");
+  await expect(split(b, "lane4")).toHaveAttribute("data-sapphire", "580");
+  await expect(split(b, "lane1")).toHaveAttribute("data-amber", "420");
+  await expect(split(b, "lane1")).toHaveAttribute("data-sapphire", "620");
+  await expect(split(b, "lane6")).toHaveAttribute("data-amber", "600");
+  await expect(split(b, "lane6")).toHaveAttribute("data-sapphire", "700");
 });
