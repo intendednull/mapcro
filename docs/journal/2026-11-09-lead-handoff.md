@@ -3,6 +3,45 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Deployed e2438b4: Map-state Phase 5, Release R1 (readers A & B Ahead, store v15) (2026-11-22, lead 2a42cd74)
+
+- **Prod `web` runs e2438b4** (infra `f5b62b1`, bundle `/assets/index-Etbdjkg4.js`). Store migrated
+  cleanly to **v15** (`Step::Additive`, floor stays 12, zero SQL/DDL; `pre-v15` backup taken at
+  `/var/lib/mapcro/mapcro.sqlite.pre-v15`, 32M `0600`). Closure diff: `mapcro-server +23.5 KiB`,
+  `mapcro-web +25.7 KiB` only; only `mapcro.service` and `mapcro-replay.service` restarted.
+- **Post-deploy locks updated:** `just rows-lock` locked all **40 map-state rows** in
+  `crates/schema/rows.lock` (+24 rows); `justfile` `reader` bumped to `e2438b4`.
+- **What shipped:** Both Group A (rows 16–26: `has_sight`/`unseen`/`cc`/`height`/`zipline`,
+  `has_lanes`/`edges`, `has_skulls`/`skulls`) and Group B (rows 27–39: `has_camps`/`camps`,
+  `has_obj_health`/`obj_health`, `has_powerups`/`powerups`, `has_rifts`/`rifts`, `has_urn`/`urn`,
+  `has_rejuv`/`rejuv`) readers + dormant capture/Retake/copy-filter + TD-108 file version table
+  (`v3..=v6`, `READS == 4`) + TD-140/141/161/163. All 24 new rows remain `Status::Ahead` (`WRITTEN =
+  16`), zero visible change on R1, scene hero health arcs kept OFF until R2.
+- **Review & verification:**
+  - Independent adversarial review (`codex/gpt-6.2-astra` high, 2 rounds, 8 real edge-case bugs
+    caught and fixed, **56/56 mutants killed**, final verdict **APPROVE WITH MINOR NOTES**; 1
+    nonblocking note for `{written: 40, builds: false}` queued for R2).
+  - Full staged gate on merged tree (`1773529`): `just clippy` (0 warnings), `just test` (workspace
+    cargo tests, failpoints 2/2, 1000-seed sims `READS` & `--admit deployed`, `just reader-check`),
+    `just web-test` (85/85 Vitest suites / 996 passed, `tsc` 0 errors, zero diff on `web/src/gen`),
+    Chromium e2e (578/578 + `laser-gestures` 18/18), Firefox Android e2e (52/52 + `phone follows`
+    3/3), NixOS VM check (`vm-test-run-mapcro-service`, 15.46s), and R1 live walkthrough on
+    `129738985` (4 screenshots visually inspected, 0 console/page errors).
+  - Live prod check: journal confirmed `migrated database schema to=15`, all 9 packs indexed,
+    `/healthz` `ok rooms=2`, live browser smoke check 0 console/warning/page/network errors,
+    `mapcro-stats`: 0 5xx, 0 failures, 0 ops rejected, 0 OOM kills, server RSS 21.2 MB.
+- **Up next (checking box slot with concierge first):**
+  - **Map-state Phase 5, Release R2 (Writer A, store v16 floor 15):** flip Group A rows `16..=26` to
+    `Status::Live`, enable Writer A (`WRITTEN = 27`, scene hero health arcs ON, Retake Group A, drop
+    baseline copy materialization, TD-162, plus Astra's nonblocking `{written: 40, builds: false}`
+    policy fix).
+  - **TD-117** (`APP_OPENS_SESSIONS = true` + `header.spec.ts` / `open-link.spec.ts`): desktop 0.2.4
+    out since 2026-11-17.
+  - **Exploratory QA Cycle 2 (Pass 004+):** on `qa-browser` v1.3 against `e2438b4`, verifying the 16
+    Cycle 1 fixes live + Phase 5 R1 + deepening remaining `smoke` rows.
+  - **GitHub feedback #62** (405 blank ability upgrade tiers): root-caused, still awaiting operator
+    go-ahead.
+
 ## Deployed a8f726a: Exploratory QA Cycle 1 fixes (Passes 1–3) & Argon responsive UI polish (2026-11-21, lead 2a42cd74)
 
 - **Prod `web` runs a8f726a** (infra `9bfc723`, bundle `/assets/index-OWUYLE0p.js`). Store unchanged

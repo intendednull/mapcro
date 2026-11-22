@@ -16,3 +16,27 @@ deaths hero int 0 100000
 assists hero int 0 100000
 max_health hero int 0 10000000
 has_heroes scene bool
+has_sight scene bool
+unseen hero bool
+has_cc scene bool
+cc hero int 0 15
+has_movement scene bool
+height hero int 0 15
+zipline hero bool
+has_lanes scene bool
+edges lane ints 2 0 1000
+has_skulls scene bool
+skulls scene ints 36 0 255
+has_camps scene bool
+camps scene ints 600 -1 4294967295
+has_powerups scene bool
+powerups scene ints 20 -1 4294967295
+has_obj_health scene bool
+obj_health scene ints 120 -1 4294967295
+has_rifts scene bool
+rift scene ints 8 -1 4294967295
+has_urn scene bool
+urn scene ints 8 -1 4294967295
+urn_at scene pos
+has_rejuv scene bool
+rejuv scene ints 8 -1 4294967295
