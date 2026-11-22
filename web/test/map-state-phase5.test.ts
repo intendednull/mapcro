@@ -30,7 +30,7 @@ import { modelFromFallback } from "../src/map/model";
 import { groupToggleOps, isOn, toggleOps } from "../src/board/objectives";
 import { addSceneOps, materializeDroppedBaseline } from "../src/board/scenes";
 import type { BoardState, Player, Slot } from "../src/board/state";
-import { WRITTEN, captured, heroBuildAt, readBuild } from "../src/mapstate/build";
+import { WRITTEN, captured, heroBuildAt, moreBytes, readBuild } from "../src/mapstate/build";
 import {
   MAX_CAMPS, MAX_OBJ_HEALTH, MAX_POWERUPS,
   decodeEdges, decodeUrn, encodeCamps, encodeObjHealth, encodePowerups, encodeRift, encodeUrn, fnv1a32, markerHashIndex,
@@ -1698,5 +1698,236 @@ describe("Phase 5 R2: Writer A, health arc (Q3), TD-162 MapControls, copy materi
       const st = saved.ops.flatMap((o) => ("Create" in o && "SceneState" in o.Create.record ? [o.Create.record.SceneState.more!] : []))[0]!;
       expect(st).toEqual({ rows: written, has_heroes: true });
     }
+  });
+
+  it("Finding #1: Retake preflights max_more_bytes so incomplete sight/CC/movement/lanes are never flagged captured or passed by rows", () => {
+    // At t=3: amber-1 (i=1) is unseen (seen [[6,23],[41,67]]), not on cc; let's force amber-1
+    // to have unseen=true, cc=20, height=1, zipline=true all at t=3!
+    const base = richReplay();
+    const tl = {
+      ...base,
+      players: base.players.map((p, i) =>
+        i === 1
+          ? { ...p, seen: [[6, 23], [41, 67]], cc: [[25, 35, 20, 255, 0]], height: [[0, 1]], zipline: [[2, 5]] }
+          : p,
+      ),
+    } as unknown as Timeline;
+    const rs = roster(tl);
+    const v14Cap = captureToScene(tl, 3, 16, rs);
+    const sceneObj = { name: "s", order: "a", clock: 3, source: { match_id: tl.match_id, t: 3, tier: "replay" } };
+    const sceneRow = { id: v14Cap.saved.id, scene: sceneObj } as never;
+
+    // Helper: craft a valid hero `more` with exactly `free` bytes remaining under `LIMITS.max_more_bytes`.
+    const padHeroMore = (baseMore: More, free: number): More => {
+      const m: More = { ...baseMore, build_order: Array.from({ length: 500 }, (_, i) => 1_000_000_000 + i) };
+      while (moreBytes(m) < LIMITS.max_more_bytes - free - 30) (m.build_order as number[]).push(1_000_000_000);
+      // Fine-tune exact byte length via `name` (ASCII chars; `,"name":""` is 10 bytes + len).
+      let len = 1;
+      while (moreBytes({ ...m, name: "a".repeat(len) }) < LIMITS.max_more_bytes - free) len++;
+      const out: More = { ...m, name: "a".repeat(len) };
+      expect(LIMITS.max_more_bytes - moreBytes(out)).toBe(free);
+      return out;
+    };
+
+    const wavesMap = new Map(
+      [...v14Cap.waves].map(([lane, w], idx) => [lane, { id: `w${idx}`, t: w.t, ...(w.more ? { more: w.more } : {}) }]),
+    );
+    const stateMoreOps = (ops: Op[], id: string): More =>
+      Object.fromEntries(
+        ops.flatMap((o) =>
+          "SetIf" in o && o.SetIf.id === id && "More" in o.SetIf.value && o.SetIf.value.More.value !== null
+            ? [[o.SetIf.value.More.key, o.SetIf.value.More.value]]
+            : [],
+        ),
+      );
+
+    // Case 1a: Hero 1 has only 4 bytes free -> neither `unseen` (14B), `cc` (8B), nor `height`/`zipline` fits.
+    // Retake must NOT set has_sight/has_cc/has_movement and must NOT emit partial hero writes!
+    // Lanes & skulls DO fit and are admitted cleanly (with `rows` covering skulls=27 so `captured()` reads them,
+    // while `has_sight`/`has_cc`/`has_movement` stay absent so `captured()` keeps them false).
+    const heroesTight = v14Cap.heroes.map((h, i) =>
+      i === 1 ? { ...h, state: { ...h.state, more: padHeroMore(h.state.more ?? {}, 4) } } : h,
+    );
+    const st16 = { id: "st1", more: { rows: 16, has_builds: true, has_heroes: true, build: 6839 } as More };
+    let mid = 0;
+    const txsTight = retakeOps(sceneRow, st16, heroesTight, rs, tl, () => `r${mid++}`, WRITTEN, markers, wavesMap);
+    const opsTight = txsTight.flat();
+    const stateWrites = stateMoreOps(opsTight, "st1");
+    expect(stateWrites.has_sight).toBeUndefined();
+    expect(stateWrites.has_cc).toBeUndefined();
+    expect(stateWrites.has_movement).toBeUndefined();
+    // Lanes & skulls DO fit and are admitted cleanly!
+    expect(stateWrites.has_lanes).toBe(true);
+    expect(stateWrites.has_skulls).toBe(true);
+    expect(stateWrites.rows).toBe(ROWS.skulls.index + 1);
+    // ZERO partial unseen/cc/height/zipline writes on ANY hero!
+    const allHeroKeys = opsTight.flatMap((o) =>
+      "SetIf" in o && o.SetIf.id !== "st1" && "More" in o.SetIf.value ? [o.SetIf.value.More.key] : [],
+    );
+    expect(allHeroKeys).not.toContain("unseen");
+    expect(allHeroKeys).not.toContain("cc");
+    expect(allHeroKeys).not.toContain("height");
+    expect(allHeroKeys).not.toContain("zipline");
+
+    // Verify `captured()` reads lanes & skulls as true and sight/cc/movement as false!
+    const afterPartialState: More = { ...st16.more, ...stateWrites };
+    expect(captured(afterPartialState)).toMatchObject({
+      sight: false,
+      cc: false,
+      movement: false,
+      lanes: true,
+      skulls: true,
+    });
+
+    // After applying lanes & skulls, `canRetake` with heroes/roster returns false (no dead no-op button while jammed),
+    // and once hero 1's space is freed (e.g. re-picked), `canRetake` returns true and Retake fills sight/cc/movement!
+    expect(canRetake(sceneObj, afterPartialState, tl, WRITTEN, markers, heroesTight, rs, wavesMap)).toBe(false);
+    expect(retakeOps(sceneRow, { id: "st1", more: afterPartialState }, heroesTight, rs, tl, () => `r${mid++}`, WRITTEN, markers, wavesMap)).toEqual([]);
+
+    expect(canRetake(sceneObj, afterPartialState, tl, WRITTEN, markers, v14Cap.heroes, rs, wavesMap)).toBe(true);
+    const txsAfterFree = retakeOps(sceneRow, { id: "st1", more: afterPartialState }, v14Cap.heroes, rs, tl, () => `r${mid++}`, WRITTEN, markers, wavesMap);
+    const freeStateOps = Object.fromEntries(
+      txsAfterFree.flat().flatMap((o) => ("SetIf" in o && o.SetIf.id === "st1" && "More" in o.SetIf.value ? [[o.SetIf.value.More.key, o.SetIf.value.More.value]] : [])),
+    );
+    expect(freeStateOps).toMatchObject({ has_sight: true, has_cc: true, has_movement: true });
+
+    // Case 1b: When NO missing feature can fit (e.g. a timeline with only sight/cc/movement, no zips/deaths,
+    // or a scene where nothing else is missing), Retake emits [] and does NOT advance `rows` past 16!
+    const noLanesSkullsTl = { ...tl, zips: [], players: tl.players.map((p) => ({ ...p, deaths: [] })) } as unknown as Timeline;
+    // Also mark skulls already present on st16 so only sight/cc/movement are missing:
+    const stOnlyHeroMissing = { id: "st1", more: { rows: 16, has_builds: true, has_heroes: true, has_skulls: true } as More };
+    // Even with `has_skulls` flagged below rows, let's test on a fresh state with rows=16 and no lanes:
+    const txsOnlyTight = retakeOps(sceneRow, st16, heroesTight, rs, { ...noLanesSkullsTl, zips: [] } as unknown as Timeline, () => `z${mid++}`, ROWS.zipline.index + 1, markers, wavesMap);
+    expect(txsOnlyTight).toEqual([]);
+    expect(stOnlyHeroMissing.more.rows).toBe(16);
+
+    // Case 2: Hero 1 has 24 bytes free -> `unseen` (14B) + `cc` (8B) fit (22B), `height`+`zipline` (~26B) do NOT fit.
+    // Retake (up through movement, written = ROWS.zipline.index + 1) admits sight + cc, skips movement completely,
+    // and advances `rows` only to `ROWS.cc.index + 1` (20) — NOT past uncaptured movement!
+    const heroesMid = v14Cap.heroes.map((h, i) =>
+      i === 1 ? { ...h, state: { ...h.state, more: padHeroMore(h.state.more ?? {}, 24) } } : h,
+    );
+    const txsMid = retakeOps(sceneRow, st16, heroesMid, rs, tl, () => `m${mid++}`, ROWS.zipline.index + 1, markers, wavesMap);
+    const midStateOps = stateMoreOps(txsMid.flat(), "st1");
+    expect(midStateOps.has_sight).toBe(true);
+    expect(midStateOps.has_cc).toBe(true);
+    expect(midStateOps.has_movement).toBeUndefined();
+    expect(midStateOps.rows).toBe(ROWS.cc.index + 1);
+    expect(captured({ ...st16.more, ...midStateOps })).toMatchObject({ sight: true, cc: true, movement: false });
+    const midHeroKeys = txsMid.flat().flatMap((o) =>
+      "SetIf" in o && o.SetIf.id !== "st1" && "More" in o.SetIf.value ? [o.SetIf.value.More.key] : [],
+    );
+    expect(midHeroKeys).toContain("unseen");
+    expect(midHeroKeys).toContain("cc");
+    expect(midHeroKeys).not.toContain("height");
+    expect(midHeroKeys).not.toContain("zipline");
+
+    // Case 3: Near-cap Wave.more prevents `has_lanes` from being set when `edges` doesn't fit,
+    // and with written up through lanes (25), `rows` stops at `ROWS.zipline.index + 1` (23)!
+    const stuffedWaves = new Map(wavesMap);
+    const lane1 = stuffedWaves.get("lane1")!;
+    stuffedWaves.set("lane1", { ...lane1, more: { name: "x".repeat(LIMITS.max_more_bytes - 12) } as More });
+    const txsWave = retakeOps(sceneRow, st16, v14Cap.heroes, rs, tl, () => `w${mid++}`, ROWS.edges.index + 1, markers, stuffedWaves);
+    const waveStateOps = stateMoreOps(txsWave.flat(), "st1");
+    expect(waveStateOps.has_sight).toBe(true);
+    expect(waveStateOps.has_cc).toBe(true);
+    expect(waveStateOps.has_movement).toBe(true);
+    expect(waveStateOps.has_lanes).toBeUndefined();
+    expect(waveStateOps.rows).toBe(ROWS.zipline.index + 1);
+    expect(captured({ ...st16.more, ...waveStateOps })).toMatchObject({ sight: true, cc: true, movement: true, lanes: false });
+
+    // Case 4: Late-game Retake without builds reserves Group A headroom in captureBuild so sight/cc/movement all fit!
+    const hugeItems = Array.from({ length: 300 }, (_, k): [number, number, number] => [k, 1_000_000_000 + k, 0]);
+    const lateTl = {
+      ...tl,
+      players: tl.players.map((p, i) => (i === 1 ? { ...p, items: hugeItems } : p)),
+    } as unknown as Timeline;
+    const bareHeroes = v14Cap.heroes.map((h) => ({ ...h, state: { ...h.state, more: { hero: h.state.more!.hero! } } }));
+    const bareState = { id: "st_bare", more: { rows: 16, has_builds: false, has_heroes: true } as More };
+    const txsLate = retakeOps(sceneRow, bareState, bareHeroes, rs, lateTl, () => `l${mid++}`, WRITTEN, markers, wavesMap);
+    const lateStateOps = Object.fromEntries(
+      txsLate.flat().flatMap((o) => ("SetIf" in o && o.SetIf.id === "st_bare" && "More" in o.SetIf.value ? [[o.SetIf.value.More.key, o.SetIf.value.More.value]] : [])),
+    );
+    expect(lateStateOps).toMatchObject({ has_sight: true, has_cc: true, has_movement: true, rows: 27 });
+    // Verify hero 1's resulting `more` after applying all ops stays strictly <= max_more_bytes!
+    const hero1Id = bareHeroes[1]!.id;
+    const hero1Result: More = { ...bareHeroes[1]!.state.more };
+    for (const op of txsLate.flat()) {
+      if ("Set" in op && op.Set.id === hero1Id && "More" in op.Set.value && op.Set.value.More.value !== null) {
+        hero1Result[op.Set.value.More.key] = op.Set.value.More.value;
+      }
+      if ("SetIf" in op && op.SetIf.id === hero1Id && "More" in op.SetIf.value && op.SetIf.value.More.value !== null) {
+        hero1Result[op.SetIf.value.More.key] = op.SetIf.value.More.value;
+      }
+    }
+    expect(moreBytes(hero1Result)).toBeLessThanOrEqual(LIMITS.max_more_bytes);
+    expect(hero1Result.unseen).toBe(true);
+    expect(hero1Result.cc).toBeDefined();
+    expect(hero1Result.height).toBe(1);
+    expect(hero1Result.zipline).toBe(true);
+  });
+
+  it("Finding #4: remapped active koth/urn/powerup markers (without rift:/urn:/powerup: prefix) emit Active/Destroyed ObjectiveStates and keep bucket priority on overflow", () => {
+    const base = richReplay();
+    const origRift = keyOf("koth", 0);
+    const origUrnDelivery = keyOf("urn", 1);
+    const origPowerup = keyOf("powerup", 0);
+
+    // Rename the board markers to custom keys that don't start with "rift:", "urn:", or "powerup:".
+    const remappedMarkers = markers.map((m) =>
+      m.key === origRift
+        ? { ...m, key: "east-gate" }
+        : m.key === origUrnDelivery
+          ? { ...m, key: "west-drop" }
+          : m.key === origPowerup
+            ? { ...m, key: "north-bridge" }
+            : m,
+    );
+    // Sanity: markerKey resolves the timeline's keys to the renamed board markers.
+    expect(markerKey(origRift, remappedMarkers)).toBe("east-gate");
+    expect(markerKey(origUrnDelivery, remappedMarkers)).toBe("west-drop");
+    expect(markerKey(origPowerup, remappedMarkers)).toBe("north-bridge");
+
+    // At t=4 in richReplay(): origRift is active (1..5), origUrnDelivery is open delivery (3..6),
+    // and origPowerup is down (available[4] === 0).
+    const rs = roster(base);
+    let n = 0;
+    const saved = matchSceneOps(rs, [], undefined, base, 4, remappedMarkers, () => `rm_${n++}`, [], {
+      source: sourceOf(base),
+      written: WRITTEN,
+    });
+    const objs = saved.ops.flatMap((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [o.Create.record.ObjectiveState] : []));
+    expect(objs).toContainEqual(expect.objectContaining({ key: "east-gate", status: "Active" }));
+    expect(objs).toContainEqual(expect.objectContaining({ key: "west-drop", status: "Active" }));
+    expect(objs).toContainEqual(expect.objectContaining({ key: "north-bridge", status: "Destroyed" }));
+
+    // Overflow (>256 ops with 245 extra down camps): "west-drop" (urn bucket) and "east-gate" (rifts bucket)
+    // BOTH survive when the overflowing camps bucket is dropped whole!
+    const overflowMarkers = [
+      ...remappedMarkers,
+      ...Array.from({ length: 245 }, (_, i) => ({
+        key: `camp:neutral:lane0:ov_${i}`,
+        kind: "camp" as const,
+        team: "neutral" as const,
+        lane: null,
+        at: { x: 10 + (i % 900), y: 10 + Math.floor(i / 900) },
+      })),
+    ];
+    const overflowTl = {
+      ...base,
+      camps: overflowMarkers.filter((m) => m.kind === "camp").map((m) => ({ key: m.key, first_s: 100, cleared: [] })),
+    } as unknown as Timeline;
+    n = 0;
+    const savedOverflow = matchSceneOps(rs, [], undefined, overflowTl, 4, overflowMarkers, () => `ov_${n++}`, [], {
+      source: sourceOf(overflowTl),
+      written: WRITTEN,
+    });
+    expect(savedOverflow.ops.length).toBeGreaterThan(0);
+    expect(savedOverflow.ops.length).toBeLessThanOrEqual(LIMITS.max_ops_per_tx);
+    const ovObjs = savedOverflow.ops.flatMap((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [o.Create.record.ObjectiveState] : []));
+    expect(ovObjs).toContainEqual(expect.objectContaining({ key: "west-drop", status: "Active" }));
+    expect(ovObjs).toContainEqual(expect.objectContaining({ key: "east-gate", status: "Active" }));
+    expect(ovObjs).toContainEqual(expect.objectContaining({ key: "north-bridge", status: "Destroyed" }));
+    expect(ovObjs.some((o) => o.key.startsWith("camp:"))).toBe(false);
   });
 });

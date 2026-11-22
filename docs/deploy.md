@@ -356,12 +356,15 @@ It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` 
   (`written_rows() == 27`, `boardfile::READS == 5`). Store step 15 → 16 is
   `Step::NeedsReader { reader: 15 }` with no SQL, moving the floor to **15**.
   - **Rollback target from v16 (R2):** **R1 (v15) only**, nothing older. v14 and earlier refuse to
-    start (floor 15). R1 opens the v16 database untouched and renders every R2 scene identically
-    (R1 already ships both readers A and B).
+    start (floor 15). R1 opens the v16 database cleanly and preserves/serves all Group A records
+    without loss (R1 already ships both schema/client readers A and B); R1's older web client does
+    not show Q3 scene health arcs or TD-162 scene-only Vision/layer controls until R2 is
+    re-deployed.
   - **On rollback to R1 (v15):**
-    - Board files exported by R2 that hold Group A rows carry **version 5** (`head.rows == 27`)
-      and say "Newer file" on R1 (`READS == 4`); files holding only legacy/v4 rows still export
-      version ≤ 4 and import on R1.
+    - Board files exported by R2 carry the compatible `(version, rows)` pair for their records:
+      legacy/v3 boards export `rows == 15` (import on v11..R1), v4 (`has_heroes`) boards export
+      `rows == 16` (import on v14/R1), and Group A boards export **version 5** (`rows == 27`),
+      which says "Newer file" on R1 (`READS == 4`).
     - Copies (`Duplicate` / `New scene`) made on R1 of R2 scenes drop Group A keys (`index >= 16`)
       and lower `SceneState.more.rows` to `16`. Because R2 leaves `visible: true` on saved heroes,
       copied heroes do **not** become faded for all viewers (manual `visible: false` marks from

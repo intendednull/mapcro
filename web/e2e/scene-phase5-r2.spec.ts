@@ -178,8 +178,16 @@ test("R2 saved scene: Vision × Show last seen (6 combos), health arcs (Q3), sta
     }
   }
 
-  // Q5: static death skull renders for Amber-2's death at t=14, and clicking opens no recap.
+  // Q5: static death skull is sight-filtered (hidden for Sapphire since Amber-2 died unseen),
+  // visible under Amber and All vision, and clicking opens no death recap.
   const skull = p.locator('[data-testid=map] [data-testid=death-skull][data-slot="amber-2"]');
+  await expect(p.getByTestId("vision-select")).toHaveValue("sapphire");
+  await expect(skull).toHaveCount(0);
+  await p.getByTestId("vision-select").selectOption("amber");
+  await expect(skull).toHaveCount(1);
+  await skull.click({ force: true });
+  await expect(p.getByTestId("skull-recap")).toHaveCount(0);
+  await p.getByTestId("vision-select").selectOption("all");
   await expect(skull).toHaveCount(1);
   await skull.click({ force: true });
   await expect(p.getByTestId("skull-recap")).toHaveCount(0);
@@ -289,4 +297,18 @@ test("TD-162: exported R2 scene with NO match on the board activates MapControls
   await expect(p.getByTestId("vision-select")).toHaveValue("all");
   await expect(p.getByTestId("vision-mark")).toHaveCount(0);
   await expect(tok(p, "Amber-0")).toHaveAttribute("data-visible", "true");
+
+  // Switching to a blank scene (no SceneState) hides the scene-only controls and disables 1/2/3 Vision keys.
+  await p.getByTestId("scene-card").nth(0).click();
+  await expect(p.getByTestId("vision-select")).toHaveCount(0);
+  await expect(p.getByTestId("health-toggle")).toHaveCount(0);
+  await expect(p.getByTestId("cc-toggle")).toHaveCount(0);
+  await expect(p.getByTestId("movement-toggle")).toHaveCount(0);
+  await p.getByTestId("map").click({ position: { x: 10, y: 10 } });
+  await p.keyboard.press("1");
+  await p.keyboard.press("2");
+  await expect(p.getByTestId("vision-mark")).toHaveCount(0);
+  // Returning to the R2 scene confirms Vision stayed "all" (1/2 were ignored on the blank scene).
+  await p.getByTestId("scene-card").nth(1).click();
+  await expect(p.getByTestId("vision-select")).toHaveValue("all");
 });

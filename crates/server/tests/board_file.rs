@@ -147,10 +147,11 @@ fn an_export_imports_as_the_same_board_under_fresh_ids() {
     let first = server.export_json(&a, &a_owner);
     assert_eq!(first["format"], "mapcro-board");
     assert_eq!(first["version"], 2, "the writer: version 1 plus the `rows` header");
-    // The rows this build writes, not the ones it only reads: the reader release takes it.
-    assert_eq!(first["rows"], json!(mapcro_schema::written_rows()));
+    // A legacy board (no `has_heroes` or Phase 5 rows) exports `BASE_FILE_ROWS` (15) so v11..v14
+    // and R1 all accept it alongside version 2.
+    assert_eq!(first["rows"], json!(mapcro_schema::BASE_FILE_ROWS));
     // In R2, rows 0..27 (`hero`..`skulls`, including Group A) are written and rows 27..40 (phase 5
-    // Group B) remain `Ahead`: the export says `written_rows() == 27`, which R1 (v15) reads too.
+    // Group B) remain `Ahead`.
     let last_live = mapcro_schema::ROWS.iter().position(|r| r.key == "skulls").expect("the row");
     assert_eq!(mapcro_schema::written_rows(), last_live + 1);
     assert_eq!(mapcro_schema::written_rows(), 27);
@@ -288,18 +289,18 @@ fn a_file_with_map_state_imports_and_a_row_still_ahead_makes_no_board() {
         });
         let (board, owner, _) = server.import_ok(&snapshot);
         let mut out = server.export_json(&board, &owner);
-        assert_eq!((&out["version"], &out["rows"]), (&json!(2), &json!(mapcro_schema::written_rows())), "a file with rows says so");
+        assert_eq!((&out["version"], &out["rows"]), (&json!(2), &json!(mapcro_schema::BASE_FILE_ROWS)), "a v2 file says rows=15 for v11..v14 compatibility");
         let mores: Vec<Value> = records(&mut out).iter().filter_map(|r| r[1].as_object()?.values().next()?.get("more").cloned()).collect();
         assert_eq!(mores.len(), 2, "the hero's and the scene's, and no empty one written: {mores:?}");
         assert!(mores.contains(&build) && mores.contains(&scene_rows), "{mores:?}");
         // What was exported imports again.
         server.import_ok(&out);
-        // A scene that holds its heroes imports, and its export says version 4 (which the v13
-        // and v12 builds call newer): the row is live.
+        // A scene that holds its heroes imports, and its export says version 4 with rows=16
+        // (imports on v14/R1; v13 and v12 call it newer): the row is live.
         let own = versioned(&|v| state(v, json!({ "rows": ROWS.len(), "has_heroes": true })));
         let (board, owner, _) = server.import_ok(&own);
         let mut out = server.export_json(&board, &owner);
-        assert_eq!(out["version"], 4, "version {version}");
+        assert_eq!((&out["version"], &out["rows"]), (&json!(4), &json!(16)), "version {version}");
         let flags: Vec<Value> = records(&mut out).iter().filter_map(|r| r[1].get("SceneState").map(|s| s["more"].clone())).collect();
         assert_eq!(flags, [json!({ "rows": ROWS.len(), "has_heroes": true })]);
         server.import_ok(&out);

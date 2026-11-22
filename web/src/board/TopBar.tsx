@@ -182,21 +182,22 @@ export function TopBar(p: {
   });
   const respawnAt = () => { const c = centre(); return c.kind === "respawn" ? c.at : undefined; };
   // Retake (spec D10): what this scene didn't capture, from its own moment of the open match.
+  const sceneWaves = () =>
+    new Map(
+      p.state
+        .rowsIn<import("../gen/Wave").Wave>("Wave", p.scene)
+        .map((w) => [w.r.lane, { id: w.id, t: w.r.t, ...(w.r.more ? { more: w.r.more } : {}) }]),
+    );
   const retakable = () => {
     const sc = sceneRow();
-    return editable() && !p.compact && !!sc && canRetake(sc.scene, stateRow()?.r?.more, p.host.tl(), undefined, p.art.model.markers);
+    return editable() && !p.compact && !!sc && canRetake(sc.scene, stateRow()?.r?.more, p.host.tl(), undefined, p.art.model.markers, p.state.playersIn(p.scene), p.state.roster(), sceneWaves());
   };
   const retake = () => {
     const sc = sceneRow();
     const tl = p.host.tl();
     if (!sc || !tl) return;
     const st = stateRow();
-    const waves = new Map(
-      p.state
-        .rowsIn<import("../gen/Wave").Wave>("Wave", p.scene)
-        .map((w) => [w.r.lane, { id: w.id, t: w.r.t, ...(w.r.more ? { more: w.r.more } : {}) }]),
-    );
-    const txs = retakeOps(sc, st ? { id: st.id, more: st.r?.more } : undefined, p.state.playersIn(p.scene), p.state.roster(), tl, newRecordId, undefined, p.art.model.markers, waves);
+    const txs = retakeOps(sc, st ? { id: st.id, more: st.r?.more } : undefined, p.state.playersIn(p.scene), p.state.roster(), tl, newRecordId, undefined, p.art.model.markers, sceneWaves());
     // In order, stopping at a refusal: the scene's state is last, so it never claims builds
     // that weren't written.
     for (const tx of txs) if (!p.state.edit(tx)) break;

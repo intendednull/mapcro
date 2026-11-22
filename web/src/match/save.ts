@@ -68,21 +68,22 @@ export type Phase5Feature =
 
 export const PHASE5_FEATURES: ReadonlyArray<{
   feature: Phase5Feature;
+  firstRow: RowKey;
   lastRow: RowKey;
   flag: keyof CapturedSnapshot;
   hasIn: (f: Record<Feature, boolean>) => boolean;
 }> = [
-  { feature: "sight", lastRow: "unseen", flag: "sight", hasIn: (f) => f.sight },
-  { feature: "cc", lastRow: "cc", flag: "cc", hasIn: (f) => f.cc },
-  { feature: "movement", lastRow: "zipline", flag: "movement", hasIn: (f) => f.movement },
-  { feature: "lanes", lastRow: "edges", flag: "lanes", hasIn: (f) => f.lanes },
-  { feature: "skulls", lastRow: "skulls", flag: "skulls", hasIn: (f) => f.skulls },
-  { feature: "camps", lastRow: "camps", flag: "camps", hasIn: (f) => f.camps },
-  { feature: "powerups", lastRow: "powerups", flag: "powerups", hasIn: (f) => f.powerups },
-  { feature: "obj_health", lastRow: "obj_health", flag: "obj_health", hasIn: (f) => f.obj_health },
-  { feature: "rifts", lastRow: "rift", flag: "rifts", hasIn: (f) => f.rifts },
-  { feature: "urn", lastRow: "urn_at", flag: "urn", hasIn: (f) => f.urn },
-  { feature: "rejuv", lastRow: "rejuv", flag: "rejuv", hasIn: (f) => f.rejuv },
+  { feature: "sight", firstRow: "has_sight", lastRow: "unseen", flag: "sight", hasIn: (f) => f.sight },
+  { feature: "cc", firstRow: "has_cc", lastRow: "cc", flag: "cc", hasIn: (f) => f.cc },
+  { feature: "movement", firstRow: "has_movement", lastRow: "zipline", flag: "movement", hasIn: (f) => f.movement },
+  { feature: "lanes", firstRow: "has_lanes", lastRow: "edges", flag: "lanes", hasIn: (f) => f.lanes },
+  { feature: "skulls", firstRow: "has_skulls", lastRow: "skulls", flag: "skulls", hasIn: (f) => f.skulls },
+  { feature: "camps", firstRow: "has_camps", lastRow: "camps", flag: "camps", hasIn: (f) => f.camps },
+  { feature: "powerups", firstRow: "has_powerups", lastRow: "powerups", flag: "powerups", hasIn: (f) => f.powerups },
+  { feature: "obj_health", firstRow: "has_obj_health", lastRow: "obj_health", flag: "obj_health", hasIn: (f) => f.obj_health },
+  { feature: "rifts", firstRow: "has_rifts", lastRow: "rift", flag: "rifts", hasIn: (f) => f.rifts },
+  { feature: "urn", firstRow: "has_urn", lastRow: "urn_at", flag: "urn", hasIn: (f) => f.urn },
+  { feature: "rejuv", firstRow: "has_rejuv", lastRow: "rejuv", flag: "rejuv", hasIn: (f) => f.rejuv },
 ];
 
 /** Feature drop order when a save exceeds `max_tx_bytes - TX_SLACK`, before trimming `build_order`
@@ -332,8 +333,17 @@ export function matchSceneOps(
   type ObjEntry = { key: string; status: "Active" | "Destroyed" };
   type SiteBucket = "urn" | "rifts" | "powerups" | "camps";
   const BUCKET_ORDER: readonly SiteBucket[] = ["urn", "rifts", "powerups", "camps"];
-  const bucketOf = (key: string): SiteBucket =>
-    key.startsWith("urn:") ? "urn" : key.startsWith("rift:") ? "rifts" : key.startsWith("powerup:") ? "powerups" : "camps";
+  // Key sites by board marker `kind` (falling back to key prefix only when markers aren't passed),
+  // so remapped koth/urn/powerup markers whose resolved keys don't share the timeline prefix still
+  // use the right default-off status and overflow bucket.
+  const kindByKey = new Map(markers.map((m) => [m.key, m.kind]));
+  const bucketOf = (key: string): SiteBucket => {
+    const kind = kindByKey.get(key);
+    if (kind === "urn" || (!kind && key.startsWith("urn:"))) return "urn";
+    if (kind === "koth" || (!kind && key.startsWith("rift:"))) return "rifts";
+    if (kind === "powerup" || (!kind && key.startsWith("powerup:"))) return "powerups";
+    return "camps";
+  };
 
   const coveredFrom = (avail: ReadonlySet<Phase5Feature>): Set<string> => {
     const covered = new Set<string>();
@@ -358,7 +368,8 @@ export function matchSceneOps(
     // (both default off), and taken powerups/camps (they default available).
     for (const [key, status] of frame.sites) {
       if (covered.has(key)) continue;
-      const off = key.startsWith("rift:") || key.startsWith("urn:");
+      const kind = kindByKey.get(key);
+      const off = kind === "koth" || kind === "urn" || (!kind && (key.startsWith("rift:") || key.startsWith("urn:")));
       if ((off && status === "Active") || (!off && status === "Destroyed")) {
         const entry = { key, status };
         const bucket = bucketOf(key);
@@ -565,14 +576,17 @@ function sceneBuilds(
 const MORE_KEY = 8;
 
 /** Whether Retake has anything to give a scene: it came from `tl`'s match, and holds no build
- * snapshot, or lacks features that `tl` supplies and this build writes (`written`). Never offers
- * a no-op Retake (TD-161, plan §6). */
+ * snapshot, or lacks features that `tl` supplies, this build writes (`written`), and (when
+ * records are supplied) fit under `max_more_bytes`. Never offers a no-op Retake (TD-161, plan §6). */
 export function canRetake(
   scene: Pick<SceneRow["scene"], "source">,
   state: More | undefined,
   tl: Pick<Timeline, "match_id" | "tier" | "players" | "zips" | "camps" | "heals" | "crates" | "powerups" | "objective_health" | "rifts" | "urn" | "rejuv"> | undefined,
   written: number = WRITTEN,
   markers?: FrameMarkers,
+  heroes?: Player[],
+  roster?: Slot[],
+  waves?: ReadonlyMap<string, { id: RecordId; t: number; more?: More }>,
 ): boolean {
   if (!tl || scene.source?.match_id !== tl.match_id || !retakesFrom(scene.source.tier, tl)) return false;
   const c = captured(state);
@@ -582,6 +596,11 @@ export function canRetake(
   const feat = featuresOf(full);
   const missing = PHASE5_FEATURES.filter((f) => ROWS[f.lastRow].index < written && !c[f.flag] && f.hasIn(feat));
   if (!missing.length) return false;
+  if (heroes && roster && scene.source?.t != null) {
+    const fd = captureFrameData(full, Math.floor(scene.source.t), markers ?? [], written);
+    const { admitted } = preflightRetakeFeatures(full, state, heroes, roster, fd, new Set(missing.filter((f) => fd.available.has(f.feature)).map((f) => f.feature)), written, waves);
+    return admitted.size > 0;
+  }
   // If any Group A feature or `rejuv` is missing, it always fits (no list cap / hash collision).
   const simple = missing.some((f) => f.feature === "sight" || f.feature === "cc" || f.feature === "movement" || f.feature === "lanes" || f.feature === "skulls" || f.feature === "rejuv");
   if (simple) return true;
@@ -589,6 +608,93 @@ export function canRetake(
   // For list-capped / hash-checked Group B features, verify at least one actually fits at `source.t`.
   const fd = captureFrameData(full, Math.floor(scene.source.t), markers, written);
   return missing.some((f) => fd.available.has(f.feature));
+}
+
+/** Preflight each missing Phase 5 feature against `LIMITS.max_more_bytes` on every touched hero,
+ * wave, and `SceneState` record (using projected `more` maps after any earlier writes in the same
+ * Retake). Because the engine skips an over-cap `SetIf` and continues the transaction, emitting a
+ * `has_*` flag when any required per-record write can't fit would permanently mark incomplete data
+ * as captured. Features that don't fit are omitted whole alongside their `has_*` flag. */
+function preflightRetakeFeatures(
+  tl: Timeline,
+  stateMore: More | undefined,
+  heroes: Player[],
+  roster: Slot[],
+  fd: CapturedFrameData,
+  missingFeatures: ReadonlySet<Phase5Feature>,
+  written: number,
+  waves?: ReadonlyMap<string, { id: RecordId; t: number; more?: More }>,
+  projectedHeroes?: Map<RecordId, More>,
+): { admitted: Set<Phase5Feature>; skipped: Array<(typeof PHASE5_FEATURES)[number]> } {
+  const players = new Map(tl.players.map((p) => [slotKey(p.team, p.slot), p]));
+  const slots = new Map(roster.map((s) => [s.id, s]));
+  const heroMore = new Map<RecordId, More>();
+  for (const h of heroes) heroMore.set(h.id, { ...(projectedHeroes?.get(h.id) ?? h.state.more ?? {}) });
+  const baseState = captureScene(tl, { heroes: false, written });
+  const stateProj: More = { ...(stateMore ?? {}) };
+  for (const [k, v] of Object.entries(baseState)) {
+    if (k !== "rows" && stateProj[k] === undefined) stateProj[k] = v;
+  }
+  const admitted = new Set<Phase5Feature>();
+  const skipped: Array<(typeof PHASE5_FEATURES)[number]> = [];
+
+  for (const entry of PHASE5_FEATURES) {
+    const f = entry.feature;
+    if (!missingFeatures.has(f)) continue;
+    let fits = true;
+    const heroDeltas: Array<{ id: RecordId; add: More }> = [];
+    if (f === "sight" || f === "cc" || f === "movement") {
+      const single = new Set<Phase5Feature>([f]);
+      for (const h of heroes) {
+        const s = slots.get(h.state.slot);
+        if (!s) continue;
+        const key = slotKey(s.slot.team, s.slot.slot);
+        if (!players.has(key)) continue;
+        const cur = heroMore.get(h.id) ?? {};
+        const extra = heroExtraFrom(fd, single, key);
+        const add: More = {};
+        for (const [k, v] of Object.entries(extra)) {
+          if (cur[k] === undefined && ROWS[k as RowKey].index < written) add[k] = v;
+        }
+        if (Object.keys(add).length) {
+          if (moreBytes({ ...cur, ...add }) > LIMITS.max_more_bytes) {
+            fits = false;
+            break;
+          }
+          heroDeltas.push({ id: h.id, add });
+        }
+      }
+    } else if (f === "lanes" && waves) {
+      for (const [lane] of fd.sec.lanes) {
+        const edges = fd.laneEdges.get(lane);
+        const existing = edges ? waves.get(lane) : undefined;
+        if (edges && existing && existing.more?.edges === undefined) {
+          if (moreBytes({ ...(existing.more ?? {}), edges }) > LIMITS.max_more_bytes) {
+            fits = false;
+            break;
+          }
+        }
+      }
+    }
+
+    const stateCap = captureScene(tl, { heroes: false, written, ...sceneCaptureFrom(fd, new Set<Phase5Feature>([f])) });
+    const stateAdd: More = {};
+    for (const [k, v] of Object.entries(stateCap)) {
+      if (k !== "rows" && stateProj[k] === undefined) stateAdd[k] = v;
+    }
+    if (fits && moreBytes({ ...stateProj, ...stateAdd, rows: written }) > LIMITS.max_more_bytes) {
+      fits = false;
+    }
+
+    if (fits) {
+      admitted.add(f);
+      for (const { id, add } of heroDeltas) Object.assign(heroMore.get(id)!, add);
+      Object.assign(stateProj, stateAdd);
+    } else {
+      skipped.push(entry);
+    }
+  }
+  return { admitted, skipped };
 }
 
 /**
@@ -626,24 +732,6 @@ export function retakeOps(
   const groups: Op[][] = [];
   const c = captured(state?.more);
   const own = c.heroes;
-  for (const h of heroes) {
-    const s = slots.get(h.state.slot);
-    const p = s && players.get(slotKey(s.slot.team, s.slot.slot));
-    if (!p) continue;
-    const have = h.state.more ?? {};
-    // A slot given another hero in a scene that holds its heroes: the match's build is not
-    // that hero's, and stays out.
-    if (typeof have.hero === "number" && have.hero !== p.hero_id) continue;
-    const ops = Object.entries(captureBuild(heroBuildAt(tl, p, second, tier))).filter(([key]) => have[key] === undefined && !(own && key === "hero")).map(([key, value]) => absent(h.id, key, value));
-    if (own && (ops.length || have.hero === undefined)) {
-      const held = BUILD_KEYS.filter((key) => have[key] !== undefined).map((key) => absent(h.id, key, have[key]!));
-      ops.unshift({ Set: { id: h.id, value: { More: { key: "hero", value: p.hero_id } } } }, ...held);
-    }
-    if (ops.length) groups.push(ops);
-  }
-  // One indivisible scene-state group, emitted last (plan §6): all Group A hero/lane ops plus
-  // SceneState (Group A + Group B + watermark bump).
-  const sceneGroup: Op[] = [];
   const fd = written > 16 ? captureFrameData(tl, Math.floor(second), markers ?? [], written) : undefined;
   // Only backfill Phase 5 features NOT YET CAPTURED (`!c[f.flag]`): never re-write a row belonging
   // to an already-captured feature whose key a coach legitimately cleared (e.g. marking a hero in vision).
@@ -655,7 +743,59 @@ export function retakeOps(
       }
     }
   }
-  if (fd && missingFeatures.size > 0) {
+  const projectedHero = new Map<RecordId, More>();
+  for (const h of heroes) projectedHero.set(h.id, { ...(h.state.more ?? {}) });
+  const buildSet = new Set<string>(["hero", ...BUILD_KEYS]);
+  for (const h of heroes) {
+    const s = slots.get(h.state.slot);
+    const key = s && slotKey(s.slot.team, s.slot.slot);
+    const p = key ? players.get(key) : undefined;
+    if (!p || !key) continue;
+    const have = h.state.more ?? {};
+    // A slot given another hero in a scene that holds its heroes: the match's build is not
+    // that hero's, and stays out.
+    if (typeof have.hero === "number" && have.hero !== p.hero_id) continue;
+    // Reserve space for existing non-build keys (e.g. `name`) and any missing Group A hero keys
+    // so a late-game build backfill trims `build_order` instead of starving sight/CC/movement.
+    const reserve: More = {};
+    for (const [k, v] of Object.entries(have)) {
+      if (!buildSet.has(k)) reserve[k] = v;
+    }
+    if (fd && missingFeatures.size > 0) {
+      for (const [k, v] of Object.entries(heroExtraFrom(fd, missingFeatures, key))) {
+        if (have[k] === undefined && ROWS[k as RowKey].index < written) reserve[k] = v;
+      }
+    }
+    const reserveBytes = Object.keys(reserve).length ? moreBytes(reserve) : 0;
+    const buildBudget = Math.max(0, LIMITS.max_more_bytes - reserveBytes);
+    const proj = projectedHero.get(h.id)!;
+    const ops: Op[] = [];
+    for (const [bk, bv] of Object.entries(captureBuild(heroBuildAt(tl, p, second, tier), buildBudget))) {
+      if (have[bk] !== undefined || (own && bk === "hero")) continue;
+      if (moreBytes({ ...proj, [bk]: bv }) > LIMITS.max_more_bytes) continue;
+      proj[bk] = bv;
+      ops.push(absent(h.id, bk, bv));
+    }
+    if (own && (ops.length || have.hero === undefined)) {
+      if (have.hero !== undefined || moreBytes({ ...proj, hero: p.hero_id }) <= LIMITS.max_more_bytes) {
+        proj.hero = p.hero_id;
+        const held = BUILD_KEYS.filter((bk) => have[bk] !== undefined).map((bk) => absent(h.id, bk, have[bk]!));
+        ops.unshift({ Set: { id: h.id, value: { More: { key: "hero", value: p.hero_id } } } }, ...held);
+      }
+    }
+    if (ops.length) groups.push(ops);
+  }
+
+  // Preflight every missing Phase 5 feature against `LIMITS.max_more_bytes` on heroes, waves, and
+  // `SceneState` so an over-cap `SetIf` skip can never leave `has_*` set with missing data.
+  const { admitted: admittedFeatures, skipped: skippedForCap } = fd && missingFeatures.size > 0
+    ? preflightRetakeFeatures(tl, state?.more, heroes, roster, fd, missingFeatures, written, waves, projectedHero)
+    : { admitted: new Set<Phase5Feature>(), skipped: [] as Array<(typeof PHASE5_FEATURES)[number]> };
+
+  // One indivisible scene-state group, emitted last (plan §6): all admitted Group A hero/lane ops
+  // plus SceneState (admitted Group A + Group B + honest watermark bump).
+  const sceneGroup: Op[] = [];
+  if (fd && admittedFeatures.size > 0) {
     // Group A hero rows: filled for EVERY matched slot (re-picked or not), never triggering `Set hero`.
     for (const h of heroes) {
       const s = slots.get(h.state.slot);
@@ -663,13 +803,13 @@ export function retakeOps(
       const key = slotKey(s.slot.team, s.slot.slot);
       if (!players.has(key)) continue;
       const have = h.state.more ?? {};
-      const extra = heroExtraFrom(fd, missingFeatures, key);
+      const extra = heroExtraFrom(fd, admittedFeatures, key);
       for (const [k, v] of Object.entries(extra)) {
         if (have[k] === undefined && ROWS[k as RowKey].index < written) sceneGroup.push(absent(h.id, k, v));
       }
     }
     // Group A lane edges: fill absent `edges` on existing Waves, or create Wave on metadata-upgraded scenes.
-    if (missingFeatures.has("lanes")) {
+    if (admittedFeatures.has("lanes")) {
       for (const [lane, w] of fd.sec.lanes) {
         const edges = fd.laneEdges.get(lane);
         if (!edges) continue;
@@ -682,10 +822,24 @@ export function retakeOps(
       }
     }
   }
+  // Advance `SceneState.rows` only as high as the highest admitted feature (because `captured()`
+  // requires `ROWS[lastRow].index < rows` to read an admitted `has_*` flag); never advance past
+  // the admitted features when any feature was skipped, and never bump `rows` on a no-op Retake.
+  const rowByFeature = new Map(PHASE5_FEATURES.map((f) => [f.feature, ROWS[f.lastRow].index + 1]));
+  const targetRows = skippedForCap.length === 0
+    ? written
+    : Math.max(
+        c.rows,
+        groups.length > 0 || c.rows < 15 ? Math.min(written, 15) : 0,
+        ...[...admittedFeatures].map((f) => rowByFeature.get(f) ?? 0),
+      );
   // Never `has_heroes`: a scene saved before it draws the board roster's heroes, and stays so.
-  const want = captureScene(tl, { heroes: false, written, ...(fd ? sceneCaptureFrom(fd, missingFeatures) : {}) });
+  const want = captureScene(tl, { heroes: false, written, ...(fd ? sceneCaptureFrom(fd, admittedFeatures) : {}) });
+  want.rows = targetRows;
   if (!state) {
-    sceneGroup.push({ Create: { id: mint(), record: { SceneState: { scene: scene.id, more: want } } } });
+    if (groups.length > 0 || sceneGroup.length > 0 || admittedFeatures.size > 0 || skippedForCap.length === 0) {
+      sceneGroup.push({ Create: { id: mint(), record: { SceneState: { scene: scene.id, more: want } } } });
+    }
   } else {
     const have = state.more ?? {};
     const stateOps = Object.entries(want)
@@ -694,8 +848,8 @@ export function retakeOps(
     sceneGroup.push(...stateOps);
     const hasWork = groups.length > 0 || sceneGroup.length > 0 || c.rows < 15;
     if (hasWork) {
-      if (have.rows === undefined) sceneGroup.push(absent(state.id, "rows", written));
-      else if (c.rows < written) sceneGroup.push({ SetIf: { id: state.id, expect: { More: { key: "rows", value: have.rows } }, value: { More: { key: "rows", value: written } } } });
+      if (have.rows === undefined) sceneGroup.push(absent(state.id, "rows", targetRows));
+      else if (c.rows < targetRows) sceneGroup.push({ SetIf: { id: state.id, expect: { More: { key: "rows", value: have.rows } }, value: { More: { key: "rows", value: targetRows } } } });
     }
   }
   if (sceneGroup.length) groups.push(sceneGroup);
