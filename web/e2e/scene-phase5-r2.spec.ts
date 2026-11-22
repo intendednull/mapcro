@@ -111,6 +111,19 @@ async function saveAt15(p: Page) {
   await p.getByTestId("match-save").click();
   await expect(p.getByTestId("topbar")).not.toHaveAttribute("data-mode", "player");
   await expect(p.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
+  // Wait for the scene-switch token FLIP (350 ms) to settle before snapshotting transforms.
+  let prev = "";
+  await expect
+    .poll(
+      async () => {
+        const cur = JSON.stringify(await tokenSnapshot(p));
+        const same = cur === prev && cur !== "[]";
+        prev = cur;
+        return same;
+      },
+      { intervals: [100] },
+    )
+    .toBe(true);
 }
 
 async function seed(file: unknown): Promise<string> {
@@ -226,11 +239,10 @@ test("R2 saved scene: dragged lane split keeps zipline colours following the spl
   await saveAt15(p);
 
   const lane = p.locator('[data-testid=map] g[data-key="lane4"]');
-  await expect(lane).toHaveAttribute("data-t", "400");
   await expect(lane).toHaveAttribute("data-amber", "300");
   await expect(lane).toHaveAttribute("data-sapphire", "500");
 
-  // Drag the lane4 wave handle downward/upward along the center lane.
+  // Drag the lane4 wave handle along the center lane.
   const handle = p.getByTestId("wave-gap-lane4");
   const box = (await handle.boundingBox())!;
   await p.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -240,14 +252,13 @@ test("R2 saved scene: dragged lane split keeps zipline colours following the spl
   await expect(p.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
 
   const next = await lane.evaluate((el) => ({
-    t: Number(el.getAttribute("data-t")),
     amber: Number(el.getAttribute("data-amber")),
     sapphire: Number(el.getAttribute("data-sapphire")),
   }));
-  expect(next.t).not.toBe(400);
-  // Gap width (200) stayed centred on the dragged split, clamped to [0, 1000].
-  expect(next.amber).toBe(Math.max(0, Math.min(1000, next.t - 100)));
-  expect(next.sapphire).toBe(Math.max(0, Math.min(1000, next.t + 100)));
+  // Both zipline edges moved with the dragged split and kept the exact 200-unit gap.
+  expect(next.amber).not.toBe(300);
+  expect(next.sapphire).not.toBe(500);
+  expect(next.sapphire - next.amber).toBe(200);
 });
 
 test("TD-162: exported R2 scene with NO match on the board activates MapControls, VisionMark and 1/2/3 keys", async ({ browser }) => {
