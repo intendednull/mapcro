@@ -43,7 +43,7 @@ test:
 
 # The reader release: the deployed build a rollback goes to (docs/deploy.md "Rollbacks"). Set
 # it to the deployed commit at each deploy that changes what is stored, with `just rows-lock`.
-reader := "01e29a8"
+reader := "9d1f206"
 
 # The rollback check (TD-80): what this build's server stores still loads on the reader
 # release's own code. The simulation's boards, run against the server as built, are dumped as
