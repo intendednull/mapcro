@@ -81,6 +81,7 @@ const fn row(key: &'static str, entity: Entity, kind: Kind) -> Row {
 }
 
 /// A new row: read by this build, written by none until this build is deployed and locked.
+#[allow(dead_code)]
 const fn ahead(key: &'static str, entity: Entity, kind: Kind) -> Row {
     Row { key, entity, kind, status: Status::Ahead }
 }
@@ -132,20 +133,20 @@ pub const ROWS: &[Row] = &[
     row("has_skulls", Entity::Scene, Kind::Bool),
     row("skulls", Entity::Scene, Kind::Ints { len: 36, min: 0, max: 255 }),
     // Phase 5, Group B: the marker baseline (rows 27–39; all on SceneState).
-    // Reader lands in R1 (store v15, all Ahead); writer in R3 (store v17).
-    ahead("has_camps", Entity::Scene, Kind::Bool),
-    ahead("camps", Entity::Scene, Kind::Ints { len: 600, min: -1, max: ID }),
-    ahead("has_powerups", Entity::Scene, Kind::Bool),
-    ahead("powerups", Entity::Scene, Kind::Ints { len: 20, min: -1, max: ID }),
-    ahead("has_obj_health", Entity::Scene, Kind::Bool),
-    ahead("obj_health", Entity::Scene, Kind::Ints { len: 120, min: -1, max: ID }),
-    ahead("has_rifts", Entity::Scene, Kind::Bool),
-    ahead("rift", Entity::Scene, Kind::Ints { len: 8, min: -1, max: ID }),
-    ahead("has_urn", Entity::Scene, Kind::Bool),
-    ahead("urn", Entity::Scene, Kind::Ints { len: 8, min: -1, max: ID }),
-    ahead("urn_at", Entity::Scene, Kind::Pos),
-    ahead("has_rejuv", Entity::Scene, Kind::Bool),
-    ahead("rejuv", Entity::Scene, Kind::Ints { len: 8, min: -1, max: ID }),
+    // Reader landed in R1 (store v15, e2438b4); writer in R3 (store v17, floor 16).
+    row("has_camps", Entity::Scene, Kind::Bool),
+    row("camps", Entity::Scene, Kind::Ints { len: 600, min: -1, max: ID }),
+    row("has_powerups", Entity::Scene, Kind::Bool),
+    row("powerups", Entity::Scene, Kind::Ints { len: 20, min: -1, max: ID }),
+    row("has_obj_health", Entity::Scene, Kind::Bool),
+    row("obj_health", Entity::Scene, Kind::Ints { len: 120, min: -1, max: ID }),
+    row("has_rifts", Entity::Scene, Kind::Bool),
+    row("rift", Entity::Scene, Kind::Ints { len: 8, min: -1, max: ID }),
+    row("has_urn", Entity::Scene, Kind::Bool),
+    row("urn", Entity::Scene, Kind::Ints { len: 8, min: -1, max: ID }),
+    row("urn_at", Entity::Scene, Kind::Pos),
+    row("has_rejuv", Entity::Scene, Kind::Bool),
+    row("rejuv", Entity::Scene, Kind::Ints { len: 8, min: -1, max: ID }),
 ];
 
 /// `SceneState`'s own status: the record kind is gated as a row is. Its reader ships a release
@@ -1248,18 +1249,17 @@ mod tests {
     fn the_file_version_table_covers_every_gated_version_and_derives_reads() {
         use crate::records::{Scene, Stroke};
         assert_eq!(ROWS.len(), 40);
-        assert_eq!(written_rows(), 27);
+        assert_eq!(written_rows(), 40);
         assert_eq!(ROWS[15].key, "has_heroes");
         assert_eq!(ROWS[16].key, "has_sight");
         assert_eq!(ROWS[26].key, "skulls");
         assert_eq!(ROWS[27].key, "has_camps");
         assert_eq!(ROWS[39].key, "rejuv");
-        // In R2, Group A (rows 16–26) is Live and Group B (rows 27–39) is Ahead, so
-        // `reads_file_version()` is 5.
-        assert_eq!(reads_file_version(), 5);
+        // In R3, all 40 rows (including Groups A and B) are Live, so `reads_file_version()` is 6.
+        assert_eq!(reads_file_version(), 6);
         assert_eq!(
             FILE_VERSIONS.iter().map(|v| (v.version, v.live, v.rows)).collect::<Vec<_>>(),
-            [(3, true, 15), (4, true, 16), (5, true, 27), (6, false, 40)]
+            [(3, true, 15), (4, true, 16), (5, true, 27), (6, true, 40)]
         );
         assert!(FILE_VERSIONS.iter().all(|v| v.rows <= ROWS.len()));
 
@@ -1332,7 +1332,7 @@ mod tests {
     }
 
     #[test]
-    fn phase5_group_a_rows_are_live_and_group_b_rows_remain_ahead_and_refused_by_deployed_gate() {
+    fn phase5_all_rows_are_live_and_admitted_by_deployed_gate_and_refused_while_ahead() {
         let valid_value = |kind: Kind| -> MoreValue {
             match kind {
                 Kind::Bool => MoreValue::Bool(true),
@@ -1343,22 +1343,22 @@ mod tests {
             }
         };
         let pos = FieldValue::PlayerPos(WorldPos::default());
+        let rows_ahead = Admit { row: |_| Status::Ahead, ..Admit::READS };
         for i in 16..ROWS.len() {
             let r = RowId(i as u16);
-            let is_group_a = i <= 26;
-            assert_eq!(r.row().status, if is_group_a { Status::Live } else { Status::Ahead }, "{} status in R2", r.key());
+            assert_eq!(r.row().status, Status::Live, "{} status in R3", r.key());
             let v = valid_value(r.row().kind);
             assert_eq!(v.check(r.row()), Ok(()), "valid value for {}", r.key());
-            // Set, clear, SetIf (both sides): admitted for Group A (16–26), refused for Group B (27–39).
-            let want_deployed = if is_group_a { Ok(()) } else { Err(Reject::WrongField) };
+            // Set, clear, SetIf (both sides): admitted by DEPLOYED and READS; refused when Ahead.
             for op in [
                 set(FieldValue::More { key: r, value: Some(v.clone()) }),
                 set(FieldValue::More { key: r, value: None }),
                 Op::SetIf { id: RecordId(5), expect: FieldValue::More { key: r, value: None }, value: pos.clone() },
                 Op::SetIf { id: RecordId(5), expect: pos.clone(), value: FieldValue::More { key: r, value: Some(v.clone()) } },
             ] {
-                assert_eq!(Admit::DEPLOYED.tx(&tx(vec![op.clone()])), want_deployed, "{} deployed", r.key());
-                assert_eq!(Admit::READS.tx(&tx(vec![op])), Ok(()), "{} admitted by READS", r.key());
+                assert_eq!(Admit::DEPLOYED.tx(&tx(vec![op.clone()])), Ok(()), "{} deployed", r.key());
+                assert_eq!(Admit::READS.tx(&tx(vec![op.clone()])), Ok(()), "{} admitted by READS", r.key());
+                assert_eq!(rows_ahead.tx(&tx(vec![op])), Err(Reject::WrongField), "{} refused while Ahead", r.key());
             }
             // Record creation on its real entity with a valid value follows the same gate.
             let m: More = [(r, v)].into_iter().collect();
@@ -1369,8 +1369,9 @@ mod tests {
                 Entity::Scene => scene_state(m),
                 Entity::Marker => unreachable!(),
             };
-            assert_eq!(Admit::DEPLOYED.record(&rec), want_deployed, "{} record deployed", r.key());
+            assert_eq!(Admit::DEPLOYED.record(&rec), Ok(()), "{} record deployed", r.key());
             assert_eq!(Admit::READS.record(&rec), Ok(()), "{} record admitted by READS", r.key());
+            assert_eq!(rows_ahead.record(&rec), Err(Reject::WrongField), "{} record refused while Ahead", r.key());
         }
     }
 

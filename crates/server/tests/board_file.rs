@@ -150,13 +150,12 @@ fn an_export_imports_as_the_same_board_under_fresh_ids() {
     // A legacy board (no `has_heroes` or Phase 5 rows) exports `BASE_FILE_ROWS` (15) so v11..v14
     // and R1 all accept it alongside version 2.
     assert_eq!(first["rows"], json!(mapcro_schema::BASE_FILE_ROWS));
-    // In R2, rows 0..27 (`hero`..`skulls`, including Group A) are written and rows 27..40 (phase 5
-    // Group B) remain `Ahead`.
-    let last_live = mapcro_schema::ROWS.iter().position(|r| r.key == "skulls").expect("the row");
+    // In R3, all 40 rows (`hero`..`rejuv`, including Groups A & B) are `Live`; none remain `Ahead`.
+    let last_live = mapcro_schema::ROWS.iter().position(|r| r.key == "rejuv").expect("the row");
     assert_eq!(mapcro_schema::written_rows(), last_live + 1);
-    assert_eq!(mapcro_schema::written_rows(), 27);
+    assert_eq!(mapcro_schema::written_rows(), 40);
     assert_eq!(mapcro_schema::ROWS.len(), 40);
-    assert!(mapcro_schema::ROWS[last_live + 1..].iter().all(|r| r.status == mapcro_schema::Status::Ahead));
+    assert!(mapcro_schema::ROWS.iter().all(|r| r.status != mapcro_schema::Status::Ahead));
     assert!(first["build"].as_str().is_some_and(|b| b.len() == 16), "the server's build");
     assert!(first["exported_at"].as_i64().is_some_and(|t| t > 1_700_000_000));
     assert_eq!(first["matches"], json!([130816395]), "the match comes back by its id");
@@ -316,8 +315,36 @@ fn a_file_with_map_state_imports_and_a_row_still_ahead_makes_no_board() {
         let out = server.export_json(&board, &owner);
         assert_eq!((&out["version"], &out["rows"]), (&json!(5), &json!(27)), "Group A exports v5 at version {version}");
         server.import_ok(&out);
-        // Every row still Ahead (Group B, rows 27–39) is refused on its real entity with a valid
-        // value, alone or beside written ones.
+        // A scene holding Group B (rows 27–39) imports at any file version 1..=6, exports version 6
+        // (`head.rows == 40`), which R2 (`READS == 5`) answers "Newer file" for, and re-imports cleanly.
+        let group_b = versioned(&|v| {
+            state(
+                v,
+                json!({
+                    "rows": 40,
+                    "has_heroes": true,
+                    "has_camps": true,
+                    "camps": [123456, 1, 45],
+                    "has_powerups": true,
+                    "powerups": [234567, 0, 1, -1, -1],
+                    "has_obj_health": true,
+                    "obj_health": [345678, 60, 2],
+                    "has_rifts": true,
+                    "rift": [1, 456789, 10, 40, 20, -1, -1, -1],
+                    "has_urn": true,
+                    "urn": [1, -1, -1, 567890, 120, -1, -1],
+                    "urn_at": { "x": 100, "y": -200 },
+                    "has_rejuv": true,
+                    "rejuv": [1, 3, 120, 15]
+                }),
+            );
+        });
+        let (board, owner, _) = server.import_ok(&group_b);
+        let out = server.export_json(&board, &owner);
+        assert_eq!((&out["version"], &out["rows"]), (&json!(6), &json!(40)), "Group B exports v6 at version {version}");
+        server.import_ok(&out);
+        // No rows remain Ahead in R3; if any future row is Ahead, this loop checks it is refused.
+        assert!(ROWS.iter().all(|r| r.status != Status::Ahead), "no row is still ahead in R3");
         let valid_json = |kind: mapcro_schema::Kind| -> Value {
             match kind {
                 mapcro_schema::Kind::Bool => json!(true),
@@ -376,11 +403,11 @@ fn bad_files_are_refused_with_a_code_and_make_no_board() {
     let send = |v: &Value| code(server.import(v.to_string().as_bytes()));
     let title_at = |v: &mut Value| -> usize { records(v).iter().position(|r| r[1].get("BoardMeta").is_some()).expect("meta") };
 
-    // A newer build's file: refused whole, whatever its body. Versions 2 to 5 are read in R2
-    // (version 6 is Group B / R3); a file whose writer knew more map-state rows than this build is
+    // A newer build's file: refused whole, whatever its body. Versions 2 to 6 are read in R3;
+    // a file whose version is >= 7 or whose writer knew more map-state rows than this build is
     // newer at any version.
     let rows = mapcro_schema::ROWS.len();
-    assert_eq!(send(&with(|v| v["version"] = json!(6))), (422, "newer".into()));
+    assert_eq!(send(&with(|v| v["version"] = json!(7))), (422, "newer".into()));
     assert_eq!(send(&with(|v| { v["version"] = json!(99); v["records"] = json!(marker); })), (422, "newer".into()));
     assert_eq!(send(&with(|v| { v["version"] = json!(2); v["rows"] = json!(rows + 1); v["records"] = json!(marker); })), (422, "newer".into()));
     assert_eq!(send(&with(|v| v["rows"] = json!(rows + 1))), (422, "newer".into()));
