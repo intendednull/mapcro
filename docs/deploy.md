@@ -390,23 +390,24 @@ It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` 
   `has_urn`, `urn`, `urn_at`, `has_rejuv`, `rejuv`) from `Ahead` to `Live` (all 40 rows are now
   `Live`; `written_rows() == 40`, `boardfile::READS == 6`). Store step 16 → 17 is
   `Step::NeedsReader { reader: 16 }` with no SQL, moving the floor to **16**.
-  - **Rollback target from v17 (R3):** **R2 (v16, `01e29a8`) only**, nothing older. R1 (v15) and
-    earlier refuse to start (floor 16). R2 opens the v17 database cleanly and preserves/serves all
-    Group B records without loss (R1/R2 already ship both schema and client readers A and B).
-  - **On rollback to R2 (v16):**
+  - **Rollback target from v17 (R3):** **R2.1 (v16, `9d1f206`) only**, nothing older. R1 (v15) and
+    earlier refuse to start (floor 16); unpatched R2 (`01e29a8`) lacks the R2.1 reader updates for
+    announced pre-live rifts (`open === 0` slot 1) and sparse `obj_health` (`pct === -1`). R2.1
+    opens the v17 database cleanly and preserves/renders all Group B records identically to R3.
+  - **On rollback to R2.1 (v16):**
     - Board files exported by R3 carry the compatible `(version, rows)` pair for their records:
       v2/v3 export `rows == 15` (import on v11+/v13+), v4 (`has_heroes`) exports `rows == 16`
       (imports on v14+), v5 (Group A only) exports `rows == 27` (imports on R2+), and Group B
-      exports **version 6** (`rows == 40`, imports on R3, says "Newer file" on R2 `READS == 5`).
-    - Copies (`Duplicate` / `New scene`) made on R2 of R3 scenes drop Group B keys (`index >= 27`),
-      lower `SceneState.more.rows` to `27`, and invoke R2's `materializeDroppedBaseline` rule to
+      exports **version 6** (`rows == 40`, imports on R3, says "Newer file" on R2.1 `READS == 5`).
+    - Copies (`Duplicate` / `New scene`) made on R2.1 of R3 scenes drop Group B keys (`index >= 27`),
+      lower `SceneState.more.rows` to `27`, and invoke R2.1's `materializeDroppedBaseline` rule to
       materialize non-default `ObjectiveState`s (cleared/unspawned camps/heals/crates/Mid-Boss,
-      down powerups, active rifts, open urn delivery points, Stage 2 Patrons) without duplicating
+      down powerups, active/announced rifts, open urn delivery points, Stage 2 Patrons) without duplicating
       existing overrides, so copied scenes never silently reset markers to default (only timers,
       active powerup buff identity, closed lane shops — which depend on `has_camps` even when the
       destroyed Guardian `ObjectiveState` survives — objective health %, rift capture %, urn
       position, and Rejuvenator are lost in the copy).
-    - Resent pending edits naming Group B keys (`index >= 27`) are refused as `WrongField` on R2.
+    - Resent pending edits naming Group B keys (`index >= 27`) are refused as `WrongField` on R2.1.
   - **Deploy note:** flipping rows 27–39 changes the schema sources, so the build id changes and
     every open R2 tab closes as `Outdated` and reloads. Back up SQLite first (`pre-v17`, below).
     After R3 is live, verify `just rows-lock` is unchanged (still 40 rows — statuses aren't in the

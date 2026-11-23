@@ -263,7 +263,7 @@ export function encodeObjHealth(
   }
   // When `down` is supplied (Save/Retake), explicitly mark standing `isHealthKind` objectives
   // absent from a partial `objective_health` timeline as unknown (`pct = -1`) so Save never
-  // invents `100%` hovers; deployed R2 (`decodeObjHealth`) ignores `pct < 0` cleanly.
+  // invents `100%` hovers; deployed R2.1 (`9d1f206`) decodes `pct === -1` as unknown (`null`).
   if (down) {
     for (const mk of markers) {
       if (!isHealthKind(mk.kind) || down.has(mk.key) || health.has(mk.key)) continue;
@@ -322,7 +322,8 @@ export function encodeRift(
     return { ints: [1, h, giveUpIn, amber, sapphire, cap, -1, -1], collision: false };
   }
   // During the pre-live announcement window (`start_s <= t < live_s`), `open === 0` carries the
-  // announced site hash in slot 1 (`siteHash`), which deployed R2 ignores while keeping `waiting`.
+  // announced site hash in slot 1 (`siteHash`); deployed R2.1 (`9d1f206`) decodes `announcedKey`
+  // alongside `waiting` so both lit icon and opening countdown match on rollback.
   let annHash = -1;
   if (announcedKey) {
     annHash = fnv1a32(announcedKey);

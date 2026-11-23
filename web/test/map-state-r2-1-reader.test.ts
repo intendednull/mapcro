@@ -30,8 +30,8 @@ function sceneWith(more: More, objectives: ReadonlyMap<string, { status: Objecti
 }
 
 describe("Phase 5 R2.1 reader (pre-R3 rollback parity)", () => {
-  it("stays on R2 writer watermark (WRITTEN = 27)", () => {
-    expect(WRITTEN).toBe(27);
+  it("writes all 40 Phase 5 rows on R3 (WRITTEN = 40)", () => {
+    expect(WRITTEN).toBe(40);
   });
 
   it("decodes pre-live announced rift (open=0 with slot-1 site hash) and keeps lit icon + opening hover", () => {
@@ -124,7 +124,7 @@ describe("Phase 5 R2.1 reader (pre-R3 rollback parity)", () => {
       has_obj_health: true,
       obj_health: [fnv1a32(shrineKey), -1, -1, fnv1a32(patronKey), 80, 2],
     };
-    const mat = new Map(materializeDroppedBaseline(stateMore, WRITTEN, 700, markers, new Set()).map((x) => [x.key, x.status]));
+    const mat = new Map(materializeDroppedBaseline(stateMore, 27, 700, markers, new Set()).map((x) => [x.key, x.status]));
     expect(mat.get(kothKey)).toBe("Active");
     expect(mat.get(patronKey)).toBe("Stage2");
     expect(mat.has(shrineKey)).toBe(false);
