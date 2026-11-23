@@ -856,4 +856,73 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
     expect(canRetake(scObj, stateOf(a), tl, WRITTEN, markers, [], [], new Map())).toBe(false);
     [a, b].forEach((x) => x.stop());
   });
+
+  // Astra Round 3 Medium: a scene with `rows: 40` and `has_builds: true` whose only missing
+  // feature (`camps`) cannot be supplied by the frame (>200 downed camps) must NOT offer Retake
+  // after a coach picks a hero away and back (`A -> B -> A`, clearing that slot's build keys),
+  // whereas a scene genuinely missing builds (`has_builds: false`) still offers partial progress.
+  it("canRetake does not offer Retake on cleared hero builds when has_builds is already true and missing features cannot fit (Round 3)", () => {
+    const base = replay();
+    const p0 = base.players[0]!;
+    const sampleCamp = markers.find((m) => m.kind === "camp")!;
+    const overMarkers = [
+      ...markers,
+      ...Array.from({ length: 205 }, (_, i) => ({
+        ...sampleCamp,
+        key: `camp:neutral:lane1:extra${i}`,
+      })),
+    ];
+    const overTl = {
+      ...base,
+      players: base.players.map((p, i) => (i === 0 ? { ...p, items: [[0, 9001, 1]] as Array<[number, number, number]>, level: [[0, 5]] as Array<[number, number]> } : p)),
+      camps: [
+        ...(base.camps ?? []),
+        ...Array.from({ length: 205 }, (_, i) => ({
+          key: `camp:neutral:lane1:extra${i}`,
+          first_s: 0,
+          cleared: [[1, 100]] as Array<[number, number]>,
+        })),
+      ],
+    };
+    const scObj = { source: { match_id: overTl.match_id, t: 4, tier: "replay" } };
+    const slotId = "slot-0";
+    const roster = [{ id: slotId, slot: { team: (p0.team === "amber" ? "Amber" : "Sapphire") as "Amber" | "Sapphire", slot: p0.slot, name: "", hero: p0.hero_id } }];
+    // Hero slot 0 was re-picked A -> B -> A: `hero` matches p0.hero_id, build keys cleared.
+    const heroes = [{
+      id: "h0",
+      state: {
+        scene: "sc0",
+        slot: slotId,
+        pos: { x: 0, y: 0 },
+        alive: true,
+        placed: true,
+        souls: null,
+        ult_cooldown: null,
+        visible: true,
+        respawn: null,
+        more: { hero: p0.hero_id },
+      },
+    }];
+    const baseState: More = {
+      rows: 40,
+      build: 6839,
+      has_builds: true,
+      has_heroes: true,
+      has_sight: true,
+      has_cc: true,
+      has_movement: true,
+      has_lanes: true,
+      has_skulls: true,
+      has_camps: false,
+      has_powerups: true,
+      has_obj_health: true,
+      has_rifts: true,
+      has_urn: true,
+      has_rejuv: true,
+    };
+    // `has_builds: true`, `camps` exceeds 200-entry cap (`missingSet` empty) -> must NOT offer Retake!
+    expect(canRetake(scObj, baseState, overTl, WRITTEN, overMarkers, heroes, roster, new Map())).toBe(false);
+    // `has_builds: false` (genuinely missing builds) -> still offers partial build backfill!
+    expect(canRetake(scObj, { ...baseState, has_builds: false }, overTl, WRITTEN, overMarkers, heroes, roster, new Map())).toBe(true);
+  });
 });

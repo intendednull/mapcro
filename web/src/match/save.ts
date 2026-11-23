@@ -684,7 +684,7 @@ export function canRetake(
     // When `c.rows < 15`, advancing past row 14 would falsely claim rows 11–14 are captured;
     // gate Phase 5 features behind `buildComplete` so `rows` never crosses 14 with missing build keys.
     if (c.rows < 15 && !buildComplete) return buildGroups.length > 0;
-    if (buildGroups.length > 0) return true;
+    if (needsBuilds && buildGroups.length > 0) return true;
     if (needsBuilds && buildComplete) {
       const empty = new Set<Phase5Feature>();
       const want = captureScene(full, { builds: true, heroes: false, written });
