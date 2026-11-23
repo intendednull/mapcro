@@ -403,7 +403,9 @@ It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` 
       materialize non-default `ObjectiveState`s (cleared/unspawned camps/heals/crates/Mid-Boss,
       down powerups, active rifts, open urn delivery points, Stage 2 Patrons) without duplicating
       existing overrides, so copied scenes never silently reset markers to default (only timers,
-      objective health %, rift capture %, urn position, and Rejuvenator are lost in the copy).
+      active powerup buff identity, closed lane shops — which depend on `has_camps` even when the
+      destroyed Guardian `ObjectiveState` survives — objective health %, rift capture %, urn
+      position, and Rejuvenator are lost in the copy).
     - Resent pending edits naming Group B keys (`index >= 27`) are refused as `WrongField` on R2.
   - **Deploy note:** flipping rows 27–39 changes the schema sources, so the build id changes and
     every open R2 tab closes as `Outdated` and reloads. Back up SQLite first (`pre-v17`, below).

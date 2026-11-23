@@ -33,7 +33,7 @@ import type { BoardState, Player, Slot } from "../src/board/state";
 import { WRITTEN, captured, heroBuildAt, moreBytes, readBuild } from "../src/mapstate/build";
 import {
   MAX_CAMPS, MAX_OBJ_HEALTH, MAX_POWERUPS,
-  decodeEdges, decodeUrn, encodeCamps, encodeObjHealth, encodePowerups, encodeRift, encodeUrn, fnv1a32, markerHashIndex,
+  decodeEdges, decodeObjHealth, decodeRift, decodeUrn, encodeCamps, encodeObjHealth, encodePowerups, encodeRift, encodeUrn, fnv1a32, isHealthKind, markerHashIndex,
 } from "../src/mapstate/codec";
 import { pickHeroOps, toggleSightOps } from "../src/mapstate/edit";
 import { fromScene } from "../src/mapstate/scene";
@@ -2169,6 +2169,7 @@ describe("Phase 5 R3: Writer B Retake edge cases (dormant Group B flags/payloads
     ]);
     const decidedRoomy = decideStep(redoOps, roomyRecords, WRITTEN);
     expect(decidedRoomy.changed).toBe(true);
+    expect(decidedRoomy.ops).toContainEqual({ Set: { id: "st1", value: { More: { key: "has_camps", value: true } } } });
     expect(decidedRoomy.ops).toContainEqual({ Set: { id: "st1", value: { More: { key: "camps", value: hugeCamps } } } });
     // `rows` stays `SetIf` (monotonic)!
     expect(decidedRoomy.ops).toContainEqual(redoOps[2]);
@@ -2201,5 +2202,289 @@ describe("Phase 5 R3: Writer B Retake edge cases (dormant Group B flags/payloads
     expect(moreBytes({ ...(tightRecords.get("st1")!.record as { SceneState: { more: More } }).SceneState.more, has_camps: true, camps: hugeCamps, rows: 40 })).toBeGreaterThan(LIMITS.max_more_bytes);
     const decidedTight = decideStep(redoOps, tightRecords, WRITTEN);
     expect(decidedTight).toEqual({ ops: [], carry: [], changed: true });
+  });
+
+  it("Retake clears stale camps and rejuv payloads even at rows: 40 when has_* is false (Finding 1)", () => {
+    const base = richReplay();
+    const rs = roster(base);
+    // At t=4: ALL camps alive (`camps` absent from want) and NO Rejuvenator held (`rejuv` absent from want).
+    const tl = {
+      ...base,
+      camps: markers.filter((m) => m.kind === "camp").slice(0, 3).map((m) => ({ key: m.key, first_s: 0, cleared: [] })),
+      heals: [],
+      crates: [],
+      rejuv: [],
+    } as unknown as Timeline;
+    const r3Cap = captureToScene(tl, 4, WRITTEN, rs);
+    const scObj = { name: "s", order: "a", clock: 4, source: { match_id: tl.match_id, t: 4, tier: "replay" } };
+    const scRow = { id: r3Cap.saved.id, scene: scObj } as never;
+    const waves = new Map([...r3Cap.waves].map(([lane, w], i) => [lane, { id: `w${i}`, t: w.t, ...(w.more ? { more: w.more } : {}) }]));
+
+    const staleAt40: More = {
+      ...r3Cap.sceneState,
+      rows: 40,
+      has_camps: false,
+      camps: [fnv1a32(markers.find((m) => m.kind === "camp")!.key), 1, 90],
+      has_rejuv: false,
+      rejuv: [1, 3, 120, 0],
+    };
+    expect(canRetake(scObj, staleAt40, tl, WRITTEN, markers, r3Cap.heroes, rs, waves)).toBe(true);
+    let n = 0;
+    const ops = retakeOps(scRow, { id: "st_40", more: staleAt40 }, r3Cap.heroes, rs, tl, () => `r40_${n++}`, WRITTEN, markers, waves).flat();
+    // Both stale payloads MUST be cleared BEFORE their `has_*` flags turn true!
+    const campClearIdx = ops.findIndex((o) => "Set" in o && "More" in o.Set.value && o.Set.value.More.key === "camps" && o.Set.value.More.value === null);
+    const campFlagIdx = ops.findIndex((o) => "Set" in o && "More" in o.Set.value && o.Set.value.More.key === "has_camps" && o.Set.value.More.value === true);
+    const rejuvClearIdx = ops.findIndex((o) => "Set" in o && "More" in o.Set.value && o.Set.value.More.key === "rejuv" && o.Set.value.More.value === null);
+    const rejuvFlagIdx = ops.findIndex((o) => "Set" in o && "More" in o.Set.value && o.Set.value.More.key === "has_rejuv" && o.Set.value.More.value === true);
+    expect(campClearIdx).toBeGreaterThanOrEqual(0);
+    expect(campFlagIdx).toBeGreaterThan(campClearIdx);
+    expect(rejuvClearIdx).toBeGreaterThanOrEqual(0);
+    expect(rejuvFlagIdx).toBeGreaterThan(rejuvClearIdx);
+
+    const after: More = { ...staleAt40 };
+    for (const o of ops) {
+      if ("Set" in o && o.Set.id === "st_40" && "More" in o.Set.value) {
+        if (o.Set.value.More.value === null) delete after[o.Set.value.More.key];
+        else after[o.Set.value.More.key] = o.Set.value.More.value;
+      }
+    }
+    expect(after.camps).toBeUndefined();
+    expect(after.rejuv).toBeUndefined();
+    expect(after.has_camps).toBe(true);
+    expect(after.has_rejuv).toBe(true);
+    expect(canRetake(scObj, after, tl, WRITTEN, markers, r3Cap.heroes, rs, waves)).toBe(false);
+  });
+
+  it("Retake emits clears/shrinking replacements before growing writes so every intermediate SceneState op fits max_more_bytes (Finding 2)", () => {
+    const base = richReplay();
+    const rs = roster(base);
+    // All camps alive (`camps` absent in want) at t=4; only `camps` missing in this timeline.
+    const tl = {
+      ...base,
+      camps: markers.filter((m) => m.kind === "camp").slice(0, 3).map((m) => ({ key: m.key, first_s: 0, cleared: [] })),
+      heals: [],
+      crates: [],
+      powerups: [],
+      objective_health: [],
+      rifts: undefined,
+      urn: undefined,
+      rejuv: undefined,
+    } as unknown as Timeline;
+    const r2Cap = captureToScene(tl, 4, WRITTEN_A, rs);
+    const scObj = { name: "s", order: "a", clock: 4, source: { match_id: tl.match_id, t: 4, tier: "replay" } };
+    const scRow = { id: r2Cap.saved.id, scene: scObj } as never;
+    const waves = new Map([...r2Cap.waves].map(([lane, w], i) => [lane, { id: `w${i}`, t: w.t, ...(w.more ? { more: w.more } : {}) }]));
+
+    // Build a near-8,192-byte R2-watermark SceneState holding huge dormant `camps` + `obj_health`
+    // such that adding `"has_camps":true` BEFORE deleting `camps` overflows 8,192 bytes, whereas
+    // deleting `camps` FIRST fits with kilobytes to spare!
+    const hugeObjHealth = Array.from({ length: 120 }, () => 4_294_967_295);
+    const hugePowerups = Array.from({ length: 20 }, () => 4_294_967_295);
+    const hugeSkulls = Array.from({ length: 36 }, () => 255);
+    const hugeCamps = Array.from({ length: 600 }, () => 4_294_967_295);
+    const nearCapDormant: More = {
+      ...r2Cap.sceneState,
+      rows: 27,
+      skulls: hugeSkulls,
+      camps: hugeCamps,
+      powerups: hugePowerups,
+      obj_health: hugeObjHealth,
+    };
+    while (moreBytes(nearCapDormant) > LIMITS.max_more_bytes) {
+      hugeCamps.pop();
+    }
+    expect(hugeCamps.length).toBeLessThanOrEqual(600);
+    expect(moreBytes(nearCapDormant)).toBeLessThanOrEqual(LIMITS.max_more_bytes);
+    expect(moreBytes({ ...nearCapDormant, has_camps: true })).toBeGreaterThan(LIMITS.max_more_bytes);
+
+    expect(canRetake(scObj, nearCapDormant, tl, WRITTEN, markers, r2Cap.heroes, rs, waves)).toBe(true);
+    let n = 0;
+    const ops = retakeOps(scRow, { id: "st_ord", more: nearCapDormant }, r2Cap.heroes, rs, tl, () => `ord_${n++}`, WRITTEN, markers, waves).flat();
+    const cur: More = { ...nearCapDormant };
+    for (const o of ops) {
+      if ("Set" in o && o.Set.id === "st_ord" && "More" in o.Set.value) {
+        if (o.Set.value.More.value === null) delete cur[o.Set.value.More.key];
+        else cur[o.Set.value.More.key] = o.Set.value.More.value;
+      } else if ("SetIf" in o && o.SetIf.id === "st_ord" && "More" in o.SetIf.value) {
+        if (o.SetIf.value.More.value === null) delete cur[o.SetIf.value.More.key];
+        else cur[o.SetIf.value.More.key] = o.SetIf.value.More.value;
+      }
+      // Every intermediate step MUST stay within `LIMITS.max_more_bytes` (server checks per op!).
+      expect(moreBytes(cur)).toBeLessThanOrEqual(LIMITS.max_more_bytes);
+    }
+    expect(cur.camps).toBeUndefined();
+    expect(cur.has_camps).toBe(true);
+    expect(cur.rows).toBe(40);
+  });
+
+  it("Pre-live rift (start_s <= t < live_s) keeps lit icon and 'Rift opens in ...' across Player, Save, R1/R2 Retake, metadata->replay Retake, and overrides (Finding 3)", () => {
+    const rift0 = keyOf("koth");
+    const rift1 = keyOf("koth", 1);
+    const base = richReplay();
+    const tl = {
+      ...base,
+      rifts: [{ key: rift0, start_s: 2, live_s: 7, end_s: 11, give_up_s: 11, capture: [[70, 0, 0], [90, 50, 25]] }],
+    } as unknown as Timeline;
+    const rs = roster(tl);
+    const tAnn = 4; // strictly between start_s=2 and live_s=7 (3s until open)
+    const tBefore = 1; // strictly before start_s=2 (6s until open, neither site lit)
+    const mk0 = markers.find((m) => m.key === rift0)!;
+    const mk1 = markers.find((m) => m.key === rift1)!;
+
+    // 1. Fresh R3 Save at t=4: ZERO koth ObjectiveStates emitted, packed slot 1 carries announced hash!
+    const saved = captureToScene(tl, tAnn, WRITTEN, rs);
+    expect([...saved.objectives.keys()].filter((k) => k.startsWith("rift:"))).toEqual([]);
+    const packed = saved.sceneState!.rift as number[];
+    expect(packed[0]).toBe(0);
+    expect(packed[1]).toBe(fnv1a32(rift0));
+    expect(packed[6]).toBe(3);
+    expect(packed[7]).toBe(fnv1a32(rift0));
+    expect(decodeRift(packed, tAnn, markers)).toEqual({
+      activeKey: null,
+      announcedKey: rift0,
+      active: null,
+      waiting: { state: "waiting", next: { t: 7, key: rift0 } },
+    });
+
+    // 2. Player vs Fresh R3 Save vs Legacy R1/R2 Replay Retake (with stored `ObjectiveState: Active`) vs Metadata->Replay Retake (no ObjectiveState):
+    createRoot((dispose) => {
+      const p = fromTimeline({ tl: () => tl, t: () => tAnn, markers: () => markers });
+      const sFresh = fromScene({
+        heroes: () => saved.heroes.map((h) => ({ state: h.state })),
+        roster: () => rs,
+        objectives: () => saved.objectives,
+        waves: () => saved.waves,
+        state: () => saved.sceneState,
+        tier: () => "replay",
+        frame: () => tAnn,
+        markers: () => markers,
+      });
+      // Legacy R1/R2 replay scene that had `ObjectiveState: { key: rift0, status: "Active" }`, after R3 Retake:
+      const legacyObjs = new Map<string, { status: ObjectiveStatus }>([[rift0, { status: "Active" }]]);
+      const sLegacyRetake = fromScene({
+        heroes: () => saved.heroes.map((h) => ({ state: h.state })),
+        roster: () => rs,
+        objectives: () => legacyObjs,
+        waves: () => saved.waves,
+        state: () => saved.sceneState,
+        tier: () => "replay",
+        frame: () => tAnn,
+        markers: () => markers,
+      });
+      // Metadata scene retaken from replay (NO ObjectiveState for rifts):
+      const metaObjs = new Map<string, { status: ObjectiveStatus }>();
+      const sMetaRetake = fromScene({
+        heroes: () => saved.heroes.map((h) => ({ state: h.state })),
+        roster: () => rs,
+        objectives: () => metaObjs,
+        waves: () => saved.waves,
+        state: () => saved.sceneState,
+        tier: () => "metadata",
+        frame: () => tAnn,
+        markers: () => markers,
+      });
+
+      for (const ms of [p, sFresh, sLegacyRetake, sMetaRetake]) {
+        expect(ms.marker(rift0).site()).toBe("Active");
+        expect(ms.marker(rift1).site()).toBe("Destroyed");
+        expect(markerTip(mk0, tipFacts(ms, rift0, true, ms.scene().urn()), tAnn)).toBe("Rift opens in 0:03");
+        expect(markerTip(mk1, tipFacts(ms, rift1, true, ms.scene().urn()), tAnn)).toBe("Rift opens at the other site in 0:03");
+      }
+
+      // 3. Coach overrides at t=4:
+      // - Turning OFF announced rift0 (`Destroyed`) suppresses `"Rift opens in 0:03"`:
+      const offObjs = new Map<string, { status: ObjectiveStatus }>([[rift0, { status: "Destroyed" }]]);
+      const sOff = fromScene({
+        heroes: () => saved.heroes.map((h) => ({ state: h.state })),
+        roster: () => rs,
+        objectives: () => offObjs,
+        waves: () => saved.waves,
+        state: () => saved.sceneState,
+        tier: () => "replay",
+        frame: () => tAnn,
+        markers: () => markers,
+      });
+      expect(markerTip(mk0, tipFacts(sOff, rift0, true, sOff.scene().urn()), tAnn)).toBeUndefined();
+      // - Lighting unannounced rift1 (`Active`) suppresses `"Rift opens at the other site in 0:03"`:
+      const onOtherObjs = new Map<string, { status: ObjectiveStatus }>([[rift1, { status: "Active" }]]);
+      const sOnOther = fromScene({
+        heroes: () => saved.heroes.map((h) => ({ state: h.state })),
+        roster: () => rs,
+        objectives: () => onOtherObjs,
+        waves: () => saved.waves,
+        state: () => saved.sceneState,
+        tier: () => "replay",
+        frame: () => tAnn,
+        markers: () => markers,
+      });
+      expect(markerTip(mk1, tipFacts(sOnOther, rift1, true, sOnOther.scene().urn()), tAnn)).toBeUndefined();
+
+      // 4. Before start_s (t=1): neither site is announced (`slot 1 === -1`), so manual `Active` on rift0
+      //    contradicts baseline `"Destroyed"` and suppresses the baseline hover!
+      const savedBefore = captureToScene(tl, tBefore, WRITTEN, rs);
+      expect((savedBefore.sceneState!.rift as number[])[1]).toBe(-1);
+      const beforeOverride = new Map<string, { status: ObjectiveStatus }>([[rift0, { status: "Active" }]]);
+      const sBefore = fromScene({
+        heroes: () => savedBefore.heroes.map((h) => ({ state: h.state })),
+        roster: () => rs,
+        objectives: () => beforeOverride,
+        waves: () => savedBefore.waves,
+        state: () => savedBefore.sceneState,
+        tier: () => "replay",
+        frame: () => tBefore,
+        markers: () => markers,
+      });
+      expect(markerTip(mk0, tipFacts(sBefore, rift0, true, sBefore.scene().urn()), tBefore)).toBeUndefined();
+      dispose();
+    });
+  });
+
+  it("Partial objective_health timeline round-trips Player <-> Scene without inventing 100% hovers (Finding 5)", () => {
+    const base = richReplay();
+    const walker = "walker:amber:lane1:1";
+    const patron = "patron:amber:lane0:1";
+    const untrackedGuardian = "guardian:amber:lane6:1";
+    const destroyedGuardian = "guardian:sapphire:lane4:1";
+    // Sparse timeline: ONLY `walker` (62%) and `patron` (100% stage 1) have health tracks; every other
+    // objective on the map has NO track in `objective_health`.
+    const sparse = {
+      ...base,
+      objectives: [{ key: destroyedGuardian, kind: "guardian", team: "sapphire", lane: 4, destroyed_s: 2 }],
+      objective_health: [
+        { key: walker, at: [[0, 100], [4, 62]] },
+        { key: patron, at: [[0, 100]], stage: [[0, 1]] },
+      ],
+    } as unknown as Timeline;
+    const rs = roster(sparse);
+    const saved = captureToScene(sparse, 4, WRITTEN, rs);
+    const decoded = decodeObjHealth(saved.sceneState!.obj_health, markers);
+    expect(decoded.get(untrackedGuardian)).toBeNull();
+    expect(decoded.get(walker)).toEqual({ pct: 62 });
+    expect(decoded.get(patron)).toEqual({ pct: 100, stage: 1 });
+
+    createRoot((dispose) => {
+      const p = fromTimeline({ tl: () => sparse, t: () => 4, markers: () => markers });
+      const s = fromScene({
+        heroes: () => saved.heroes.map((h) => ({ state: h.state })),
+        roster: () => rs,
+        objectives: () => saved.objectives,
+        waves: () => saved.waves,
+        state: () => saved.sceneState,
+        tier: () => "replay",
+        frame: () => 4,
+        markers: () => markers,
+      });
+      for (const m of markers) {
+        if (!isHealthKind(m.kind)) continue;
+        expect(s.marker(m.key).health(), m.key).toEqual(p.marker(m.key).health());
+      }
+      expect(s.marker(walker).health()).toEqual({ pct: 62 });
+      expect(s.marker(patron).health()).toEqual({ pct: 100, stage: 1 });
+      expect(s.marker(destroyedGuardian).health()).toBeUndefined();
+      expect(s.marker(untrackedGuardian).health()).toBeUndefined();
+      const mkG = markers.find((m) => m.key === untrackedGuardian)!;
+      expect(markerTip(mkG, tipFacts(s, untrackedGuardian, true, s.scene().urn()), 4)).toBeUndefined();
+      dispose();
+    });
   });
 });

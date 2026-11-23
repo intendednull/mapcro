@@ -636,15 +636,18 @@ describe("BoardSession.undo and redo send the plain step unless a hero's record 
     let n = 0;
     await step(s, () => (n = s.retake(s.a)));
     expect(rows(hero(s.a, s.id).more).length).toBeGreaterThan(0);
-    const hardenedKeys = new Set(["unseen", "cc", "height", "zipline", "skulls", "camps", "powerups", "obj_health", "rift", "urn", "urn_at", "rejuv"]);
+    const hardenedKeys = new Set([
+      "unseen", "cc", "height", "zipline", "skulls", "camps", "powerups", "obj_health", "rift", "urn", "urn_at", "rejuv",
+      "has_sight", "has_cc", "has_movement", "has_lanes", "has_skulls", "has_camps", "has_powerups", "has_obj_health", "has_rifts", "has_urn", "has_rejuv",
+    ]);
     for (const which of ["undo", "redo", "undo"] as const) {
       for (let i = 0; i < n; i++) {
         const { want, got } = await through(s, rec, which);
         if (which === "undo") {
           expect(got).toEqual(want);
         } else {
-          // On Redo, activating Phase 5 hero & SceneState payload writes are hardened from `SetIf` to `Set`
-          // for atomic near-cap safety, while every build/slot/flag/watermark op matches `want`.
+          // On Redo, activating Phase 5 hero/SceneState payloads and `has_*` flags are hardened from
+          // `SetIf` to `Set` for atomic near-cap safety, while build/slot/`rows` ops stay plain.
           const hardened = want.map((tx) => ({
             ...tx,
             ops: tx.ops.map((o): Op =>

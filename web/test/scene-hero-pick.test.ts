@@ -21,13 +21,13 @@ import { LIMITS } from "../src/gen/limits";
 import { ROWS } from "../src/gen/rows";
 import type { Op } from "../src/gen/Op";
 import type { RosterSlot } from "../src/gen/RosterSlot";
-import { BUILD_KEYS, captureBuild, captureScene, captured, heroBuildAt, moreBytes, sceneHero } from "../src/mapstate/build";
+import { BUILD_KEYS, WRITTEN, captureBuild, captureScene, captured, heroBuildAt, moreBytes, sceneHero } from "../src/mapstate/build";
 import { holdsBuild } from "../src/mapstate/buildView";
 import { encodeCC } from "../src/mapstate/codec";
 import { pickHeroOps } from "../src/mapstate/edit";
 import { secondPart, tenthPart } from "../src/mapstate/frame";
 import { retakeOps, slotKey } from "../src/match/save";
-import { replay } from "./support/synthetic-match";
+import { markers, replay } from "./support/synthetic-match";
 
 const ROOT = resolve(__dirname, "../..");
 const ORIGIN = "http://localhost:5173";
@@ -647,5 +647,149 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
       }
       [a, b].forEach((x) => x.stop());
     }
+  });
+
+  // Finding 2 (server+WASM): near-8,192-byte R2-watermark SceneState with dormant `camps` + `obj_health`
+  // at an all-camps-alive frame: Retake commits cleanly because `camps: null` precedes `has_camps: true`,
+  // whereas reversing those two ops fails `TxTooLarge` on the server (per-op `max_more_bytes` check).
+  it("near-cap dormant-payload Retake commits cleanly on the real server because clears precede growing ops (Finding 2)", async () => {
+    const base = replay();
+    const tl = {
+      ...base,
+      camps: markers.filter((m) => m.kind === "camp").slice(0, 3).map((m) => ({ key: m.key, first_s: 0, cleared: [] })),
+      heals: [],
+      crates: [],
+      powerups: [],
+      objective_health: [],
+      rifts: undefined,
+      urn: undefined,
+      rejuv: undefined,
+    } as unknown as typeof base;
+    const hugeObjHealth = Array.from({ length: 120 }, () => 4_294_967_295);
+    const hugePowerups = Array.from({ length: 20 }, () => 4_294_967_295);
+    const hugeSkulls = Array.from({ length: 36 }, () => 255);
+    const hugeCamps = Array.from({ length: 600 }, () => 4_294_967_295);
+    const nearCapDormant: More = {
+      rows: 27,
+      has_builds: true,
+      has_heroes: true,
+      has_sight: true,
+      has_cc: true,
+      has_movement: true,
+      has_lanes: true,
+      has_skulls: true,
+      skulls: hugeSkulls,
+      camps: hugeCamps,
+      powerups: hugePowerups,
+      obj_health: hugeObjHealth,
+    };
+    while (moreBytes(nearCapDormant) > LIMITS.max_more_bytes) {
+      hugeCamps.pop();
+    }
+    expect(hugeCamps.length).toBeLessThanOrEqual(600);
+    expect(moreBytes(nearCapDormant)).toBeLessThanOrEqual(LIMITS.max_more_bytes);
+    expect(moreBytes({ ...nearCapDormant, has_camps: true })).toBeGreaterThan(LIMITS.max_more_bytes);
+
+    const { a, b, scene } = await board();
+    const stateId = newRecordId();
+    const stateOf = (s: BoardSession) => (s.records.get(stateId)?.record as { SceneState?: { more?: More } } | undefined)?.SceneState?.more;
+    expect(a.edit([{ Create: { id: stateId, record: { SceneState: { scene, more: nearCapDormant } } } }])).toBe(true);
+    expect(await settled(a, b)).toBe(true);
+    expect(await until(() => b.records.has(stateId))).toBe(true);
+
+    // 1. Proves the engine/server enforces per-op `max_more_bytes`: sending `has_camps: true` BEFORE `camps: null` is refused!
+    expect(
+      a.edit([
+        { Set: { id: stateId, value: { More: { key: "has_camps", value: true } } } },
+        { Set: { id: stateId, value: { More: { key: "camps", value: null } } } },
+      ]),
+    ).toBe(false);
+    expect(stateOf(a)?.has_camps).toBeUndefined();
+
+    // 2. Real `retakeOps` clears `camps` FIRST and commits cleanly on the server!
+    const scRow = { id: scene, scene: { name: "s", order: "a", clock: 4, source: { match_id: tl.match_id, t: 4, tier: "replay" } } } as never;
+    const txs = retakeOps(scRow, { id: stateId, more: stateOf(a) }, [], [], tl, newRecordId, WRITTEN, markers, new Map());
+    expect(txs).toHaveLength(1);
+    const beforeOk = a.problems.length;
+    expect(a.edit(txs[0]!)).toBe(true);
+    expect(await settled(a, b)).toBe(true);
+    expect(a.problems.length).toBe(beforeOk);
+    expect(await until(() => stateOf(b)?.has_camps === true && stateOf(b)?.camps === undefined && stateOf(b)?.rows === 40)).toBe(true);
+    [a, b].forEach((x) => x.stop());
+  });
+
+  // Finding 4 (server+WASM): multi-feature Retake redo (`obj_health` + `rejuv`) under concurrent byte pressure
+  // where `has_obj_health` + `obj_health` WOULD fit, while the subsequent `has_rejuv: true` overflows `max_more_bytes`:
+  // because `decideStep` hardens activating `has_*` flags to `Op::Set`, the ENTIRE redo aborts atomically!
+  it("multi-feature Retake redo aborts atomically when a later activating has_* flag overflows under concurrent byte pressure (Finding 4)", async () => {
+    const baseMore: More = { rows: 27, has_builds: true, has_heroes: true };
+    const medObjHealth = Array.from({ length: 100 }, () => 4_294_967_295);
+    const [ga2, gb2] = [heldSocket(), heldSocket()];
+    const { a: a2, b: b2, scene: scene2 } = await board([ga2.open, gb2.open]);
+    const st2 = newRecordId();
+    const stateOf2 = (s: BoardSession) => (s.records.get(st2)?.record as { SceneState?: { more?: More } } | undefined)?.SceneState?.more;
+    expect(a2.edit([{ Create: { id: st2, record: { SceneState: { scene: scene2, more: baseMore } } } }])).toBe(true);
+    expect(await settled(a2, b2)).toBe(true);
+    expect(await until(() => b2.records.has(st2))).toBe(true);
+
+    expect(
+      a2.edit([
+        { Set: { id: st2, value: { More: { key: "has_obj_health", value: true } } } },
+        { Set: { id: st2, value: { More: { key: "obj_health", value: medObjHealth } } } },
+        { Set: { id: st2, value: { More: { key: "has_rejuv", value: true } } } },
+        { SetIf: { id: st2, expect: { More: { key: "rows", value: 27 } }, value: { More: { key: "rows", value: 40 } } } },
+      ]),
+    ).toBe(true);
+    expect(await settled(a2, b2)).toBe(true);
+    expect(await until(() => captured(stateOf2(b2)).obj_health && captured(stateOf2(b2)).rejuv)).toBe(true);
+    a2.undo();
+    expect(await settled(a2, b2)).toBe(true);
+    expect(await until(() => !captured(stateOf2(b2)).obj_health && !captured(stateOf2(b2)).rejuv)).toBe(true);
+
+    const fillCamps = Array.from({ length: 600 }, () => 4_294_967_295);
+    const fillPowerups = Array.from({ length: 20 }, () => 4_294_967_295);
+    const fillSkulls = Array.from({ length: 36 }, () => 255);
+    const fillMore: More = {
+      ...baseMore,
+      has_camps: true,
+      camps: fillCamps,
+      has_powerups: true,
+      powerups: fillPowerups,
+      has_skulls: true,
+      skulls: fillSkulls,
+    };
+    while (moreBytes({ ...fillMore, has_obj_health: true, obj_health: medObjHealth }) > LIMITS.max_more_bytes) {
+      fillCamps.pop();
+    }
+    // Now `fillMore + has_obj_health + medObjHealth` is within [8181, 8192] B: fits, while adding `has_rejuv: true` (+17 B) overflows!
+    expect(moreBytes({ ...fillMore, has_obj_health: true, obj_health: medObjHealth })).toBeLessThanOrEqual(LIMITS.max_more_bytes);
+    expect(moreBytes({ ...fillMore, has_obj_health: true, obj_health: medObjHealth, has_rejuv: true })).toBeGreaterThan(LIMITS.max_more_bytes);
+
+    const fillOps: Op[] = [
+      { Set: { id: st2, value: { More: { key: "has_camps", value: true } } } },
+      { Set: { id: st2, value: { More: { key: "camps", value: fillCamps } } } },
+      { Set: { id: st2, value: { More: { key: "has_powerups", value: true } } } },
+      { Set: { id: st2, value: { More: { key: "powerups", value: fillPowerups } } } },
+      { Set: { id: st2, value: { More: { key: "has_skulls", value: true } } } },
+      { Set: { id: st2, value: { More: { key: "skulls", value: fillSkulls } } } },
+    ];
+    const beforeProblems = a2.problems.length;
+    ga2.hold();
+    a2.redo();
+    expect(b2.edit(fillOps)).toBe(true);
+    expect(await settled(b2)).toBe(true);
+    ga2.release();
+    expect(await until(() => a2.problems.length > beforeProblems)).toBe(true);
+    expect(a2.problems.slice(beforeProblems).join(" ")).toMatch(/TxTooLarge/);
+    expect(await settled(a2, b2)).toBe(true);
+    expect(await until(() => JSON.stringify(stateOf2(a2)) === JSON.stringify(stateOf2(b2)))).toBe(true);
+    // Entire redo aborted atomically: NEITHER `obj_health` NOR `has_obj_health` NOR `has_rejuv` NOR `rows: 40` landed!
+    for (const s of [a2, b2]) {
+      expect(stateOf2(s)?.has_obj_health).toBeUndefined();
+      expect(stateOf2(s)?.obj_health).toBeUndefined();
+      expect(stateOf2(s)?.has_rejuv).toBeUndefined();
+      expect(stateOf2(s)?.rows).toBe(27);
+    }
+    [a2, b2].forEach((x) => x.stop());
   });
 });

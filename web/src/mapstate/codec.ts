@@ -249,17 +249,31 @@ export function decodePowerups(v: unknown, frame: number, markers: FrameMarkers)
 export function encodeObjHealth(
   health: ReadonlyMap<string, { pct: number; stage?: number }>,
   markers: FrameMarkers,
+  down?: ReadonlySet<string>,
 ): { ints: number[]; skipped: Set<string>; overflow: boolean } {
   const { collisions } = markerHashIndex(markers);
   const skipped = new Set<string>();
-  const entries = [...health.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  const ints: number[] = [];
-  let count = 0;
-  for (const [key, o] of entries) {
+  const rows: Array<[string, number, number]> = [];
+  for (const [key, o] of health) {
     const pct = clamp(o.pct, 0, 100);
     const stage = o.stage === 1 || o.stage === 2 ? o.stage : -1;
     // Default (not stored): 100%, no stage.
     if (pct === 100 && stage === -1) continue;
+    rows.push([key, pct, stage]);
+  }
+  // When `down` is supplied (Save/Retake), explicitly mark standing `isHealthKind` objectives
+  // absent from a partial `objective_health` timeline as unknown (`pct = -1`) so Save never
+  // invents `100%` hovers; deployed R2 (`decodeObjHealth`) ignores `pct < 0` cleanly.
+  if (down) {
+    for (const mk of markers) {
+      if (!isHealthKind(mk.kind) || down.has(mk.key) || health.has(mk.key)) continue;
+      rows.push([mk.key, -1, -1]);
+    }
+  }
+  rows.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  const ints: number[] = [];
+  let count = 0;
+  for (const [key, pct, stage] of rows) {
     const h = fnv1a32(key);
     if (collisions.has(h)) {
       skipped.add(key);
@@ -294,6 +308,7 @@ export function encodeRift(
   rifts: ReadonlyMap<string, RiftAt>,
   second: number,
   markers: FrameMarkers,
+  announcedKey?: string | null,
 ): { ints: number[]; collision: boolean } {
   const { collisions } = markerHashIndex(markers);
   for (const [key, r] of rifts) {
@@ -306,6 +321,13 @@ export function encodeRift(
     const cap = r.capture ? encodeTeam(r.capture.captured) : -1;
     return { ints: [1, h, giveUpIn, amber, sapphire, cap, -1, -1], collision: false };
   }
+  // During the pre-live announcement window (`start_s <= t < live_s`), `open === 0` carries the
+  // announced site hash in slot 1 (`siteHash`), which deployed R2 ignores while keeping `waiting`.
+  let annHash = -1;
+  if (announcedKey) {
+    annHash = fnv1a32(announcedKey);
+    if (collisions.has(annHash)) return { ints: [], collision: true };
+  }
   let waiting: { t: number; key: string } | null = null;
   for (const [, r] of rifts) {
     if (r.state === "waiting") {
@@ -317,9 +339,9 @@ export function encodeRift(
     const h = fnv1a32(waiting.key);
     if (collisions.has(h)) return { ints: [], collision: true };
     const nextIn = Math.max(0, Math.round(waiting.t - second));
-    return { ints: [0, -1, -1, -1, -1, -1, nextIn, h], collision: false };
+    return { ints: [0, annHash, -1, -1, -1, -1, nextIn, h], collision: false };
   }
-  return { ints: [0, -1, -1, -1, -1, -1, -1, -1], collision: false };
+  return { ints: [0, annHash, -1, -1, -1, -1, -1, -1], collision: false };
 }
 
 export interface DecodedRift {

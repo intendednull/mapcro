@@ -188,7 +188,7 @@ function captureFrameData(tl: Timeline, second: number, markers: FrameMarkers, w
   }
   let objHealthData: number[] = [];
   if (feat.obj_health && ROWS.obj_health.index < written && sec.health && markers.length > 0) {
-    const res = encodeObjHealth(sec.health, markers);
+    const res = encodeObjHealth(sec.health, markers, sec.down);
     if (!res.overflow) {
       available.add("obj_health");
       objHealthData = res.ints;
@@ -197,12 +197,14 @@ function captureFrameData(tl: Timeline, second: number, markers: FrameMarkers, w
   let riftData: number[] = [];
   if (feat.rifts && ROWS.rift.index < written && markers.length > 0) {
     const rifts = new Map<string, RiftAt>();
+    let announcedKey: string | null = null;
     for (const mk of markers) {
       if (mk.kind !== "koth") continue;
       const r = riftAt(tl, mk.key, second, markers);
       if (r) rifts.set(mk.key, r);
+      if (sec.sites.get(mk.key) === "Active") announcedKey = mk.key;
     }
-    const res = encodeRift(rifts, second, markers);
+    const res = encodeRift(rifts, second, markers, announcedKey);
     if (!res.collision) {
       available.add("rifts");
       riftData = res.ints;
@@ -348,14 +350,10 @@ export function matchSceneOps(
   const coveredFrom = (avail: ReadonlySet<Phase5Feature>): Set<string> => {
     const covered = new Set<string>();
     if (!fd) return covered;
-    const riftOpen = avail.has("rifts") && fd.riftData[0] === 1;
     for (const mk of markers) {
       if (avail.has("camps") && isCampKind(mk.kind) && fd.sec.camps.has(mk.key) && !fd.skippedCamps.has(mk.key)) covered.add(mk.key);
       if (avail.has("powerups") && mk.kind === "powerup" && fd.sec.powerups.has(mk.key) && !fd.skippedPowerups.has(mk.key)) covered.add(mk.key);
-      // During the pre-live announcement window (`start_s <= t < live_s`), `sitesAt` lights the rift
-      // marker `"Active"` while `riftAt` is still `"waiting"` (`riftData[0] === 0`), so keep that
-      // `ObjectiveState: Active` uncovered to match Player's lit icon.
-      if (avail.has("rifts") && mk.kind === "koth" && (riftOpen || fd.sec.sites.get(mk.key) !== "Active")) covered.add(mk.key);
+      if (avail.has("rifts") && mk.kind === "koth") covered.add(mk.key);
       if (avail.has("urn") && mk.kind === "urn") covered.add(mk.key);
     }
     return covered;
@@ -701,8 +699,9 @@ export function canRetake(
   return missing.some((f) => fd.available.has(f.feature));
 }
 
-/** SceneState payload keys per Phase 5 feature: cleared if a dormant value sits beyond the old
- * watermark when Retake admits that feature and the frame's value is the default (absent). */
+/** SceneState payload keys per Phase 5 feature: cleared whenever Retake admits that feature and
+ * the frame's value is the default (absent), regardless of watermark (covering both dormant values
+ * above `c.rows` and `rows: 40` scenes with `has_* === false`). */
 const STATE_PAYLOAD_KEYS: Partial<Record<Phase5Feature, readonly RowKey[]>> = {
   skulls: ["skulls"],
   camps: ["camps"],
@@ -713,10 +712,117 @@ const STATE_PAYLOAD_KEYS: Partial<Record<Phase5Feature, readonly RowKey[]>> = {
   rejuv: ["rejuv"],
 };
 
+const rowAfterFeature = (f: Phase5Feature): number => {
+  const entry = PHASE5_FEATURES.find((x) => x.feature === f);
+  return entry ? ROWS[entry.lastRow].index + 1 : 0;
+};
+
+type StateMoreWrite = { key: string; value: MoreValue | null };
+
+/**
+ * Plan the exact ordered `SceneState.more` writes for a Retake on an existing `SceneState`:
+ * 1. Clears (`null`) first — stale payload keys for every newly admitted feature absent from
+ *    `want` (regardless of watermark) plus dormant `true` flags above `c.rows` that `targetRows`
+ *    would otherwise activate uncaptured.
+ * 2. Size-reducing or equal-size replacements (`moreBytes(next) <= moreBytes(cur)`), so shrinking
+ *    a stale payload frees space before any growing write runs.
+ * 3. Remaining growing writes (`build`, `has_*` flags, new/larger payloads).
+ *
+ * The server enforces `more_bytes(&more) <= LIMITS.max_more_bytes` after EVERY individual op
+ * (`crates/schema/src/validate.rs:436`), so both `preflightRetakeFeatures` and `retakeOps` use
+ * this exact order.
+ */
+function planSceneStateMoreWrites(
+  have: More,
+  want: More,
+  admitted: ReadonlySet<Phase5Feature>,
+  c: ReturnType<typeof captured>,
+  buildComplete: boolean,
+  targetRows: number,
+): StateMoreWrite[] {
+  const clears: StateMoreWrite[] = [];
+  const cleared = new Set<string>();
+  const addClear = (key: string) => {
+    if (cleared.has(key) || have[key] === undefined) return;
+    cleared.add(key);
+    clears.push({ key, value: null });
+  };
+  for (const f of admitted) {
+    for (const pk of STATE_PAYLOAD_KEYS[f] ?? []) {
+      if (want[pk] === undefined) addClear(pk);
+    }
+  }
+  for (const f of PHASE5_FEATURES) {
+    if (!c[f.flag] && !admitted.has(f.feature) && targetRows > ROWS[f.lastRow].index && have[f.firstRow] === true) {
+      addClear(f.firstRow);
+    }
+  }
+  if (!c.builds && !buildComplete && targetRows > 0 && have.has_builds === true) {
+    addClear("has_builds");
+  }
+  if (!c.heroes && targetRows > ROWS.has_heroes.index && have.has_heroes === true) {
+    addClear("has_heroes");
+  }
+
+  const pending: StateMoreWrite[] = [];
+  for (const [key, value] of Object.entries(want)) {
+    if (key === "rows") continue;
+    if (key === "build") {
+      if (have[key] === undefined) pending.push({ key, value });
+    } else if (key.startsWith("has_")) {
+      // Transitions BOTH absent and explicit `false` flags to `true`.
+      if (have[key] !== true) pending.push({ key, value });
+    } else if (JSON.stringify(have[key]) !== JSON.stringify(value)) {
+      pending.push({ key, value });
+    }
+  }
+
+  const cur: More = { ...have };
+  for (const w of clears) delete cur[w.key];
+  const shrinking: StateMoreWrite[] = [];
+  const growing: StateMoreWrite[] = [];
+  for (const w of pending) {
+    const before = moreBytes(cur);
+    const next: More = { ...cur, [w.key]: w.value! };
+    if (moreBytes(next) <= before) {
+      shrinking.push(w);
+      cur[w.key] = w.value!;
+    } else {
+      growing.push(w);
+    }
+  }
+  return [...clears, ...shrinking, ...growing];
+}
+
+/** Verify EVERY intermediate `SceneState.more` state satisfies `moreBytes(cur) <= LIMITS.max_more_bytes`,
+ * matching the server's per-op enforcement (`crates/schema/src/validate.rs:436`). */
+function sceneStateWritesFit(
+  have: More | undefined,
+  want: More,
+  writes: readonly StateMoreWrite[],
+  rowsWrite: number | undefined,
+): boolean {
+  if (!have) {
+    const created: More = rowsWrite !== undefined ? { ...want, rows: rowsWrite } : { ...want };
+    return moreBytes(created) <= LIMITS.max_more_bytes;
+  }
+  const cur: More = { ...have };
+  for (const w of writes) {
+    if (w.value === null) delete cur[w.key];
+    else cur[w.key] = w.value;
+    if (moreBytes(cur) > LIMITS.max_more_bytes) return false;
+  }
+  if (rowsWrite !== undefined) {
+    cur.rows = rowsWrite;
+    if (moreBytes(cur) > LIMITS.max_more_bytes) return false;
+  }
+  return true;
+}
+
 /** Preflight each missing Phase 5 feature against `LIMITS.max_more_bytes` on every touched hero,
- * wave, and `SceneState` record (using projected `more` maps after any earlier writes in the same
- * Retake). Combined with `Op::Set` in `sceneGroup` (so a concurrent peer eating space aborts the
- * whole transaction atomically on the server), incomplete data is never marked captured. */
+ * wave, and `SceneState` record (simulating the exact emitted per-op sequence). Combined with
+ * `Op::Set` in `sceneGroup` (so a concurrent peer eating space aborts the whole transaction
+ * atomically on the server), incomplete data is never marked captured. */
 function preflightRetakeFeatures(
   tl: Timeline,
   stateMore: More | undefined,
@@ -733,10 +839,7 @@ function preflightRetakeFeatures(
   const slots = new Map(roster.map((s) => [s.id, s]));
   const heroMore = new Map<RecordId, More>();
   for (const h of heroes) heroMore.set(h.id, { ...(projectedHeroes?.get(h.id) ?? h.state.more ?? {}) });
-  const baseState = captureScene(tl, { builds: buildComplete, heroes: false, written });
-  const stateProj: More = { ...(stateMore ?? {}) };
-  if (buildComplete && stateProj.has_builds !== true) stateProj.has_builds = true;
-  if (baseState.build !== undefined && stateProj.build === undefined) stateProj.build = baseState.build;
+  const c = captured(stateMore);
   const admitted = new Set<Phase5Feature>();
   const skipped: Array<(typeof PHASE5_FEATURES)[number]> = [];
 
@@ -779,27 +882,27 @@ function preflightRetakeFeatures(
       }
     }
 
-    const stateCap = captureScene(tl, { builds: buildComplete, heroes: false, written, ...sceneCaptureFrom(fd, new Set<Phase5Feature>([f])) });
-    const oldRows = captured(stateMore).rows;
-    const nextStateProj: More = { ...stateProj };
-    for (const pk of STATE_PAYLOAD_KEYS[f] ?? []) {
-      if (ROWS[pk].index >= oldRows && nextStateProj[pk] !== undefined && stateCap[pk] === undefined) {
-        delete nextStateProj[pk];
+    if (fits) {
+      const cand = new Set<Phase5Feature>(admitted);
+      cand.add(f);
+      const candWant = captureScene(tl, { builds: buildComplete, heroes: false, written, ...sceneCaptureFrom(fd, cand) });
+      // Conservative watermark for dormant-flag clears (never assume a higher watermark frees
+      // bytes if a later feature is skipped) while charging `rows: written` for worst-case width.
+      const candRows = Math.max(
+        c.rows,
+        buildComplete && c.rows < 15 ? Math.min(written, 15) : 0,
+        ...[...cand].map(rowAfterFeature),
+      );
+      const writes = stateMore ? planSceneStateMoreWrites(stateMore, candWant, cand, c, buildComplete, candRows) : [];
+      const rowsWrite = !stateMore || stateMore.rows === undefined || c.rows < written ? written : undefined;
+      if (!sceneStateWritesFit(stateMore, candWant, writes, rowsWrite)) {
+        fits = false;
       }
-    }
-    for (const [k, v] of Object.entries(stateCap)) {
-      if (k === "rows" || k === "has_builds" || k === "build" || k === "has_heroes") continue;
-      if (JSON.stringify(nextStateProj[k]) !== JSON.stringify(v)) nextStateProj[k] = v;
-    }
-    if (fits && moreBytes({ ...nextStateProj, rows: written }) > LIMITS.max_more_bytes) {
-      fits = false;
     }
 
     if (fits) {
       admitted.add(f);
       for (const { id, add } of heroDeltas) Object.assign(heroMore.get(id)!, add);
-      for (const k of Object.keys(stateProj)) if (!(k in nextStateProj)) delete stateProj[k];
-      Object.assign(stateProj, nextStateProj);
     } else {
       skipped.push(entry);
     }
@@ -900,7 +1003,6 @@ export function retakeOps(
   // requires `ROWS[lastRow].index < rows` to read an admitted `has_*` flag); never advance past
   // 14 when `c.rows < 15 && !buildComplete`, never advance past admitted features when any feature
   // was skipped, and never bump `rows` on a no-op Retake.
-  const rowByFeature = new Map(PHASE5_FEATURES.map((f) => [f.feature, ROWS[f.lastRow].index + 1]));
   const targetRows = !allowPhase5
     ? c.rows
     : skippedForCap.length === 0
@@ -908,7 +1010,7 @@ export function retakeOps(
       : Math.max(
           c.rows,
           buildComplete && (buildGroups.length > 0 || c.rows < 15) ? Math.min(written, 15) : 0,
-          ...[...admittedFeatures].map((f) => rowByFeature.get(f) ?? 0),
+          ...[...admittedFeatures].map(rowAfterFeature),
         );
   // Never `has_heroes`: a scene saved before it draws the board roster's heroes, and stays so.
   // Only set `has_builds: true` when `buildComplete` holds.
@@ -920,38 +1022,8 @@ export function retakeOps(
     }
   } else {
     const have = state.more ?? {};
-    for (const [key, value] of Object.entries(want)) {
-      if (key === "rows") continue;
-      if (key === "build") {
-        if (have[key] === undefined) sceneGroup.push(setOp(state.id, key, value));
-      } else if (key.startsWith("has_")) {
-        // Transitions BOTH absent and explicit `false` flags to `true`.
-        if (have[key] !== true) sceneGroup.push(setOp(state.id, key, value));
-      } else if (JSON.stringify(have[key]) !== JSON.stringify(value)) {
-        sceneGroup.push(setOp(state.id, key, value));
-      }
-    }
-    // Clear any dormant payload key of a newly admitted feature whose frame value is the default
-    // (absent from `want`), e.g. stale dormant `camps` when all camps are alive or `urn_at` when carried.
-    for (const f of admittedFeatures) {
-      for (const pk of STATE_PAYLOAD_KEYS[f] ?? []) {
-        if (ROWS[pk].index >= c.rows && have[pk] !== undefined && want[pk] === undefined) {
-          sceneGroup.push(setOp(state.id, pk, null));
-        }
-      }
-    }
-    // Clear any dormant `true` flag beyond the old watermark that `targetRows` would otherwise
-    // activate without its data having been captured (e.g. imported `{ rows: 16, has_sight: true }`).
-    for (const f of PHASE5_FEATURES) {
-      if (!c[f.flag] && !admittedFeatures.has(f.feature) && targetRows > ROWS[f.lastRow].index && have[f.firstRow] === true) {
-        sceneGroup.push(setOp(state.id, f.firstRow, null));
-      }
-    }
-    if (!c.builds && !buildComplete && targetRows > 0 && have.has_builds === true) {
-      sceneGroup.push(setOp(state.id, "has_builds", null));
-    }
-    if (!c.heroes && targetRows > ROWS.has_heroes.index && have.has_heroes === true) {
-      sceneGroup.push(setOp(state.id, "has_heroes", null));
+    for (const w of planSceneStateMoreWrites(have, want, admittedFeatures, c, buildComplete, targetRows)) {
+      sceneGroup.push(setOp(state.id, w.key, w.value));
     }
     const hasWork = buildGroups.length > 0 || sceneGroup.length > 0 || admittedFeatures.size > 0 || (buildComplete && c.rows < 15);
     if (hasWork && (have.rows === undefined || c.rows < targetRows)) {

@@ -105,7 +105,7 @@ function replayTimeline() {
       },
     ],
     rifts: [
-      { key: RIFT0, start_s: 10, live_s: 10, end_s: 20, give_up_s: 20, capture: [[100, 0, 0], [150, 50, 25]] },
+      { key: RIFT0, start_s: 10, live_s: 13, end_s: 20, give_up_s: 20, capture: [[130, 0, 0], [150, 50, 25]] },
     ],
     objective_health: [
       { key: WALKER, at: [[0, 100], [10, 42]] },
@@ -266,6 +266,8 @@ test("1. R3 saved scene captures full Group B baseline, hovers, bar timers, clos
   await expect(mk(p, WALKER)).toHaveAttribute("data-health", "42");
   await expect(mk(p, PATRON)).toHaveAttribute("data-status", "Stage2");
   await expect(mk(p, PATRON)).toHaveAttribute("data-health", "60");
+  // Untracked standing objective in this sparse `objective_health` timeline has NO invented `100%` health!
+  await expect(mk(p, "guardian:amber:lane6:1")).not.toHaveAttribute("data-health");
   // Closed lane shop (`Hidden`) is omitted from the map; open lane shop remains visible.
   await expect(mk(p, CLOSED_SHOP)).toHaveCount(0);
   await expect(mk(p, OPEN_SHOP)).toHaveAttribute("data-status", "Active");
@@ -295,6 +297,18 @@ test("1. R3 saved scene captures full Group B baseline, hovers, bar timers, clos
   await expect(p.getByTestId("tb-respawn-timer")).toHaveClass(/\bon\b/);
   await expect(p.getByTestId("tb-respawn-label")).toHaveText("6:30");
   await expect(p.getByTestId("urn")).toHaveAttribute("data-state", "carried");
+
+  // Also save at t=11 (pre-live rift announcement window `start_s=10 <= t < live_s=13`):
+  // RIFT0 stays lit (`Active`), shows `"Rift opens in 0:02"`, has no capture rings, and emits zero `koth` ObjectiveStates!
+  await p.getByTestId("mode-player").click();
+  await saveAt(p, 11);
+  await expect(mk(p, RIFT0)).toHaveAttribute("data-status", "Active");
+  await expect(mk(p, RIFT1)).toHaveAttribute("data-status", "Destroyed");
+  await expect(p.getByTestId("rift-rings")).toHaveCount(0);
+  await hoverMarker(p, RIFT0);
+  await expect(p.getByTestId("hover-label")).toHaveText("Rift opens in 0:02");
+  await hoverMarker(p, RIFT1);
+  await expect(p.getByTestId("hover-label")).toHaveText("Rift opens at the other site in 0:02");
 });
 
 test("2. One-click baseline camp revive and rift toggle/swap in saved R3 scene", async ({ browser }) => {
