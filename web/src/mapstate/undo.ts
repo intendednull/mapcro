@@ -68,18 +68,41 @@ function ownHeroes(records: ReadonlyMap<RecordId, Entry>): Set<RecordId> {
   return out;
 }
 
-/** Group A hero keys mapped to the SceneState feature that gates them. When a redo transitions a
- * scene from uncaptured to captured for a feature (via explicit `has_*`, `Create`, `Restore` of a
- * deleted `SceneState`, or a watermark `rows` bump activating a dormant `has_*`), preflight
- * `max_more_bytes` on matching hero writes and rewrite them from `SetIf` to `Op::Set` so neither a
- * settled nor a concurrent near-cap edit can leave `has_*` captured with missing hero data. */
-type GroupAFeature = "sight" | "cc" | "movement";
-const GROUP_A_FEATURES: readonly GroupAFeature[] = ["sight", "cc", "movement"];
-const HERO_KEY_FEATURE: Record<string, GroupAFeature> = {
+/** Phase 5 capture features whose hero or `SceneState` payload rows must stay atomic with their
+ * `has_*` flag on redo: when a redo transitions a scene from uncaptured to captured for a feature
+ * (via explicit `has_*`, `Create`, `Restore` of a deleted `SceneState`, or a watermark `rows` bump
+ * activating a dormant `has_*`), preflight `max_more_bytes` on touched hero and `SceneState`
+ * records and rewrite matching non-null payload `SetIf` ops to `Op::Set` so neither a settled nor
+ * a concurrent near-cap edit can leave `has_*` captured with missing hero or Group B baseline data
+ * (under `UNFIT_UNDO`, an overflowing `SetIf` would otherwise be silently skipped). */
+type Phase5UndoFeature = "sight" | "cc" | "movement" | "skulls" | "camps" | "powerups" | "obj_health" | "rifts" | "urn" | "rejuv";
+const PHASE5_UNDO_FEATURES: readonly Phase5UndoFeature[] = [
+  "sight",
+  "cc",
+  "movement",
+  "skulls",
+  "camps",
+  "powerups",
+  "obj_health",
+  "rifts",
+  "urn",
+  "rejuv",
+];
+const HERO_KEY_FEATURE: Record<string, Phase5UndoFeature> = {
   unseen: "sight",
   cc: "cc",
   height: "movement",
   zipline: "movement",
+};
+const STATE_KEY_FEATURE: Record<string, Phase5UndoFeature> = {
+  skulls: "skulls",
+  camps: "camps",
+  powerups: "powerups",
+  obj_health: "obj_health",
+  rift: "rifts",
+  urn: "urn",
+  urn_at: "urn",
+  rejuv: "rejuv",
 };
 
 function moreWrite(op: Op): { id: RecordId; key: string; expect: Value | undefined; value: Value; isSetIf: boolean } | undefined {
@@ -93,9 +116,13 @@ function moreWrite(op: Op): { id: RecordId; key: string; expect: Value | undefin
   return undefined;
 }
 
-/** Find every `(sceneId, feature)` that transitions from `!before[f]` to `after[f]` when `ops`
- * runs on `records` (covering `Create`, `Restore`, `Set`, `SetIf`, and watermark-only activation). */
-function activatingGroupA(ops: Op[], records: ReadonlyMap<RecordId, Entry>): Map<RecordId, Set<GroupAFeature>> {
+/** Find every `(sceneId, feature)` and `(stateId, feature)` that transitions from `!before[f]` to
+ * `after[f]` when `ops` runs on `records` (covering `Create`, `Restore`, `Set`, `SetIf`, and
+ * watermark-only activation), along with each touched `SceneState`'s projected `afterMore`. */
+function activatingPhase5(ops: Op[], records: ReadonlyMap<RecordId, Entry>): {
+  byScene: Map<RecordId, Set<Phase5UndoFeature>>;
+  byState: Map<RecordId, { features: Set<Phase5UndoFeature>; afterMore: More }>;
+} {
   const touchedStates = new Set<RecordId>();
   for (const o of ops) {
     if ("Create" in o && "SceneState" in o.Create.record) {
@@ -106,7 +133,8 @@ function activatingGroupA(ops: Op[], records: ReadonlyMap<RecordId, Entry>): Map
       if (id && e && "SceneState" in e.record) touchedStates.add(id);
     }
   }
-  const activating = new Map<RecordId, Set<GroupAFeature>>();
+  const byScene = new Map<RecordId, Set<Phase5UndoFeature>>();
+  const byState = new Map<RecordId, { features: Set<Phase5UndoFeature>; afterMore: More }>();
   for (const stateId of touchedStates) {
     const existing = records.get(stateId);
     const existingState = existing && "SceneState" in existing.record ? existing.record.SceneState : undefined;
@@ -140,27 +168,73 @@ function activatingGroupA(ops: Op[], records: ReadonlyMap<RecordId, Entry>): Map
     }
     if (!sceneId) continue;
     const after = live ? captured(afterMore) : captured(undefined);
-    for (const f of GROUP_A_FEATURES) {
+    for (const f of PHASE5_UNDO_FEATURES) {
       if (!before[f] && after[f]) {
-        let set = activating.get(sceneId);
-        if (!set) activating.set(sceneId, (set = new Set()));
-        set.add(f);
+        let sceneSet = byScene.get(sceneId);
+        if (!sceneSet) byScene.set(sceneId, (sceneSet = new Set()));
+        sceneSet.add(f);
+        let stateInfo = byState.get(stateId);
+        if (!stateInfo) byState.set(stateId, (stateInfo = { features: new Set(), afterMore }));
+        stateInfo.features.add(f);
       }
     }
   }
-  return activating;
+  return { byScene, byState };
 }
 
-/** Preflight and harden a Group A capture redo step: for each activating `(sceneId, feature)`,
- * check every matching hero op (whose `SetIf` expectation still matches the hero's current `more`,
- * preserving settled edits when mismatched). If any hero's projected `more` would exceed
- * `LIMITS.max_more_bytes`, drop the whole step; otherwise rewrite matching non-null Group A hero
- * `SetIf` ops to `Op::Set` so concurrent overflow aborts atomically on the server. */
-function hardenGroupACaptureRedo(ops: Op[], carry: Op[], changed: boolean, records: ReadonlyMap<RecordId, Entry>): Decided {
+/** Preflight and harden a Phase 5 capture redo step: for each activating feature on a hero or
+ * `SceneState`, check every matching op (whose `SetIf` expectation still matches current `more`,
+ * preserving settled edits when mismatched). If any touched hero or `SceneState`'s projected `more`
+ * would exceed `LIMITS.max_more_bytes`, drop the whole step; otherwise rewrite matching non-null
+ * activating hero and `SceneState` payload `SetIf` ops to `Op::Set` so concurrent overflow aborts
+ * atomically on the server. */
+function hardenPhase5CaptureRedo(ops: Op[], carry: Op[], changed: boolean, records: ReadonlyMap<RecordId, Entry>): Decided {
   if (!ops.length) return { ops, carry, changed };
-  const activating = activatingGroupA(ops, records);
-  if (!activating.size) return { ops, carry, changed };
+  const { byScene, byState } = activatingPhase5(ops, records);
+  if (!byScene.size && !byState.size) return { ops, carry, changed };
 
+  const rewriteIndices = new Set<number>();
+
+  // 1. Check `SceneState` records activating Phase 5 features (skulls + Group B baseline).
+  for (const [stateId, { features, afterMore }] of byState) {
+    if (moreBytes(afterMore) > LIMITS.max_more_bytes) {
+      return { ops: [], carry: [], changed: true };
+    }
+    const existing = records.get(stateId);
+    const existingState = existing && "SceneState" in existing.record ? existing.record.SceneState : undefined;
+    let exists = !!existingState;
+    let live = !!existing && !existing.deleted && !!existingState;
+    let proj: More = existingState ? { ...(existingState.more ?? {}) } : {};
+    ops.forEach((o, i) => {
+      if ("Create" in o && o.Create.id === stateId && "SceneState" in o.Create.record) {
+        if (!exists) {
+          exists = true;
+          live = true;
+          proj = { ...(o.Create.record.SceneState.more ?? {}) };
+        }
+        return;
+      }
+      if ("Restore" in o && o.Restore.id === stateId) {
+        if (!live && exists) live = true;
+        return;
+      }
+      if ("Delete" in o && o.Delete.id === stateId) {
+        live = false;
+        return;
+      }
+      const w = moreWrite(o);
+      if (!w || w.id !== stateId || !live) return;
+      if (w.isSetIf && !same(proj[w.key] ?? null, w.expect ?? null)) return;
+      if (w.value === null) delete proj[w.key];
+      else proj[w.key] = w.value;
+      const f = STATE_KEY_FEATURE[w.key];
+      if (f && features.has(f) && w.value !== null && w.isSetIf) {
+        rewriteIndices.add(i);
+      }
+    });
+  }
+
+  // 2. Check hero records activating Group A hero features (`sight`, `cc`, `movement`).
   const heroIds = new Set<RecordId>();
   for (const o of ops) {
     const w = moreWrite(o);
@@ -168,17 +242,15 @@ function hardenGroupACaptureRedo(ops: Op[], carry: Op[], changed: boolean, recor
     const f = HERO_KEY_FEATURE[w.key];
     if (!f) continue;
     const e = records.get(w.id);
-    if (e && !e.deleted && "PlayerState" in e.record && activating.get(e.record.PlayerState.scene)?.has(f)) {
+    if (e && !e.deleted && "PlayerState" in e.record && byScene.get(e.record.PlayerState.scene)?.has(f)) {
       heroIds.add(w.id);
     }
   }
-  if (!heroIds.size) return { ops, carry, changed };
 
-  const rewriteIndices = new Set<number>();
   for (const id of heroIds) {
     const e = records.get(id)!;
     const ps = (e.record as { PlayerState: { scene: RecordId; more?: More } }).PlayerState;
-    const active = activating.get(ps.scene)!;
+    const active = byScene.get(ps.scene)!;
     const proj: More = { ...(ps.more ?? {}) };
     let appliedActive = false;
     ops.forEach((o, i) => {
@@ -219,7 +291,7 @@ export function decideStep(step: Op[], records: ReadonlyMap<RecordId, Entry>, wr
       if (w && own.has(w.id)) groups.set(w.id, [...(groups.get(w.id) ?? []), i]);
     });
   }
-  if (!groups.size) return hardenGroupACaptureRedo(step, [], false, records);
+  if (!groups.size) return hardenPhase5CaptureRedo(step, [], false, records);
 
   const whole = new Map<RecordId, Op[]>();
   const kept = new Map<RecordId, Op[]>();
@@ -283,7 +355,7 @@ export function decideStep(step: Op[], records: ReadonlyMap<RecordId, Entry>, wr
   let ops = build(true);
   // Written whole the step may not fit a transaction: then as recorded, decided on the view.
   if (ops.length > LIMITS.max_ops_per_tx || !fitsTx(ops)) ops = build(false);
-  return hardenGroupACaptureRedo(ops, carry, true, records);
+  return hardenPhase5CaptureRedo(ops, carry, true, records);
 }
 
 /** A `SetIf` of a value onto itself: an assertion a step carries, which changes nothing. */

@@ -348,10 +348,14 @@ export function matchSceneOps(
   const coveredFrom = (avail: ReadonlySet<Phase5Feature>): Set<string> => {
     const covered = new Set<string>();
     if (!fd) return covered;
+    const riftOpen = avail.has("rifts") && fd.riftData[0] === 1;
     for (const mk of markers) {
       if (avail.has("camps") && isCampKind(mk.kind) && fd.sec.camps.has(mk.key) && !fd.skippedCamps.has(mk.key)) covered.add(mk.key);
       if (avail.has("powerups") && mk.kind === "powerup" && fd.sec.powerups.has(mk.key) && !fd.skippedPowerups.has(mk.key)) covered.add(mk.key);
-      if (avail.has("rifts") && mk.kind === "koth") covered.add(mk.key);
+      // During the pre-live announcement window (`start_s <= t < live_s`), `sitesAt` lights the rift
+      // marker `"Active"` while `riftAt` is still `"waiting"` (`riftData[0] === 0`), so keep that
+      // `ObjectiveState: Active` uncovered to match Player's lit icon.
+      if (avail.has("rifts") && mk.kind === "koth" && (riftOpen || fd.sec.sites.get(mk.key) !== "Active")) covered.add(mk.key);
       if (avail.has("urn") && mk.kind === "urn") covered.add(mk.key);
     }
     return covered;
@@ -697,6 +701,18 @@ export function canRetake(
   return missing.some((f) => fd.available.has(f.feature));
 }
 
+/** SceneState payload keys per Phase 5 feature: cleared if a dormant value sits beyond the old
+ * watermark when Retake admits that feature and the frame's value is the default (absent). */
+const STATE_PAYLOAD_KEYS: Partial<Record<Phase5Feature, readonly RowKey[]>> = {
+  skulls: ["skulls"],
+  camps: ["camps"],
+  powerups: ["powerups"],
+  obj_health: ["obj_health"],
+  rifts: ["rift"],
+  urn: ["urn", "urn_at"],
+  rejuv: ["rejuv"],
+};
+
 /** Preflight each missing Phase 5 feature against `LIMITS.max_more_bytes` on every touched hero,
  * wave, and `SceneState` record (using projected `more` maps after any earlier writes in the same
  * Retake). Combined with `Op::Set` in `sceneGroup` (so a concurrent peer eating space aborts the
@@ -764,19 +780,26 @@ function preflightRetakeFeatures(
     }
 
     const stateCap = captureScene(tl, { builds: buildComplete, heroes: false, written, ...sceneCaptureFrom(fd, new Set<Phase5Feature>([f])) });
-    const stateAdd: More = {};
+    const oldRows = captured(stateMore).rows;
+    const nextStateProj: More = { ...stateProj };
+    for (const pk of STATE_PAYLOAD_KEYS[f] ?? []) {
+      if (ROWS[pk].index >= oldRows && nextStateProj[pk] !== undefined && stateCap[pk] === undefined) {
+        delete nextStateProj[pk];
+      }
+    }
     for (const [k, v] of Object.entries(stateCap)) {
       if (k === "rows" || k === "has_builds" || k === "build" || k === "has_heroes") continue;
-      if (JSON.stringify(stateProj[k]) !== JSON.stringify(v)) stateAdd[k] = v;
+      if (JSON.stringify(nextStateProj[k]) !== JSON.stringify(v)) nextStateProj[k] = v;
     }
-    if (fits && moreBytes({ ...stateProj, ...stateAdd, rows: written }) > LIMITS.max_more_bytes) {
+    if (fits && moreBytes({ ...nextStateProj, rows: written }) > LIMITS.max_more_bytes) {
       fits = false;
     }
 
     if (fits) {
       admitted.add(f);
       for (const { id, add } of heroDeltas) Object.assign(heroMore.get(id)!, add);
-      Object.assign(stateProj, stateAdd);
+      for (const k of Object.keys(stateProj)) if (!(k in nextStateProj)) delete stateProj[k];
+      Object.assign(stateProj, nextStateProj);
     } else {
       skipped.push(entry);
     }
@@ -906,6 +929,15 @@ export function retakeOps(
         if (have[key] !== true) sceneGroup.push(setOp(state.id, key, value));
       } else if (JSON.stringify(have[key]) !== JSON.stringify(value)) {
         sceneGroup.push(setOp(state.id, key, value));
+      }
+    }
+    // Clear any dormant payload key of a newly admitted feature whose frame value is the default
+    // (absent from `want`), e.g. stale dormant `camps` when all camps are alive or `urn_at` when carried.
+    for (const f of admittedFeatures) {
+      for (const pk of STATE_PAYLOAD_KEYS[f] ?? []) {
+        if (ROWS[pk].index >= c.rows && have[pk] !== undefined && want[pk] === undefined) {
+          sceneGroup.push(setOp(state.id, pk, null));
+        }
       }
     }
     // Clear any dormant `true` flag beyond the old watermark that `targetRows` would otherwise

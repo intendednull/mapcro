@@ -267,8 +267,8 @@ test("TD-162: exported R2 scene with NO match on the board activates MapControls
   await saveAt15(maker);
   const [, board, token] = /\/b\/([^#]+)#(.+)$/.exec(from)!;
   const file = (await (await fetch(`${server.url}/api/boards/${board}/export`, { headers: { authorization: `Bearer ${token}` } })).json()) as { version: number; rows: number; matches: number[] };
-  expect(file.version).toBe(5);
-  expect(file.rows).toBe(27);
+  expect(file.version).toBe(6);
+  expect(file.rows).toBe(40);
   file.matches = [];
   await maker.close();
 

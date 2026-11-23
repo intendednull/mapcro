@@ -571,4 +571,81 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
     }
     [a, b].forEach((x) => x.stop());
   });
+
+  // Phase 5 R3: Group B Retake -> undo -> Peer B consumes SceneState `max_more_bytes` -> Peer A redoes:
+  // `decideStep` preflights `SceneState` (dropping settled overflow) and hardens activating payload
+  // `SetIf`s (`camps`, etc.) to `Op::Set` (aborting concurrent overflow atomically with `TxTooLarge`),
+  // never leaving `has_camps: true` without `camps` under `UNFIT_UNDO`!
+  it("R3 Group B Retake redo against near-cap SceneState never leaves has_camps captured without camps (settled & concurrent)", async () => {
+    const hugeCamps = Array.from({ length: 600 }, () => 4_294_967_295);
+    const hugeObjHealth = Array.from({ length: 120 }, () => 4_294_967_295);
+    const hugePowerups = Array.from({ length: 20 }, () => 4_294_967_295);
+    const hugeSkulls = Array.from({ length: 36 }, () => 255);
+    const fillerState: More = {
+      rows: 27,
+      has_builds: true,
+      has_heroes: true,
+      has_obj_health: true,
+      obj_health: hugeObjHealth,
+      powerups: hugePowerups,
+      skulls: hugeSkulls,
+    };
+    expect(moreBytes({ ...fillerState, has_camps: true, camps: hugeCamps, rows: 40 })).toBeGreaterThan(LIMITS.max_more_bytes);
+
+    for (const mode of ["settled", "concurrent"] as const) {
+      const [ga, gb] = [heldSocket(), heldSocket()];
+      const { a, b, scene } = await board([ga.open, gb.open]);
+      const stateId = newRecordId();
+      const stateOf = (s: BoardSession) => (s.records.get(stateId)?.record as { SceneState?: { more?: More } } | undefined)?.SceneState?.more;
+      expect(a.edit([{ Create: { id: stateId, record: { SceneState: { scene, more: { rows: 27, has_builds: true, has_heroes: true } } } } }])).toBe(true);
+      expect(await settled(a, b)).toBe(true);
+      expect(await until(() => b.records.has(stateId))).toBe(true);
+
+      // 1. Peer A performs a Group B Retake-shaped edit (`has_camps: true`, `camps: hugeCamps`, `rows: 40`), then undoes.
+      expect(
+        a.edit([
+          { Set: { id: stateId, value: { More: { key: "has_camps", value: true } } } },
+          { Set: { id: stateId, value: { More: { key: "camps", value: hugeCamps } } } },
+          { SetIf: { id: stateId, expect: { More: { key: "rows", value: 27 } }, value: { More: { key: "rows", value: 40 } } } },
+        ]),
+      ).toBe(true);
+      expect(await settled(a, b)).toBe(true);
+      expect(await until(() => captured(stateOf(b)).camps)).toBe(true);
+      a.undo();
+      expect(await settled(a, b)).toBe(true);
+      expect(await until(() => !captured(stateOf(b)).camps && stateOf(b)?.camps === undefined)).toBe(true);
+
+      // 2. Peer B fills SceneState with legal `obj_health` + `powerups` + `skulls` (settled or racing Peer A's redo).
+      const fillOps: Op[] = [
+        { Set: { id: stateId, value: { More: { key: "has_obj_health", value: true } } } },
+        { Set: { id: stateId, value: { More: { key: "obj_health", value: hugeObjHealth } } } },
+        { Set: { id: stateId, value: { More: { key: "powerups", value: hugePowerups } } } },
+        { Set: { id: stateId, value: { More: { key: "skulls", value: hugeSkulls } } } },
+      ];
+      const beforeProblems = a.problems.length;
+      if (mode === "settled") {
+        expect(b.edit(fillOps)).toBe(true);
+        expect(await settled(a, b)).toBe(true);
+        expect(await until(() => stateOf(a)?.obj_health !== undefined)).toBe(true);
+        a.redo();
+      } else {
+        ga.hold();
+        a.redo();
+        expect(b.edit(fillOps)).toBe(true);
+        expect(await settled(b)).toBe(true);
+        ga.release();
+        expect(await until(() => a.problems.length > beforeProblems)).toBe(true);
+        expect(a.problems.slice(beforeProblems).join(" ")).toMatch(/TxTooLarge/);
+      }
+      expect(await settled(a, b)).toBe(true);
+      expect(await until(() => JSON.stringify(stateOf(a)) === JSON.stringify(stateOf(b)))).toBe(true);
+      for (const s of [a, b]) {
+        expect(stateOf(s)?.has_camps).toBeUndefined();
+        expect(stateOf(s)?.camps).toBeUndefined();
+        expect(stateOf(s)?.rows).toBe(27);
+        expect(captured(stateOf(s)).camps).toBe(false);
+      }
+      [a, b].forEach((x) => x.stop());
+    }
+  });
 });

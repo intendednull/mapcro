@@ -646,30 +646,6 @@
     "Create": {
      "id": "id15",
      "record": {
-      "ObjectiveState": {
-       "scene": "id0",
-       "key": "rift:neutral:lane6:1",
-       "status": "Active"
-      }
-     }
-    }
-   },
-   {
-    "Create": {
-     "id": "id16",
-     "record": {
-      "ObjectiveState": {
-       "scene": "id0",
-       "key": "camp:neutral:lane0:3",
-       "status": "Destroyed"
-      }
-     }
-    }
-   },
-   {
-    "Create": {
-     "id": "id17",
-     "record": {
       "Wave": {
        "scene": "id0",
        "lane": "lane1",
@@ -686,7 +662,7 @@
    },
    {
     "Create": {
-     "id": "id18",
+     "id": "id16",
      "record": {
       "Wave": {
        "scene": "id0",
@@ -704,7 +680,7 @@
    },
    {
     "Create": {
-     "id": "id19",
+     "id": "id17",
      "record": {
       "Wave": {
        "scene": "id0",
@@ -722,17 +698,34 @@
    },
    {
     "Create": {
-     "id": "id20",
+     "id": "id18",
      "record": {
       "SceneState": {
        "scene": "id0",
        "more": {
-        "rows": 27,
+        "rows": 40,
         "has_builds": true,
         "build": 6839,
         "has_heroes": true,
         "has_lanes": true,
-        "has_skulls": true
+        "has_skulls": true,
+        "has_camps": true,
+        "camps": [
+         2250372218,
+         1,
+         2
+        ],
+        "has_rifts": true,
+        "rift": [
+         1,
+         2308093004,
+         -1,
+         -1,
+         -1,
+         -1,
+         -1,
+         -1
+        ]
        }
       }
      }
@@ -1437,18 +1430,6 @@
      "record": {
       "ObjectiveState": {
        "scene": "id0",
-       "key": "mid_boss:neutral:lane0:1",
-       "status": "Destroyed"
-      }
-     }
-    }
-   },
-   {
-    "Create": {
-     "id": "id16",
-     "record": {
-      "ObjectiveState": {
-       "scene": "id0",
        "key": "powerup:neutral:lane1:1",
        "status": "Destroyed"
       }
@@ -1457,19 +1438,7 @@
    },
    {
     "Create": {
-     "id": "id17",
-     "record": {
-      "ObjectiveState": {
-       "scene": "id0",
-       "key": "camp:neutral:lane0:3",
-       "status": "Destroyed"
-      }
-     }
-    }
-   },
-   {
-    "Create": {
-     "id": "id18",
+     "id": "id16",
      "record": {
       "Wave": {
        "scene": "id0",
@@ -1487,7 +1456,7 @@
    },
    {
     "Create": {
-     "id": "id19",
+     "id": "id17",
      "record": {
       "Wave": {
        "scene": "id0",
@@ -1505,7 +1474,7 @@
    },
    {
     "Create": {
-     "id": "id20",
+     "id": "id18",
      "record": {
       "Wave": {
        "scene": "id0",
@@ -1523,12 +1492,12 @@
    },
    {
     "Create": {
-     "id": "id21",
+     "id": "id19",
      "record": {
       "SceneState": {
        "scene": "id0",
        "more": {
-        "rows": 27,
+        "rows": 40,
         "has_builds": true,
         "build": 6839,
         "has_heroes": true,
@@ -1538,6 +1507,26 @@
          3,
          0,
          0
+        ],
+        "has_camps": true,
+        "camps": [
+         2250372218,
+         1,
+         1,
+         2737024651,
+         1,
+         397
+        ],
+        "has_rifts": true,
+        "rift": [
+         0,
+         -1,
+         -1,
+         -1,
+         -1,
+         -1,
+         -1,
+         -1
         ]
        }
       }
@@ -2234,7 +2223,7 @@
       "SceneState": {
        "scene": "id0",
        "more": {
-        "rows": 27,
+        "rows": 40,
         "has_builds": true,
         "build": 6839,
         "has_heroes": true,

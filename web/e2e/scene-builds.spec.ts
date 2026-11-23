@@ -311,9 +311,10 @@ test("with no match on the board, a scene from a file shows its builds and a fol
   const inPlayer = await savedScene(maker);
   const [, board, token] = /\/b\/([^#]+)#(.+)$/.exec(from)!;
   const file = (await (await fetch(`${server.url}/api/boards/${board}/export`, { headers: { authorization: `Bearer ${token}` } })).json()) as { version: number; rows: number; matches: number[] };
-  // Version 5: the scene holds Group A map-state rows (has_sight, has_skulls, store v16), which
-  // R1 (READS = 4) and earlier builds call a newer file.
-  expect(file.version).toBe(5);
+  // Version 6: the scene holds Group B map-state rows (has_rifts, store v17), which
+  // R2 (READS = 5) and earlier builds call a newer file.
+  expect(file.version).toBe(6);
+  expect(file.rows).toBe(40);
   expect(file.matches).toEqual([Number(ID)]);
   file.matches = [];
   await maker.close();
