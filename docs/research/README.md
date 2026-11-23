@@ -197,7 +197,11 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   ("Active", "Owned", "Upgrades From:", "Weapon Investment", "Spirit Power Impact") is in
   `citadel_main`. A spirit-scaled value is `m_strValue` + `m_flStatScale` × spirit power (Djinn's
   Mark 11 + 0.35 × 176 = 73, the operator's screenshot). Upgrade bonuses carry `m_eUpgradeType`
-  (`EAddToScale` 82, `EMultiplyBase/Scale` 15, else added). **Not in the files:** the ability-point
+  (`EAddToScale` 82, `EMultiplyBase/Scale` 15, else added). Property-only upgrade tiers have no
+  `<name>_t<n>_desc` string (~410 non-zero tiers in build 6861); the game renders them directly
+  from `m_vecPropertyUpgrades` using each property's `_label`/`_prefix`/`_postfix`, including
+  properties absent from `header`/`sections` (e.g. `AbilityCharges`, `AbilityDuration`,
+  `StunDuration`, `Radius`), so `Tip::upgrade_props` carries their `Prop` metadata. **Not in the files:** the ability-point
   cost of each upgrade tier (the "1 / 2 / 5" on the tier cards; `m_nAbilityPointsCost` is 0 on
   every ability; the client hard-codes it, `TIER_COSTS`), and "Purchased late game in N% of matches" (Valve's stats). boon-data's
   `abilities.json` `records[].definition` is the full vdata, so older patches' tooltip values

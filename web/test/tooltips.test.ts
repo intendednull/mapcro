@@ -4,7 +4,7 @@
 import { expect, it } from "vitest";
 import { type PackManifest, tooltipIndex } from "../src/map/pack";
 import { soulsLabel, tierReached } from "../src/match/ladder";
-import { type Tip, type TipProp, type TooltipData, blockShown, fmt, parseMarkup, shown, substitute, upgraded, upgradesTo, withOverlay } from "../src/match/tooltips";
+import { type Tip, type TipProp, type TooltipData, blockShown, fmt, parseMarkup, shown, substitute, upgradeLines, upgraded, upgradesTo, withOverlay } from "../src/match/tooltips";
 
 it("parses the game's markup into a tree, never HTML", () => {
   const nodes = parseMarkup(`Gain <span class="highlight">Spirit</span> {g:citadel_inline_attribute:'SpiritDamage'}<br><span class="diminish">x <b>y</b></span><img src=x onerror=alert(1)> {g:citadel_binding:'Attack'}<Panel class="AbilityPropertyIcon prop_slow"></Panel>`);
@@ -115,4 +115,107 @@ it("writes the ladder's souls and finds the row reached", () => {
   expect(tierReached(ladder, 800)).toBe(0);
   expect(tierReached(ladder, 7999)).toBe(1);
   expect(tierReached(ladder, 30000)).toBe(2);
+});
+
+it("formats property-only upgrade tiers with signs, units, scale kinds, overlays, and old-pack fallback", () => {
+  const abTip: Tip = {
+    header: [prop("AbilityCooldown", { label: "Cooldown", postfix: "s" })],
+    sections: [{
+      kind: "info",
+      blocks: [{
+        important: [
+          prop("Damage", { label: "Damage", scale: ["ETechPower", 0.35] }),
+          prop("SlowPercent", { label: "Move Speed", prefix: "-", postfix: "%" }),
+        ],
+        basic: [
+          prop("Radius", { label: "Radius", postfix: "m" }),
+          prop("BonusClipSizePercent", { label: "Max Ammo", prefix: "{s:sign}", postfix: "%" }),
+          prop("FlyingRange", { label: "Item Range", prefix: "+", postfix: "%" }),
+        ],
+      }],
+    }],
+    upgrade_props: {
+      AbilityCharges: prop("AbilityCharges", { label: "Charges" }),
+      AbilityDuration: prop("AbilityDuration", { label: "Duration", postfix: "s" }),
+      DamagePerSecond: prop("DamagePerSecond", { label: "Damage Per Second" }),
+    },
+    upgrades: [
+      // 0: single negative prop from header, with duplicate key in u.props
+      { props: ["AbilityCooldown", "AbilityCooldown"] },
+      // 1: multi-prop tier mixing header/sections + upgrade_props (positive, prefix "-", "{s:sign}", "+")
+      { props: ["AbilityCharges", "AbilityDuration", "Radius", "SlowPercent", "BonusClipSizePercent", "FlyingRange"] },
+      // 2: scale upgrades (EAddToScale, EMultiplyScale) + EMultiplyBase
+      { props: ["Damage", "DamagePerSecond", "Radius"], kinds: { Damage: "EAddToScale", DamagePerSecond: "EMultiplyScale", Radius: "EMultiplyBase" } },
+      // 3: tier with localised text -> returns [] (handled by Markup, unchanged)
+      { text: "+{s:Damage} Damage", props: ["Damage"] },
+      // 4: empty / zero / unknown / hidden props -> returns []
+      { props: ["AbilityCooldown", "UnknownHidden"] },
+      // 5: props: [] -> returns []
+      { props: [] },
+    ],
+  };
+  const abValues = {
+    props: { AbilityCooldown: "25", Damage: "40", SlowPercent: "20", Radius: "8" },
+    upgrades: [
+      { AbilityCooldown: "-11" },
+      { AbilityCharges: "1", AbilityDuration: "2.5", Radius: "4", SlowPercent: "24", BonusClipSizePercent: "120", FlyingRange: "30" },
+      { Damage: "0.1", DamagePerSecond: "1.22", Radius: "1.5" },
+      { Damage: "50" },
+      { AbilityCooldown: "0", UnknownHidden: "1" },
+      {},
+    ],
+  };
+
+  // Single negative property, deduplicated.
+  expect(upgradeLines(abTip, abValues, 0)).toEqual([
+    { key: "AbilityCooldown", value: "-11s", label: "Cooldown" },
+  ]);
+
+  // Multi-property tier including properties absent from header/sections (via upgrade_props).
+  expect(upgradeLines(abTip, abValues, 1)).toEqual([
+    { key: "AbilityCharges", value: "+1", label: "Charges" },
+    { key: "AbilityDuration", value: "+2.5s", label: "Duration" },
+    { key: "Radius", value: "+4m", label: "Radius" },
+    { key: "SlowPercent", value: "-24%", label: "Move Speed" },
+    { key: "BonusClipSizePercent", value: "+120%", label: "Max Ammo" },
+    { key: "FlyingRange", value: "+30%", label: "Item Range" },
+  ]);
+
+  // Scale and multiply upgrade kinds.
+  expect(upgradeLines(abTip, abValues, 2)).toEqual([
+    { key: "Damage", value: "+0.1×", label: "Damage" },
+    { key: "DamagePerSecond", value: "×1.22", label: "Damage Per Second" },
+    { key: "Radius", value: "×1.5", label: "Radius" },
+  ]);
+
+  // Negative values on prefixed props never double-sign ("--10%", "+-5%").
+  const negValues = { props: {}, upgrades: [{}, { SlowPercent: "-10", BonusClipSizePercent: "-5", FlyingRange: "-15" }] };
+  expect(upgradeLines(abTip, negValues, 1)).toEqual([
+    { key: "SlowPercent", value: "+10%", label: "Move Speed" },
+    { key: "BonusClipSizePercent", value: "-5%", label: "Max Ammo" },
+    { key: "FlyingRange", value: "-15%", label: "Item Range" },
+  ]);
+
+  // Tiers with text, zero-only values, or empty props produce no fallback lines.
+  expect(upgradeLines(abTip, abValues, 3)).toEqual([]);
+  expect(upgradeLines(abTip, abValues, 4)).toEqual([]);
+  expect(upgradeLines(abTip, abValues, 5)).toEqual([]);
+
+  // Patch overlay drives the displayed bonus numbers.
+  const data: TooltipData = { format: 1, client_version: 6860, strings: {}, icons: {}, inline: {}, art: {}, records: { 99: { tip: abTip, values: abValues } } };
+  const patched = withOverlay(data, { client_version: 6837, records: { 99: { props: {}, upgrades: [{ AbilityCooldown: "-8" }, { AbilityCharges: "2" }] } } });
+  const entry = patched.tip(99)!;
+  expect(upgradeLines(entry.tip, entry.values, 0)).toEqual([{ key: "AbilityCooldown", value: "-8s", label: "Cooldown" }]);
+  expect(upgradeLines(entry.tip, entry.values, 1)[0]).toEqual({ key: "AbilityCharges", value: "+2", label: "Charges" });
+
+  // Backwards compatibility with an older pack JSON lacking `upgrade_props`:
+  // header/sections props still render; properties absent from header/sections are cleanly skipped.
+  const { upgrade_props: _, ...oldPackTip } = abTip;
+  expect(upgradeLines(oldPackTip, abValues, 0)).toEqual([{ key: "AbilityCooldown", value: "-11s", label: "Cooldown" }]);
+  expect(upgradeLines(oldPackTip, abValues, 1)).toEqual([
+    { key: "Radius", value: "+4m", label: "Radius" },
+    { key: "SlowPercent", value: "-24%", label: "Move Speed" },
+    { key: "BonusClipSizePercent", value: "+120%", label: "Max Ammo" },
+    { key: "FlyingRange", value: "+30%", label: "Item Range" },
+  ]);
 });

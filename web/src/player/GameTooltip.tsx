@@ -9,7 +9,7 @@
 import { For, type JSX, Show, createEffect, createResource, createRoot, createSelector, createSignal, onCleanup, onMount, untrack } from "solid-js";
 import { Portal } from "solid-js/web";
 import type { Art, BuildRecord } from "../map/pack";
-import { TIER_COSTS, type MarkupNode, type TipIcon, type TipProp, type TipValues, type Tooltips, blockShown, loadTooltips, parseMarkup, shown, substitute, upgraded, upgradesTo } from "../match/tooltips";
+import { TIER_COSTS, type MarkupNode, type TipIcon, type TipProp, type TipValues, type Tooltips, blockShown, loadTooltips, parseMarkup, shown, substitute, upgradeLines, upgraded, upgradesTo } from "../match/tooltips";
 import { cx } from "../ui/cx";
 
 /** The pack's tooltips for a replay build (its patch's values); undefined until loaded or
@@ -267,18 +267,39 @@ function AbilityTip(p: { record: BuildRecord; art: Art; tips: Tooltips; ctx?: Ti
           <div class="gt-bonus" data-testid="game-tooltip-stacks"><span>{e().tip.stack_label}</span><b>{p.ctx!.stacks}</b></div>
         </Show>
       </div>
-      <Show when={e().tip.upgrades?.length}>
+      <Show when={e().tip.upgrades?.length && e().tip.upgrades!.some((u, i) => u.text || upgradeLines(e().tip, e().values, i).length > 0)}>
         <div class="gt-tiers">
           <For each={e().tip.upgrades}>
-            {(u, i) => (
-              <div class={cx("gt-tier", p.ctx?.tiers != null && i() < p.ctx.tiers && "bought")} data-testid="game-tooltip-tier" data-tier={i() + 1}>
-                {/* The header is the tier's ability-point cost (TIER_COSTS). */}
-                <div class="gt-tier-head" data-testid="game-tooltip-tier-cost">{TIER_COSTS[i()] ?? ""}</div>
-                <div class="gt-tier-text">
-                  <Show when={u.text}>{(t) => <span><Markup text={t()} values={e().values.upgrades?.[i()] ?? {}} aliases={e().tip.aliases} tips={p.tips} /></span>}</Show>
+            {(u, i) => {
+              const lines = () => (u.text ? [] : upgradeLines(e().tip, e().values, i()));
+              return (
+                <div class={cx("gt-tier", p.ctx?.tiers != null && i() < p.ctx.tiers && "bought")} data-testid="game-tooltip-tier" data-tier={i() + 1}>
+                  {/* The header is the tier's ability-point cost (TIER_COSTS). */}
+                  <div class="gt-tier-head" data-testid="game-tooltip-tier-cost">{TIER_COSTS[i()] ?? ""}</div>
+                  <div class="gt-tier-text">
+                    <Show
+                      when={u.text}
+                      fallback={
+                        <Show when={lines().length}>
+                          <span class="gt-tier-props">
+                            <For each={lines()}>
+                              {(line, li) => (
+                                <>
+                                  <Show when={li() > 0}><br /></Show>
+                                  <span class="gt-m-highlight">{line.value}</span> {line.label}
+                                </>
+                              )}
+                            </For>
+                          </span>
+                        </Show>
+                      }
+                    >
+                      {(t) => <span><Markup text={t()} values={e().values.upgrades?.[i()] ?? {}} aliases={e().tip.aliases} tips={p.tips} /></span>}
+                    </Show>
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            }}
           </For>
         </div>
       </Show>
