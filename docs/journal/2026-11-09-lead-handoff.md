@@ -3,6 +3,110 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Paused (operator, 2026-11-23)
+
+Paused per operator instruction relayed by the concierge (`84c1d783`, `2026-11-23 ~09:02 UTC`). All
+workers are cleanly committed, pushed, and archived; zero mapcro processes or heavy jobs are running
+on the box. Stay paused until the operator says resume.
+
+### Production state
+- **Prod `web` runs `9d1f206`** (Phase 5 **R2.1** web-only reader parity patch on top of R2 `01e29a8`;
+  `infra` `0e11b50`, bundle `/assets/index-CwB4y3tj.js`, `/healthz ok rooms=0`).
+  - Closure diff was strictly `mapcro-web-0.0.0` (`+168 bytes`, only `mapcro.service` restarted, zero
+    DB/schema change, zero downtime for other services). Gated on 87/87 web unit test suites + 23/23
+    targeted Chromium Playwright E2E + `healthz-check.service`.
+  - Adds client reader parity (`codec.ts`, `scene.ts`, `Camps.tsx`, `Rift.tsx`, `scenes.ts`,
+    `web/test/map-state-r2-1-reader.test.ts`) for R3's pre-live announced rift (`open === 0` slot-1
+    site hash) and sparse `obj_health` unknown sentinel (`pct === -1`), making `9d1f206` the exact
+    v16 rollback target for R3.
+- **Database & locks:** Store **v16** (`compat_floor = 15`, `PRAGMA integrity_check: ok`; verified
+  online backups `/var/lib/mapcro/mapcro.sqlite.pre-v15` and `pre-v16` on `web`).
+  `crates/schema/rows.lock` stays locked at all **40 map-state rows**; `justfile` `reader` is bumped
+  to **`9d1f206`** on `main` (`01117e2`, pushed to `origin/main` & `origin/dev`).
+- **QA Pass 005 & `tools/qa-browser/` v1.5 landed on `main` (`c9e2559`, `b378bc3`):**
+  - Verified **10/10** Goal 1 items live on prod `01e29a8` (Argon Phone `390×844` & `360×800`
+    Feedback header fix, TD-117 owner/guest `mapcro://s/...` links, R2 Q2/Q3/Q5/Q7 + TD-161,
+    `.mapcro` v5 export + TD-162 matchless import) and deepened 13 more `smoke` rows → `deep`.
+    `docs/qa/feature-map.md` is now **56 `deep` / 14 `smoke` / 2 `auto-only` / 0 `unmapped`**.
+  - Logged 1 non-blocking `ux-rough` finding (`FM-130`: stacked `.pl-bar.scene` + `.p-bar` vertical
+    fold `+112 px` scrollable on match-loaded Phone Session Scene) in `docs/backlog.md`.
+  - Upgraded `tools/qa-browser/` to v1.5 (`IGNORE_TESTIDS` applied before native button matching in
+    `snapshot`; `--force` on `click`/`rclick`/`dblclick`).
+
+### What is in flight (clean, committed, pushed — workers stopped & archived)
+1. **Phase 5, Release R3 (Writer B, store v17 floor 16, file v6) — branch `map-state-r3-p5` (`5182161`,
+   pushed to `origin/map-state-r3-p5`, worktree `/storage/projects/mapcro.worktrees/map-state-r3-p5`):**
+   - Flips Group B rows `27..=39` (`has_camps`..`rejuv`) to `Status::Live` (all 40 rows live,
+     `WRITTEN = 40`, `boardfile::READS = 6`, store step `16 -> 17` `NeedsReader { reader: 16 }`,
+     completing Map-state Phase 5). Rebased cleanly onto `01117e2` (deployed R2.1 `9d1f206`).
+   - **Independent adversarial review (`codex/gpt-6.2-astra` high, 4 rounds):** Caught stale payload
+     clearing at `rows: 40`, per-op `max_more_bytes` shrink-before-grow ordering in Retake, pre-live
+     rift announcement/countdown + rollback parity (resolved via R2.1), redo `has_*` flag atomicity,
+     sparse `obj_health` unknown sentinel + rollback parity (resolved via R2.1), build-only Retake
+     per-op budgeting, `needsBuilds` guard in `canRetake`, and `docs/deploy.md` copy-loss accuracy.
+     Final verdict on `5182161`: **unconditional `APPROVE`**.
+   - **Mutation pass:** **12/12 manual mutants killed (100%)**.
+   - **Lead Stage C gate on `5182161` (in `/tmp/lead-gate`, paused cleanly right before Stage C3b):**
+     - **Stage C1 PASS:** `just wasm && just ts` (0 diff, `rows.lock` untouched at 40 rows),
+       `just clippy` (0 warnings), `just test` (590 workspace tests, failpoints 2/2, 2,000 sim seeds
+       across `READS` & `deployed`, `just reader-check` vs deployed R2.1 `9d1f206`), `just web-test`
+       (**88/88 files, 1,032 passed | 1 skipped, 0 TS errors**), `vite build`.
+     - **Stage C2a PASS:** Full Chromium Playwright E2E **589 passed, 0 failed** (16 skipped).
+     - **Stage C2b PASS:** Full Firefox Android Playwright E2E **52/52 passed** (exit 0; 51 passed +
+       1 passed on retry after known TD-133 Firefox `boundingBox` hang, 22 skipped).
+     - **Stage C3a PASS:** NixOS VM check (`.#checks.x86_64-linux.service` /
+       `vm-test-run-mapcro-service.drv`) passed on first try.
+     - **Remaining for R3:** Stage C3b live walkthrough on `129738985` + live R3 (`v17`) → R2.1
+       (`9d1f206`, `v16`) binary rollback check, merge to `main`, mandatory `pre-v17` online SQLite
+       backup, and deploy R3 (`v17`).
+2. **GitHub feedback `#62` (missing ability upgrade tooltips — 405 property-only tiers) — branch
+   `feedback-62-ability-tooltips` (`f12c28c`, pushed to `origin/feedback-62-ability-tooltips`,
+   worktree `/storage/projects/mapcro.worktrees/feedback-62-ability-tooltips`):**
+   - Operator approved `#62` via concierge. Implemented backwards-compatible `upgrade_props` in
+     `crates/extract/src/tooltips.rs` (`TOOLTIP_FORMAT` stays `1`) + `m_vecPropertyUpgrades`
+     fallback rendering (`upgradeLines` in `web/src/match/tooltips.ts` and `GameTooltip.tsx`) +
+     `docs/research/README.md` note + Red→Green Rust & Vitest unit tests (`cargo test -p
+     mapcro-extract`, `vitest run test/tooltips.test.ts`, `tsc --noEmit` all green).
+   - **Remaining for `#62`:** Rebase onto post-R3 `main`, full Rust/web/Playwright tooltip gate,
+     run `just extract` to re-extract the asset pack with `upgrade_props`, deploy updated web + pack
+     to `web`, verify live on prod (`129738985`), and close GitHub issue `#62` as completed.
+3. **Held / queued (not started):**
+   - **Exploratory QA Cycle 2, Pass 006** (live prod R3 + `#62` tooltips + final 14 `smoke` → `deep`
+     rows to reach 100% `deep` coverage).
+   - **Pass 005 Finding #1 (`FM-130`, `ux-rough`):** Phone Session Scene vertical fold with match
+     loaded (route to Argon if desired).
+   - **`player-transport` (`6ed0179`, Astra):** still waiting on the operator's two questions — do
+     not merge without operator approval.
+
+### Exact resume order
+1. **Complete Phase 5 R3 Stage C3b + deploy `v17` (`map-state-r3-p5` `5182161`):**
+   - Run Stage C3b live walkthrough on cached `129738985` in `/tmp/lead-gate` (dismiss `JoinCard`
+     via `[data-testid=join-card] input` + `button[type=submit]`, switch to Player, expand Match
+     source if collapsed, load `129738985`): verify `1:00` camps/Mid-Boss/8 shops, `10:30` Urn,
+     `11:30` pre-live announced Rift (lit + `"Rift opens in 0:46"`), `12:40` active Rift capture
+     rings + 4 open shops + 1-click camp override, `31:20` Rejuvenator + Mid-Boss respawn, 20-scene
+     `.mapcro` v6 (`version: 6, rows: 40`) record-count savings, TD-162 matchless import, and **live
+     R3 (`v17`) → R2.1 (`9d1f206`, `v16`) binary rollback check** (using `/tmp/r2-1-bin/` if still
+     present or rebuilding `9d1f206`; verify `schema_version=17, compat_floor=16` stays untouched
+     and `11:30` announced rift + `12:40` + `31:20` render identically on R2.1). Visually inspect &
+     delete `/tmp/r3-walkthrough/`.
+   - Merge `map-state-r3-p5` to `main`, push `main`/`dev`, inspect Nix closure diff in
+     `/tmp/infra-deploy` (mapcro-only), take **mandatory `/var/lib/mapcro/mapcro.sqlite.pre-v17`**
+     online SQLite backup (`0600 mapcro:mapcro`, `PRAGMA integrity_check: ok`), run
+     `just deploy web`, verify `migrated database schema to=17`, `schema_version=17`,
+     `compat_floor=16`, `/healthz`, `mapcro-stats`, live prod browser smoke check (`version: 6,
+     rows: 40`), commit/push `infra` `flake.lock`, verify `just rows-lock` unchanged (40 rows),
+     bump `justfile` `reader` to deployed R3 commit, clean up `map-state-r3-p5` worktree/branch,
+     and report Phase 5 completion to concierge.
+2. **Land & deploy GitHub feedback `#62` (`feedback-62-ability-tooltips` `f12c28c`):**
+   - Rebase onto post-R3 `main`, run `just clippy && just test && just web-test` + Chromium
+     `e2e/player-tooltips.spec.ts`, run `just extract` and confirm zero blank property-only upgrade
+     tiers in extracted `tooltips.json`, merge to `main`, push `main`/`dev`, deploy updated web
+     build + asset pack to `web` (`docs/deploy.md`), verify live on prod (`129738985`), clean up
+     worktree/branch, and close GitHub issue `#62` (`--reason completed`).
+3. **Exploratory QA Cycle 2, Pass 006** on `qa-browser` v1.5 (live prod R3 + `#62` + final 14
+   `smoke` rows → 100% `deep`), plus optional Argon polish for Pass 005 `FM-130`.
+
 ## Deployed 01e29a8: Map-state Phase 5, Release R2 (Writer A, store v16 floor 15) (2026-11-22, lead 2a42cd74)
 
 - **Prod `web` runs 01e29a8** (infra `0329765`, bundle `/assets/index-B0Qo8onT.js`). Store migrated
