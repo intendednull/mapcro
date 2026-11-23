@@ -431,7 +431,7 @@ function buildSnapshotInPage(maxInteractive) {
     "[data-testid]",
   ].join(", ");
 
-  // Exclude dense non-interactive SVG/list visualization data-testids so snapshot's cap focuses on controls.
+  // Exclude dense visualization/scrubber data-testids (including button ticks) so snapshot focuses on controls.
   const IGNORE_TESTIDS = new Set([
     "trooper",
     "tok-health",
@@ -443,7 +443,11 @@ function buildSnapshotInPage(maxInteractive) {
     "death-recap",
   ]);
 
-  const all = [...document.querySelectorAll(interSel)].filter(vis);
+  const all = [...document.querySelectorAll(interSel)].filter((el) => {
+    const testid = el.getAttribute("data-testid");
+    if (testid && IGNORE_TESTIDS.has(testid)) return false;
+    return vis(el);
+  });
   const items = [];
   for (const el of all) {
     if (items.length >= maxInteractive) break;
@@ -458,8 +462,8 @@ function buildSnapshotInPage(maxInteractive) {
       tag === "select" ||
       tag === "textarea" ||
       Boolean(role);
-    // Keep non-interactive data-testid containers only if they carry short direct text or are key landmarks.
-    if (!isNativeInteractive && (!testid || IGNORE_TESTIDS.has(testid))) continue;
+    // Keep non-interactive data-testid containers only if they carry a testid (already filtered above).
+    if (!isNativeInteractive && !testid) continue;
     const aria = el.getAttribute("aria-label") || undefined;
     const title = el.getAttribute("title") || undefined;
     const label = clip(
@@ -760,24 +764,24 @@ async function main() {
         const entry = requireTab(args.tab);
         const sel = normalizeSelector(args.selector);
         const loc = args.any ? entry.page.locator(sel).first() : entry.page.locator(sel).filter({ visible: true }).first();
-        await loc.click({ timeout });
-        return { ok: true, tab: args.tab, action: "click", selector: sel };
+        await loc.click({ timeout, force: Boolean(args.force) });
+        return { ok: true, tab: args.tab, action: "click", selector: sel, force: Boolean(args.force) };
       }
 
       case "rclick": {
         const entry = requireTab(args.tab);
         const sel = normalizeSelector(args.selector);
         const loc = args.any ? entry.page.locator(sel).first() : entry.page.locator(sel).filter({ visible: true }).first();
-        await loc.click({ button: "right", timeout });
-        return { ok: true, tab: args.tab, action: "rclick", selector: sel };
+        await loc.click({ button: "right", timeout, force: Boolean(args.force) });
+        return { ok: true, tab: args.tab, action: "rclick", selector: sel, force: Boolean(args.force) };
       }
 
       case "dblclick": {
         const entry = requireTab(args.tab);
         const sel = normalizeSelector(args.selector);
         const loc = args.any ? entry.page.locator(sel).first() : entry.page.locator(sel).filter({ visible: true }).first();
-        await loc.dblclick({ timeout });
-        return { ok: true, tab: args.tab, action: "dblclick", selector: sel };
+        await loc.dblclick({ timeout, force: Boolean(args.force) });
+        return { ok: true, tab: args.tab, action: "dblclick", selector: sel, force: Boolean(args.force) };
       }
 
       case "hover": {

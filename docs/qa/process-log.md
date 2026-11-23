@@ -128,3 +128,19 @@ Pass 004 (`passes/2026-11-22-pass-004-prod-cycle2-verify.md`, Neon medium agains
 ### Feedback loop triggered
 - Spawned an approved design model (**Gemini 4 Argon medium**, `qa-p4-phone-feedback`) to fix the Phone `390×844` Session Scene `.p-top` + `Feedback` header overflow and add Playwright e2e coverage with GitHub feedback configured so prod-only chrome is tested in CI.
 - Next QA pass (Pass 005): run after Phase 5 R2 (Writer A + scene hero health arcs + TD-162) + `TD-117` + `qa-p4-phone-feedback` ship to prod, verifying live Group A features + remaining `smoke` rows.
+
+---
+
+## 2026-11-23 — v1.5: Pass 005 Retro (Live Prod R2 10/10 Verified, 56 `deep`, Snapshot & Force Click)
+
+### Pass 005 evaluation
+Pass 005 (`passes/2026-11-23-pass-005-prod-r2-verify.md`, Neon medium against live prod `01e29a8` with cached reference replay `129738985`) passed **10/10 Goal 1 live checks** (Pass 004 Argon Phone `390×844` & `360×800` Feedback header fix, TD-117 owner vs guest `mapcro://s/...` deep links, Phase 5 R2 Q3 hero health arcs, Q7 two-edge lane splits + gap-preserving drag, Q5 static death skull, Q2 Vision × `Last seen` + `Mark not seen`/`Mark in vision`, TD-161 zero no-op `Retake`, `.mapcro` v5 `rows: 27` export, and TD-162 matchless import), deepened **13 `smoke` rows → `deep`** (**56 `deep` / 14 `smoke` / 2 `auto-only` / 0 `unmapped`**), and surfaced **1 new `ux-rough` finding** (`FM-130`):
+- **Phone Session Scene vertical fold with match loaded:** Stacking `.pl-bar.scene` (`101 px` handoff bar) above `.p-bar` on `390×844` (`956 / 844`, `+112 px`) and `360×800` pushes `.p-bar` below the initial fold (scrollable, non-blocking). Logged in `docs/backlog.md` for an approved design model pass after Phase 5 R3 ships.
+- **v1.4 upgrades validated:** `download` captured `.mapcro` v5 cleanly on the first try without `URL.createObjectURL` hooking, and scrollable-ancestor `vis()` cut loaded Player `snapshot` from `1254` → `515` so toolbar & transport controls all appeared inside `--max 120`.
+
+### Driver upgrades applied (`tools/qa-browser/` v1.5, from Pass 005 Meta-Notes)
+1. **Apply `IGNORE_TESTIDS` before native interactive matching in `snapshot`:** Filters `scrub-tick` `<button>` elements (and other dense visualization `data-testid`s) out of `all` before counting/collecting, dropping loaded Player `snapshot` below the 120-item default cap with zero truncation.
+2. **Support `--force` on `click`, `rclick`, and `dblclick`:** Matches `hover --force` so explorers can click/right-click `.mk` map markers beneath `<svg class="mm-overlay">` without pointer-interception timeouts.
+
+### Feedback loop triggered
+- Next QA pass (Pass 006): run after Phase 5 R3 (Writer B + store v17 + `.mapcro` v6 `rows: 40`) ships to prod, verifying all Group B features live on `129738985` and deepening the final **14 `smoke` rows** to reach 100% `deep` interactive coverage across the Feature Map.

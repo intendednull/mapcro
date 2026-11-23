@@ -31,7 +31,7 @@ Tabs & navigation (each tab is an isolated BrowserContext):
 
 Inspection & interaction:
   snapshot <tab> [--max N] [--json] [--id <name>]
-  click | rclick | dblclick <tab> <selector> [--any] [--id <name>]
+  click | rclick | dblclick <tab> <selector> [--any] [--force] [--id <name>]
   hover <tab> <selector> [--any] [--force] [--id <name>]
   move <tab> <x> <y> [--id <name>]
   fill <tab> <selector> <value> [--any] [--id <name>]
