@@ -114,11 +114,20 @@ export function effectiveCamp(own: ObjectiveStatus | undefined, base: CampAt | u
   return undefined;
 }
 
-/** Baseline rift compatible with a scene's stored `ObjectiveState`. */
-export function effectiveRift(own: ObjectiveStatus | undefined, base: RiftAt | undefined): RiftAt | undefined {
+/** Baseline rift compatible with a scene's stored `ObjectiveState`. When `baseSite` is provided,
+ * an announced pre-live rift (`baseSite === "Active"` with `base.state === "waiting"`) treats a
+ * matching `ObjectiveState: Active` (e.g. from legacy R1/R2 replay-scene Retake) as compatible,
+ * while contradicting overrides (`Destroyed` on an active/announced site, or `Active` on a dark
+ * site) suppress the baseline. */
+export function effectiveRift(
+  own: ObjectiveStatus | undefined,
+  base: RiftAt | undefined,
+  baseSite?: ObjectiveStatus | undefined,
+): RiftAt | undefined {
   if (!base || own === undefined) return base;
-  if (own === "Active") return base.state === "active" ? base : undefined;
-  if (own === "Destroyed") return base.state !== "active" ? base : undefined;
+  const baseOn = baseSite !== undefined ? baseSite === "Active" : base.state === "active";
+  if (own === "Active") return baseOn ? base : undefined;
+  if (own === "Destroyed") return !baseOn ? base : undefined;
   return undefined;
 }
 
@@ -147,7 +156,7 @@ export function tipFacts(ms: MapState, key: string, health: boolean, urn: UrnNow
     down,
     camp: effectiveCamp(own, m.camp()),
     health: health && !down ? m.health()?.pct : undefined,
-    rift: effectiveRift(own, m.rift()),
+    rift: effectiveRift(own, m.rift(), m.site()),
     powerup: effectivePowerup(own, m.powerup()),
     urn: effectiveUrn(own, key, urn),
   };

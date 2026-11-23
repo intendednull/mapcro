@@ -27,7 +27,7 @@ export function RiftRings(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; f
       const mk = p.frame.ms().marker(m.key);
       // Contradicting status override wins: a rift the coach turned off draws no rings (plan §2, §4);
       // matching `Active` from a legacy save → Retake keeps its rings.
-      const r = effectiveRift(mk.status(), mk.rift());
+      const r = effectiveRift(mk.status(), mk.rift(), mk.site());
       if (r?.state === "active" && r.capture) return { key: m.key, at: m.at, capture: r.capture };
     }
     return undefined;

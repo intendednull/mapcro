@@ -152,7 +152,7 @@ export function fromScene(src: SceneRecords): MapState {
   // Group B baseline tables, decoded once per state/frame/markers change.
   const campsMap = memo(() => (CAPTURED.camps(snap()) ? decodeCamps(src.state()?.camps, frame(), markerList()) : new Map<string, CampAt>()));
   const powerupsMap = memo(() => (CAPTURED.powerups(snap()) ? decodePowerups(src.state()?.powerups, frame(), markerList()) : new Map<string, PowerupAt>()));
-  const objHealthMap = memo(() => (CAPTURED.obj_health(snap()) ? decodeObjHealth(src.state()?.obj_health, markerList()) : new Map<string, { pct: number; stage?: number }>()));
+  const objHealthMap = memo(() => (CAPTURED.obj_health(snap()) ? decodeObjHealth(src.state()?.obj_health, markerList()) : new Map<string, { pct: number; stage?: number } | null>()));
   const riftDecoded = memo(() => (CAPTURED.rifts(snap()) ? decodeRift(src.state()?.rift, frame(), markerList()) : undefined), sameValue);
   const closedShops = memo(() => {
     if (!CAPTURED.camps(snap())) return new Set<string>();
@@ -209,7 +209,7 @@ export function fromScene(src: SceneRecords): MapState {
           const k = kind();
           if (k === "koth" && CAPTURED.rifts(snap())) {
             const r = riftDecoded();
-            return r ? (r.activeKey === key ? ("Active" as const) : ("Destroyed" as const)) : undefined;
+            return r ? (r.activeKey === key || r.announcedKey === key ? ("Active" as const) : ("Destroyed" as const)) : undefined;
           }
           if (k === "urn" && CAPTURED.urn(snap())) {
             const u = urnDecoded();
@@ -231,7 +231,8 @@ export function fromScene(src: SceneRecords): MapState {
         health: memo(() => {
           const k = kind();
           if (!CAPTURED.obj_health(snap()) || !k || !isHealthKind(k) || down()) return undefined;
-          return objHealthMap().get(key) ?? { pct: 100 };
+          const h = objHealthMap().get(key);
+          return h === undefined ? { pct: 100 } : (h ?? undefined);
         }, sameValue),
         rift,
       };

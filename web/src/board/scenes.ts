@@ -59,8 +59,9 @@ export function materializeDroppedBaseline(
   }
   if (snap.rifts && ROWS.rift.index >= written) {
     const r = decodeRift(stateMore.rift, frame, markers);
-    if (r?.activeKey && r.active?.state === "active" && kindByKey.get(r.activeKey) === "koth") {
-      add(r.activeKey, "Active");
+    const litKey = r?.activeKey ?? r?.announcedKey;
+    if (litKey && kindByKey.get(litKey) === "koth") {
+      add(litKey, "Active");
     }
   }
   if (snap.urn && ROWS.urn_at.index >= written) {
@@ -71,7 +72,7 @@ export function materializeDroppedBaseline(
   }
   if (snap.obj_health && ROWS.obj_health.index >= written) {
     for (const [key, oh] of decodeObjHealth(stateMore.obj_health, markers)) {
-      if (oh.stage === 2 && kindByKey.get(key) === "t3") add(key, "Stage2");
+      if (oh?.stage === 2 && kindByKey.get(key) === "t3") add(key, "Stage2");
     }
   }
   return out;

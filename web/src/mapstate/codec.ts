@@ -272,14 +272,19 @@ export function encodeObjHealth(
   return { ints, skipped, overflow: false };
 }
 
-export function decodeObjHealth(v: unknown, markers: FrameMarkers): Map<string, { pct: number; stage?: number }> {
-  const out = new Map<string, { pct: number; stage?: number }>();
+export function decodeObjHealth(v: unknown, markers: FrameMarkers): Map<string, { pct: number; stage?: number } | null> {
+  const out = new Map<string, { pct: number; stage?: number } | null>();
   const rows = strides(v, 3);
   if (!rows) return out;
   const { byHash } = markerHashIndex(markers);
   for (const [h, pct, stage] of rows) {
     const key = byHash.get(h!);
-    if (!key || pct! < 0 || pct! > 100) continue;
+    if (!key) continue;
+    if (pct === -1) {
+      out.set(key, null);
+      continue;
+    }
+    if (pct! < 0 || pct! > 100) continue;
     out.set(key, stage === 1 || stage === 2 ? { pct: pct!, stage } : { pct: pct! });
   }
   return out;
@@ -319,6 +324,8 @@ export function encodeRift(
 
 export interface DecodedRift {
   activeKey: string | null;
+  /** Pre-live announced site (`start_s <= t < live_s`, `open === 0 && siteHash >= 0`). */
+  announcedKey: string | null;
   active: RiftAt | null;
   waiting: RiftAt;
 }
@@ -336,14 +343,17 @@ export function decodeRift(v: unknown, frame: number, markers: FrameMarkers): De
           : null;
       return {
         activeKey: key,
+        announcedKey: null,
         active: { state: "active", giveUp: giveUpIn! >= 0 ? frame + giveUpIn! : null, capture },
         waiting: { state: "waiting", next: null },
       };
     }
   }
+  const announcedKey = open === 0 && siteHash! >= 0 ? (byHash.get(siteHash!) ?? null) : null;
   const nextKey = nextIn! >= 0 && nextSiteHash! >= 0 ? byHash.get(nextSiteHash!) : undefined;
   return {
     activeKey: null,
+    announcedKey,
     active: null,
     waiting: { state: "waiting", next: nextIn! >= 0 && nextKey ? { t: frame + nextIn!, key: nextKey } : null },
   };
