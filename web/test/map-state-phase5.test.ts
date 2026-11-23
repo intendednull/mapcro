@@ -2346,7 +2346,62 @@ describe("Phase 5 R3: Writer B Retake edge cases (dormant Group B flags/payloads
       waiting: { state: "waiting", next: { t: 7, key: rift0 } },
     });
 
-    // 2. Player vs Fresh R3 Save vs Legacy R1/R2 Replay Retake (with stored `ObjectiveState: Active`) vs Metadata->Replay Retake (no ObjectiveState):
+    const applyStateMore = (baseMore: More | undefined, ops: Op[], stateId: RecordId): More => {
+      const next: More = { ...(baseMore ?? {}) };
+      for (const o of ops) {
+        if ("Create" in o && "SceneState" in o.Create.record) {
+          Object.assign(next, o.Create.record.SceneState.more ?? {});
+        } else if ("Set" in o && o.Set.id === stateId && "More" in o.Set.value) {
+          if (o.Set.value.More.value === null) delete next[o.Set.value.More.key];
+          else next[o.Set.value.More.key] = o.Set.value.More.value;
+        } else if ("SetIf" in o && o.SetIf.id === stateId && "More" in o.SetIf.value) {
+          if (o.SetIf.value.More.value === null) delete next[o.SetIf.value.More.key];
+          else next[o.SetIf.value.More.key] = o.SetIf.value.More.value;
+        }
+      }
+      return next;
+    };
+    const applyObjClicks = (baseObjs: Map<string, { id: RecordId; status: ObjectiveStatus }>, ops: Op[]) => {
+      const next = new Map([...baseObjs].map(([k, v]) => [k, { ...v }]));
+      for (const o of ops) {
+        if ("Create" in o && "ObjectiveState" in o.Create.record) {
+          next.set(o.Create.record.ObjectiveState.key, { id: o.Create.id, status: o.Create.record.ObjectiveState.status });
+        } else if ("Set" in o && "ObjectiveStatus" in o.Set.value) {
+          for (const [k, v] of next) if (v.id === o.Set.id) next.set(k, { id: v.id, status: o.Set.value.ObjectiveStatus });
+        }
+      }
+      return next;
+    };
+
+    // 2. Execute REAL `retakeOps` on (a) a legacy R2 replay scene (`rows: 27`, holding `ObjectiveState: Active`
+    //    for announced `rift0`) and (b) a metadata scene (no `koth` `ObjectiveState`) upgraded from replay `tl`:
+    const r2Saved = captureToScene(tl, tAnn, WRITTEN_A, rs);
+    expect(r2Saved.objectives.get(rift0)?.status).toBe("Active");
+    expect(r2Saved.sceneState?.rows).toBe(WRITTEN_A);
+    let mintN = 0;
+    const mintId = () => `pr_${mintN++}`;
+    const r2Waves = new Map([...r2Saved.waves].map(([lane, w], i) => [lane, { id: `rw${i}`, t: w.t, ...(w.more ? { more: w.more } : {}) }]));
+    const r2SceneRow = { id: r2Saved.saved.id, scene: { name: "r2", order: "a", clock: tAnn, source: { match_id: tl.match_id, t: tAnn, tier: "replay" } } } as never;
+    const r2RetakeOps = retakeOps(r2SceneRow, { id: "st_r2", more: r2Saved.sceneState }, r2Saved.heroes, rs, tl, mintId, WRITTEN, markers, r2Waves).flat();
+    expect(r2RetakeOps.length).toBeGreaterThan(0);
+    // Retake never mutates existing ObjectiveStates!
+    expect(r2RetakeOps.some((o) => ("Create" in o && "ObjectiveState" in o.Create.record) || ("Set" in o && "ObjectiveStatus" in o.Set.value))).toBe(false);
+    const r2RetakenState = applyStateMore(r2Saved.sceneState, r2RetakeOps, "st_r2");
+    expect(r2RetakenState.has_rifts).toBe(true);
+    expect((r2RetakenState.rift as number[])[1]).toBe(fnv1a32(rift0));
+
+    const metaTl = { ...metadata, match_id: tl.match_id } as Timeline;
+    const metaSaved = captureToScene(metaTl, tAnn, WRITTEN, rs);
+    expect([...metaSaved.objectives.keys()].filter((k) => k.startsWith("rift:"))).toEqual([]);
+    const metaSceneRow = { id: metaSaved.saved.id, scene: { name: "meta", order: "b", clock: tAnn, source: { match_id: tl.match_id, t: tAnn, tier: "metadata" } } } as never;
+    const metaRetakeOps = retakeOps(metaSceneRow, { id: "st_meta", more: metaSaved.sceneState }, metaSaved.heroes, rs, tl, mintId, WRITTEN, markers, new Map()).flat();
+    expect(metaRetakeOps.length).toBeGreaterThan(0);
+    const metaRetakenState = applyStateMore(metaSaved.sceneState, metaRetakeOps, "st_meta");
+    expect(metaRetakenState.has_rifts).toBe(true);
+    expect((metaRetakenState.rift as number[])[1]).toBe(fnv1a32(rift0));
+
+    // 3. Verify Player, Fresh R3 Save, real R2 Replay Retake, and real Metadata->Replay Retake ALL match
+    //    on BOTH icon (`site()`/`status()`) and hover (`"Rift opens in 0:03"` / `"Rift opens at the other site in 0:03"`):
     createRoot((dispose) => {
       const p = fromTimeline({ tl: () => tl, t: () => tAnn, markers: () => markers });
       const sFresh = fromScene({
@@ -2359,41 +2414,46 @@ describe("Phase 5 R3: Writer B Retake edge cases (dormant Group B flags/payloads
         frame: () => tAnn,
         markers: () => markers,
       });
-      // Legacy R1/R2 replay scene that had `ObjectiveState: { key: rift0, status: "Active" }`, after R3 Retake:
-      const legacyObjs = new Map<string, { status: ObjectiveStatus }>([[rift0, { status: "Active" }]]);
       const sLegacyRetake = fromScene({
-        heroes: () => saved.heroes.map((h) => ({ state: h.state })),
+        heroes: () => r2Saved.heroes.map((h) => ({ state: h.state })),
         roster: () => rs,
-        objectives: () => legacyObjs,
-        waves: () => saved.waves,
-        state: () => saved.sceneState,
+        objectives: () => r2Saved.objectives,
+        waves: () => r2Saved.waves,
+        state: () => r2RetakenState,
         tier: () => "replay",
         frame: () => tAnn,
         markers: () => markers,
       });
-      // Metadata scene retaken from replay (NO ObjectiveState for rifts):
-      const metaObjs = new Map<string, { status: ObjectiveStatus }>();
       const sMetaRetake = fromScene({
-        heroes: () => saved.heroes.map((h) => ({ state: h.state })),
+        heroes: () => metaSaved.heroes.map((h) => ({ state: h.state })),
         roster: () => rs,
-        objectives: () => metaObjs,
-        waves: () => saved.waves,
-        state: () => saved.sceneState,
+        objectives: () => metaSaved.objectives,
+        waves: () => metaSaved.waves,
+        state: () => metaRetakenState,
         tier: () => "metadata",
         frame: () => tAnn,
         markers: () => markers,
       });
 
+      expect(sLegacyRetake.marker(rift0).status()).toBe("Active");
+      expect(sMetaRetake.marker(rift0).status()).toBeUndefined();
       for (const ms of [p, sFresh, sLegacyRetake, sMetaRetake]) {
+        const shown0 = ms.marker(rift0).status() ?? ms.marker(rift0).site();
+        const shown1 = ms.marker(rift1).status() ?? ms.marker(rift1).site();
+        expect(shown0).toBe("Active");
+        expect(shown1).toBe("Destroyed");
         expect(ms.marker(rift0).site()).toBe("Active");
         expect(ms.marker(rift1).site()).toBe("Destroyed");
         expect(markerTip(mk0, tipFacts(ms, rift0, true, ms.scene().urn()), tAnn)).toBe("Rift opens in 0:03");
         expect(markerTip(mk1, tipFacts(ms, rift1, true, ms.scene().urn()), tAnn)).toBe("Rift opens at the other site in 0:03");
       }
 
-      // 3. Coach overrides at t=4:
-      // - Turning OFF announced rift0 (`Destroyed`) suppresses `"Rift opens in 0:03"`:
-      const offObjs = new Map<string, { status: ObjectiveStatus }>([[rift0, { status: "Destroyed" }]]);
+      // 4. Coach override clicks (`toggleOps`) on the real R3-saved & retaken scenes at t=4:
+      // (a) 1 click on announced `rift0` turns it `Destroyed` and suppresses `"Rift opens in 0:03"`:
+      const baseCur = new Map<string, { id: RecordId; status: ObjectiveStatus }>();
+      const offClickOps = toggleOps(mk0, markers, baseCur, saved.saved.id, mintId, (k) => sFresh.marker(k).status() ?? sFresh.marker(k).site());
+      const offObjs = applyObjClicks(baseCur, offClickOps);
+      expect(offObjs.get(rift0)?.status).toBe("Destroyed");
       const sOff = fromScene({
         heroes: () => saved.heroes.map((h) => ({ state: h.state })),
         roster: () => rs,
@@ -2404,22 +2464,29 @@ describe("Phase 5 R3: Writer B Retake edge cases (dormant Group B flags/payloads
         frame: () => tAnn,
         markers: () => markers,
       });
+      expect(sOff.marker(rift0).status()).toBe("Destroyed");
       expect(markerTip(mk0, tipFacts(sOff, rift0, true, sOff.scene().urn()), tAnn)).toBeUndefined();
-      // - Lighting unannounced rift1 (`Active`) suppresses `"Rift opens at the other site in 0:03"`:
-      const onOtherObjs = new Map<string, { status: ObjectiveStatus }>([[rift1, { status: "Active" }]]);
-      const sOnOther = fromScene({
-        heroes: () => saved.heroes.map((h) => ({ state: h.state })),
+
+      // (b) 1 click on dark `rift1` while `rift0` is announced swaps BOTH in 1 tx (`rift1 -> Active`, `rift0 -> Destroyed`)
+      //     and suppresses baseline hovers on both overridden sites:
+      const swapClickOps = toggleOps(mk1, markers, baseCur, saved.saved.id, mintId, (k) => sMetaRetake.marker(k).status() ?? sMetaRetake.marker(k).site());
+      const swappedObjs = applyObjClicks(baseCur, swapClickOps);
+      expect(swappedObjs.get(rift1)?.status).toBe("Active");
+      expect(swappedObjs.get(rift0)?.status).toBe("Destroyed");
+      const sSwapped = fromScene({
+        heroes: () => metaSaved.heroes.map((h) => ({ state: h.state })),
         roster: () => rs,
-        objectives: () => onOtherObjs,
-        waves: () => saved.waves,
-        state: () => saved.sceneState,
-        tier: () => "replay",
+        objectives: () => swappedObjs,
+        waves: () => metaSaved.waves,
+        state: () => metaRetakenState,
+        tier: () => "metadata",
         frame: () => tAnn,
         markers: () => markers,
       });
-      expect(markerTip(mk1, tipFacts(sOnOther, rift1, true, sOnOther.scene().urn()), tAnn)).toBeUndefined();
+      expect(markerTip(mk0, tipFacts(sSwapped, rift0, true, sSwapped.scene().urn()), tAnn)).toBeUndefined();
+      expect(markerTip(mk1, tipFacts(sSwapped, rift1, true, sSwapped.scene().urn()), tAnn)).toBeUndefined();
 
-      // 4. Before start_s (t=1): neither site is announced (`slot 1 === -1`), so manual `Active` on rift0
+      // 5. Before start_s (t=1): neither site is announced (`slot 1 === -1`), so manual `Active` on rift0
       //    contradicts baseline `"Destroyed"` and suppresses the baseline hover!
       const savedBefore = captureToScene(tl, tBefore, WRITTEN, rs);
       expect((savedBefore.sceneState!.rift as number[])[1]).toBe(-1);

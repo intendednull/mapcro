@@ -26,7 +26,7 @@ import { holdsBuild } from "../src/mapstate/buildView";
 import { encodeCC } from "../src/mapstate/codec";
 import { pickHeroOps } from "../src/mapstate/edit";
 import { secondPart, tenthPart } from "../src/mapstate/frame";
-import { retakeOps, slotKey } from "../src/match/save";
+import { canRetake, retakeOps, slotKey } from "../src/match/save";
 import { markers, replay } from "./support/synthetic-match";
 
 const ROOT = resolve(__dirname, "../..");
@@ -791,5 +791,69 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
       expect(stateOf2(s)?.rows).toBe(27);
     }
     [a2, b2].forEach((x) => x.stop());
+  });
+
+  // Astra Round 2 Medium #3 (server+WASM): imported `rows: 40` scene with all Phase 5 flags already set,
+  // existing hero builds, absent `has_builds`, and less room in `SceneState.more` than `has_builds` needs:
+  // `canRetake` returns `false` and `retakeOps` returns `[]` (no rejected write / stuck button);
+  // once `SceneState.more` has room, `canRetake` returns `true` and `retakeOps` commits cleanly on the server!
+  it("build-only Retake checks SceneState max_more_bytes in both canRetake and retakeOps (Round 2 #3)", async () => {
+    const tl = replay();
+    const { a, b, scene } = await board();
+    const stateId = newRecordId();
+    const stateOf = (s: BoardSession) => (s.records.get(stateId)?.record as { SceneState?: { more?: More } } | undefined)?.SceneState?.more;
+    const scObj = { name: "s", order: "a", clock: 4, source: { match_id: tl.match_id, t: 4, tier: "replay" } };
+    const scRow = { id: scene, scene: scObj } as never;
+
+    const fullCamps = Array.from({ length: 600 }, () => 4_294_967_295);
+    const fullObjHealth = Array.from({ length: 120 }, () => 4_294_967_295);
+    const fullPowerups = Array.from({ length: 20 }, () => 4_294_967_295);
+    const fullSkulls = Array.from({ length: 36 }, () => 255);
+    const tightMore: More = {
+      rows: 40,
+      build: 6839,
+      has_heroes: true,
+      has_sight: true,
+      has_cc: true,
+      has_movement: true,
+      has_lanes: true,
+      has_skulls: true,
+      skulls: fullSkulls,
+      has_camps: true,
+      camps: fullCamps,
+      has_powerups: true,
+      powerups: fullPowerups,
+      has_obj_health: true,
+      obj_health: fullObjHealth,
+      has_rifts: true,
+      has_urn: true,
+      has_rejuv: true,
+    };
+    while (moreBytes(tightMore) > LIMITS.max_more_bytes) fullCamps.pop();
+    expect(moreBytes(tightMore)).toBeLessThanOrEqual(LIMITS.max_more_bytes);
+    expect(moreBytes({ ...tightMore, has_builds: true })).toBeGreaterThan(LIMITS.max_more_bytes);
+
+    expect(a.edit([{ Create: { id: stateId, record: { SceneState: { scene, more: tightMore } } } }])).toBe(true);
+    expect(await settled(a, b)).toBe(true);
+    expect(await until(() => b.records.has(stateId))).toBe(true);
+
+    // 1. Tight SceneState (lacks room for `has_builds: true`): `canRetake` is false and `retakeOps` is empty!
+    expect(canRetake(scObj, stateOf(a), tl, WRITTEN, markers, [], [], new Map())).toBe(false);
+    expect(retakeOps(scRow, { id: stateId, more: stateOf(a) }, [], [], tl, newRecordId, WRITTEN, markers, new Map())).toEqual([]);
+
+    // 2. Free 3 ints from `camps` (~33 B) so `has_builds: true` fits: `canRetake` flips true and commits cleanly!
+    const roomierCamps = fullCamps.slice(0, -3);
+    expect(a.edit([{ Set: { id: stateId, value: { More: { key: "camps", value: roomierCamps } } } }])).toBe(true);
+    expect(await settled(a, b)).toBe(true);
+    expect(canRetake(scObj, stateOf(a), tl, WRITTEN, markers, [], [], new Map())).toBe(true);
+    const txs = retakeOps(scRow, { id: stateId, more: stateOf(a) }, [], [], tl, newRecordId, WRITTEN, markers, new Map());
+    expect(txs).toHaveLength(1);
+    const beforeProblems = a.problems.length;
+    expect(a.edit(txs[0]!)).toBe(true);
+    expect(await settled(a, b)).toBe(true);
+    expect(a.problems.length).toBe(beforeProblems);
+    expect(await until(() => stateOf(b)?.has_builds === true)).toBe(true);
+    expect(canRetake(scObj, stateOf(a), tl, WRITTEN, markers, [], [], new Map())).toBe(false);
+    [a, b].forEach((x) => x.stop());
   });
 });

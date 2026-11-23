@@ -684,7 +684,17 @@ export function canRetake(
     // When `c.rows < 15`, advancing past row 14 would falsely claim rows 11–14 are captured;
     // gate Phase 5 features behind `buildComplete` so `rows` never crosses 14 with missing build keys.
     if (c.rows < 15 && !buildComplete) return buildGroups.length > 0;
-    if (needsBuilds && (buildGroups.length > 0 || buildComplete)) return true;
+    if (buildGroups.length > 0) return true;
+    if (needsBuilds && buildComplete) {
+      const empty = new Set<Phase5Feature>();
+      const want = captureScene(full, { builds: true, heroes: false, written });
+      const targetRows = missingSet.size === 0 ? written : Math.max(c.rows, c.rows < 15 ? Math.min(written, 15) : 0);
+      const writes = state ? planSceneStateMoreWrites(state, want, empty, c, true, targetRows) : [];
+      const rowsWrite = !state || state.rows === undefined || c.rows < targetRows ? targetRows : undefined;
+      if (sceneStateWritesFit(state, want, writes, rowsWrite) && (!state || writes.length > 0 || rowsWrite !== undefined)) {
+        return true;
+      }
+    }
     if (!missingSet.size) return false;
     const { admitted } = preflightRetakeFeatures(full, state, heroes, roster, fd, missingSet, written, waves, projectedHero, buildComplete);
     return admitted.size > 0;
@@ -1017,22 +1027,24 @@ export function retakeOps(
   const want = captureScene(tl, { builds: buildComplete, heroes: false, written, ...(fd ? sceneCaptureFrom(fd, admittedFeatures) : {}) });
   want.rows = targetRows;
   if (!state) {
-    if (buildComplete || admittedFeatures.size > 0) {
+    if ((buildComplete || admittedFeatures.size > 0) && sceneStateWritesFit(undefined, want, [], targetRows)) {
       sceneGroup.push({ Create: { id: mint(), record: { SceneState: { scene: scene.id, more: want } } } });
     }
   } else {
     const have = state.more ?? {};
-    for (const w of planSceneStateMoreWrites(have, want, admittedFeatures, c, buildComplete, targetRows)) {
-      sceneGroup.push(setOp(state.id, w.key, w.value));
-    }
-    const hasWork = buildGroups.length > 0 || sceneGroup.length > 0 || admittedFeatures.size > 0 || (buildComplete && c.rows < 15);
-    if (hasWork && (have.rows === undefined || c.rows < targetRows)) {
-      // Watermark uses `SetIf` on the observed value so a stale Retake can never regress a higher `rows`.
-      sceneGroup.push(
-        have.rows === undefined
-          ? absent(state.id, "rows", targetRows)
-          : { SetIf: { id: state.id, expect: { More: { key: "rows", value: have.rows } }, value: { More: { key: "rows", value: targetRows } } } },
-      );
+    const stateWrites = planSceneStateMoreWrites(have, want, admittedFeatures, c, buildComplete, targetRows);
+    const hasWork = buildGroups.length > 0 || sceneGroup.length > 0 || stateWrites.length > 0 || admittedFeatures.size > 0 || (buildComplete && c.rows < 15);
+    const rowsWrite = hasWork && (have.rows === undefined || c.rows < targetRows) ? targetRows : undefined;
+    if (sceneStateWritesFit(have, want, stateWrites, rowsWrite)) {
+      for (const w of stateWrites) sceneGroup.push(setOp(state.id, w.key, w.value));
+      if (rowsWrite !== undefined) {
+        // Watermark uses `SetIf` on the observed value so a stale Retake can never regress a higher `rows`.
+        sceneGroup.push(
+          have.rows === undefined
+            ? absent(state.id, "rows", rowsWrite)
+            : { SetIf: { id: state.id, expect: { More: { key: "rows", value: have.rows } }, value: { More: { key: "rows", value: rowsWrite } } } },
+        );
+      }
     }
   }
   if (sceneGroup.length) groups.push(sceneGroup);
