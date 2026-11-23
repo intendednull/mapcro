@@ -4,6 +4,13 @@ Ideas the operator wants kept but not built yet. Newest first. Each entry record
 what it is, and what it depends on.
 
 
+## Exploratory QA Pass 005 findings (2026-11-23)
+
+Found during [QA Pass 005](qa/passes/2026-11-23-pass-005-prod-r2-verify.md) live on production (`01e29a8`, reference replay `129738985`) — **all Goal 1 items passed live on prod** (Pass 004 Phone `390×844` & `360×800` Feedback header fix, TD-117 Session `Open in app` owner/guest token isolation, Phase 5 R2 Q2/Q3/Q5/Q7 + TD-161, `.mapcro` v5 export + TD-162 matchless import; 13 more `smoke` rows deepened to `deep`):
+
+- **Phone (`390×844 --touch` & `360×800 --touch`) Session Scene WITH match loaded overflows vertically by `+112 px` (`956 / 844`), pushing the bottom `.p-bar` below the initial fold** (`ux-rough`, `FM-130`). While `.p-top` is completely fixed (`390/390` and `360/360`), stacking `.pl-bar.scene` (`101 px` handoff bar: `Scene “Scene 1” | ↩ Back to 10:00` + `Events | Map layers | ⋯`) above the Scene `.p-bar` pushes `.p-bar` below `844 px` (only its top rounded border peeks at `y=830..844`, and on `360×800` `Events | Map layers | ⋯` sits below `800 px`). Scrollable (`overflow-y: visible`), so non-blocking; route to an approved design model if we want Scene-with-match phone chrome to fit in one viewport.
+
+
 ## Exploratory QA Pass 004 findings (2026-11-22)
 
 Found during [QA Pass 004](qa/passes/2026-11-22-pass-004-prod-cycle2-verify.md) live on production (`e2438b4`, reference replay `129738985`) — **both resolved** on `qa-p4-phone-feedback` (2026-11-22, Argon responsive fix; all 15 other Cycle 1 fixes and Phase 5 R1 checks passed live on prod):
