@@ -6,11 +6,10 @@
 //    pair-wide hover highlight (`data-hot`) + strict §4b `"Doorway"` hover label + SVG Z-order below tokens.
 // 3. Enemy Vision `visionFade` hide/show on continuous playback (`data-fading="out"`, 350 ms, never a ghost)
 //    and immediate snap on Vision switch / seek.
-// 4. Scene rendering from stored `SceneState.more` (`rows: 42, has_doors: true, doors: [...]`) cold-loaded
-//    through the Release 1 Rust server (verifying the v19 -> v18 rollback reader!) including D3 faded +
-//    `.vis.off` eye-slash badge under enemy Vision, plus confirming Release 1 refuses `has_doors` on import.
+// 4. Scene rendering from stored `SceneState.more` (`rows: 42, has_doors: true, doors: [...]`) imported
+//    as `.mapcro` v7 and cold-loaded through the server, including D3 faded + `.vis.off` eye-slash badge
+//    under enemy Vision, plus confirming future `version: 8` board files are refused with 422.
 
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -346,15 +345,16 @@ test("Player enemy Vision fades doors out and back in smoothly (350 ms, never a 
   await expect(links).toHaveCount(1);
 });
 
-test("Release 1 Scene reader renders stored v19 SceneState.more.doors (seen & D3 faded) while refusing Ahead rows on import", async ({ browser }) => {
+test("Scene renders stored v7 SceneState.more.doors (seen & D3 faded) after cold-load and v7 import", async ({ browser }) => {
   const rbServer = new Server(undefined, { REPLAY_DIR: queue });
   await rbServer.start();
   try {
-    // 1. Confirm Release 1 admission gate refuses `has_doors` / `doors` on /api/boards/import.
+    // 1. Confirm Release 2 imports a v7 board carrying `has_doors` / `doors` cleanly (`201`),
+    //    while still refusing `version: 8` as `newer` (`422`).
     const createRes = await fetch(`${rbServer.url}/api/boards`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ title: "Doors Rollback" }),
+      body: JSON.stringify({ title: "Doors v7" }),
     });
     expect(createRes.status).toBe(201);
     const { board, owner_token } = (await createRes.json()) as { board: string; owner_token: string };
@@ -385,33 +385,31 @@ test("Release 1 Scene reader renders stored v19 SceneState.more.doors (seen & D3
         },
       },
     };
-    const badImport = await fetch(`${rbServer.url}/api/boards/import`, {
+    const v8Import = await fetch(`${rbServer.url}/api/boards/import`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...exported, version: 8 }),
+    });
+    expect(v8Import.status).toBe(422);
+
+    const okImport = await fetch(`${rbServer.url}/api/boards/import`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         ...exported,
+        version: 7,
+        rows: 42,
         records: [...exported.records, [stateId, stateRec]],
       }),
     });
-    expect(badImport.status).toBe(422);
+    expect(okImport.status).toBe(201);
+    const imported = (await okImport.json()) as { board: string; owner_token: string };
 
-    // 2. Simulate v19 -> v18 rollback: store the v19 SceneState directly in SQLite `boards.base_doc`
-    //    and restart the Release 1 server so it cold-loads the board cleanly.
+    // 2. Restart server to verify SQLite cold-load of v19 board holding doors.
     await rbServer.kill();
-    const docEntries = [
-      ...exported.records.map(([id, record]) => [id, { record, deleted: false }]),
-      [stateId, { record: stateRec, deleted: false }],
-    ];
-    execFileSync("python3", [
-      "-c",
-      "import sqlite3, sys; c = sqlite3.connect(sys.argv[1]); c.execute('UPDATE boards SET base_doc = ?, base_codec = \"json\" WHERE id = ?', (sys.argv[2], sys.argv[3])); c.commit(); c.close()",
-      join(rbServer.dataDir, "mapcro.sqlite"),
-      JSON.stringify(docEntries),
-      board,
-    ]);
     await rbServer.start();
 
-    const p = await joinNew(browser, `${rbServer.url}/b/${board}#${owner_token}`, "Coach");
+    const p = await joinNew(browser, `${rbServer.url}/b/${imported.board}#${imported.owner_token}`, "Coach");
     const doors = p.locator("[data-testid=map] [data-testid=doorman-door]");
     const links = p.locator("[data-testid=map] [data-testid=door-link]");
     const sDoor0 = p.locator('[data-testid=map] [data-testid=doorman-door][data-door-id="0"]');

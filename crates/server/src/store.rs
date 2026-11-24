@@ -193,7 +193,7 @@ pub struct Store {
 }
 
 /// Database schema version. Each step in `migrate` takes the database one version forward.
-const SCHEMA_VERSION: i64 = DOORS_READER;
+const SCHEMA_VERSION: i64 = DOORS_WRITER;
 
 /// The reader of feedback #56, #59 and #60 (a scene name up to 48 characters, a comment's side,
 /// a stroke's colour as a field): deployed as ce1ec0c.
@@ -224,9 +224,14 @@ const PHASE5_WRITER_A: i64 = 16;
 /// rejuv; docs/specs/map-state-phase5-plan.md §5 R3). No SQL; floor moves to [`PHASE5_WRITER_A`]
 /// (16), so R1 (v15) and older refuse to start and R2 (v16) opens v17 untouched.
 const PHASE5_WRITER_B: i64 = 17;
-/// The reader of Doorman doorways (rows 40–41: `has_doors`, `doors`; docs/specs/doorman-doors.md).
-/// Both rows are `Ahead` here, so v16 and v17 servers still open it untouched (additive, floor 16).
+/// The reader of Doorman doorways (rows 40–41: `has_doors`, `doors`; docs/specs/doorman-doors.md):
+/// deployed as d1db21f. Both rows were `Ahead` there, so v16 and v17 servers still opened it
+/// untouched (additive, floor 16).
 const DOORS_READER: i64 = 18;
+/// The writer of Doorman doorways (rows 40–41: `has_doors`, `doors`, `Status::Live`;
+/// docs/specs/doorman-doors.md §4.2). No SQL; floor moves to [`DOORS_READER`] (18), so v17 and
+/// older refuse to start and R1 (v18) opens v19 untouched on rollback.
+const DOORS_WRITER: i64 = 19;
 
 /// What the step from `from` to `from + 1` asks of an older server (spec §9, docs/deploy.md
 /// "Rollbacks").
@@ -262,6 +267,7 @@ fn step(from: i64) -> Step {
         f if f + 1 == PHASE5_WRITER_A => Step::NeedsReader { reader: PHASE5_READER },
         f if f + 1 == PHASE5_WRITER_B => Step::NeedsReader { reader: PHASE5_WRITER_A },
         f if f + 1 == DOORS_READER => Step::Additive,
+        f if f + 1 == DOORS_WRITER => Step::NeedsReader { reader: DOORS_READER },
         _ => Step::Breaking,
     }
 }
@@ -408,6 +414,11 @@ fn migrate(conn: &Connection, from: i64, to: i64) -> Result<(), StoreError> {
             // (both `Ahead`), so v16 and v17 servers still read everything in the database:
             // additive (floor stays 16).
             f if f + 1 == DOORS_READER => {}
+            // The writer of Doorman doorways (`DOORS_WRITER`, store v19): no SQL. From here the
+            // server takes rows 40–41 (`has_doors`, `doors`, `Live`; all 42 rows live). The v18
+            // reader (`DOORS_READER`, R1) loads them untouched and v17 and older refuse to start:
+            // the floor is 18 (`Step::NeedsReader { reader: 18 }`).
+            f if f + 1 == DOORS_WRITER => {}
             other => return Err(StoreError::Corrupt(format!("no migration from schema {other}"))),
         }
         v += 1;
@@ -1653,7 +1664,7 @@ mod tests {
         }
         let store = Store::open(&path).expect("migrates");
         assert_eq!(meta(&path, "schema_version"), Some(SCHEMA_VERSION.to_string()));
-        assert_eq!(meta(&path, "compat_floor"), Some(PHASE5_WRITER_A.to_string()), "through the writers' steps: the v16 reader (R2) opens it");
+        assert_eq!(meta(&path, "compat_floor"), Some(DOORS_READER.to_string()), "through the writers' steps: the v18 reader (Doorman R1) opens it");
         for (hash, role, label, revoked, parent) in [
             (&owner, LinkRole::Owner, "owner", false, None),
             (&edit, LinkRole::Edit, "coach", false, Some(&owner)),
@@ -1940,14 +1951,14 @@ mod tests {
 
     /// Store v18 (Doorman doorways R1, Reader): additive over v17, keeping floor 16 so live v17
     /// (and v16) servers open v18 untouched on rollback, and a stored base/log holding `has_doors`
-    /// and `doors` loads cleanly even though `Admit::DEPLOYED` refuses `Ahead` rows from outside.
+    /// and `doors` loads cleanly even under an `Ahead` admission gate.
     #[tokio::test]
     async fn v18_doors_reader_keeps_floor_16_and_loads_stored_doors() {
         use mapcro_schema::{FieldValue, MoreValue, Op, Record, RecordId, RowId, SceneState, TxKind};
         let (v, floor) = (DOORS_READER.to_string(), PHASE5_WRITER_A.to_string());
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("db.sqlite");
-        Store::open(&path).expect("create at v18");
+        Store::open_at(&path, DOORS_READER).expect("create at v18");
         assert_eq!((meta(&path, "schema_version"), meta(&path, "compat_floor")), (Some(v.clone()), Some(floor.clone())));
         let c = Connection::open(&path).expect("open");
         reconcile(&c, PHASE5_WRITER_B).expect("live v17 opens v18 on rollback");
@@ -1962,10 +1973,10 @@ mod tests {
         let v17_path = dir.path().join("v17.sqlite");
         Store::open_at(&v17_path, PHASE5_WRITER_B).expect("create v17");
         assert_eq!(meta(&v17_path, "compat_floor").as_deref(), Some("16"));
-        Store::open(&v17_path).expect("migrate v17 -> v18");
+        Store::open_at(&v17_path, DOORS_READER).expect("migrate v17 -> v18");
         assert_eq!((meta(&v17_path, "schema_version"), meta(&v17_path, "compat_floor")), (Some(v), Some(floor)));
 
-        // Stored base and log holding rows 40–41 (`has_doors`, `doors`) load despite `Admit::DEPLOYED`.
+        // Stored base and log holding rows 40–41 (`has_doors`, `doors`) load cleanly.
         let mut n = 0u128;
         let mut base = mapcro_schema::genesis(|| { n += 1; RecordId(n) }, "Doors");
         let scene = base.iter_live().find(|(_, r)| matches!(r, Record::Scene(_))).map(|(id, _)| id).expect("scene");
@@ -1985,8 +1996,13 @@ mod tests {
                 .collect(),
             }),
         }];
-        assert!(mapcro_schema::Admit::DEPLOYED.tx(&tx(0, base_ops.clone())).is_err(), "R1 DEPLOYED refuses Ahead door rows");
-        assert_eq!(mapcro_schema::Admit::READS.tx(&tx(0, base_ops.clone())), Ok(()), "R1 READS admits door rows");
+        let r1_admit = mapcro_schema::Admit {
+            row: |r| if matches!(r.row().key, "has_doors" | "doors") { mapcro_schema::Status::Ahead } else { mapcro_schema::Status::Live },
+            ..mapcro_schema::Admit::READS
+        };
+        assert_eq!(r1_admit.tx(&tx(0, base_ops.clone())), Err(mapcro_schema::Reject::WrongField), "R1 gate refuses door rows specifically");
+        assert_eq!(mapcro_schema::Admit::DEPLOYED.tx(&tx(0, base_ops.clone())), Ok(()), "R2 DEPLOYED admits door rows");
+        assert_eq!(mapcro_schema::Admit::READS.tx(&tx(0, base_ops.clone())), Ok(()), "READS admits door rows");
         mapcro_schema::apply_tx(&mut base, &tx(0, base_ops)).expect("valid");
         let log_tx = tx(1, vec![Op::Set { id: state_id, value: FieldValue::More { key: row("doors"), value: Some(MoreValue::ints(vec![0, 100, 200, 0, -1, 1])) } }]);
         let mut head = base.clone();
@@ -2001,6 +2017,84 @@ mod tests {
         let caps = LoadCaps { ops: 1000, bytes: 1 << 20, clients: 10, rejections: 10 };
         let loaded = store.load_board("doors".into(), caps, Quota::default()).await.expect("load").expect("board");
         assert_eq!(loaded.authority.doc(), &head);
+    }
+
+    /// Store v19 (Doorman doorways R2, Writer): `Step::NeedsReader { reader: 18 }`, no SQL,
+    /// floor 18. A v18 server (R1) opens v19 untouched (including boards holding doors); v17 and
+    /// older refuse to start.
+    #[tokio::test]
+    async fn only_the_v18_reader_opens_the_doors_writer_database() {
+        use mapcro_schema::{FieldValue, MoreValue, Op, Record, RecordId, RowId, SceneState, TxKind};
+        let (v, floor) = (DOORS_WRITER.to_string(), DOORS_READER.to_string());
+        assert_eq!(SCHEMA_VERSION, DOORS_WRITER);
+        assert_eq!(compat_floor(DOORS_WRITER), DOORS_READER);
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("db.sqlite");
+        {
+            let store = Store::open(&path).expect("create at v19");
+            assert_eq!((meta(&path, "schema_version"), meta(&path, "compat_floor")), (Some(v.clone()), Some(floor.clone())));
+            // Populate a board with rows 40–41 (`has_doors`, `doors`) in base + log.
+            let mut n = 0u128;
+            let mut base = mapcro_schema::genesis(|| { n += 1; RecordId(n) }, "Doors v19");
+            let scene = base.iter_live().find(|(_, r)| matches!(r, Record::Scene(_))).map(|(id, _)| id).expect("scene");
+            let row = |key: &str| RowId::of(key).expect("row");
+            let tx = |cseq: u64, ops: Vec<Op>| Tx { client: ClientId(7), cseq, kind: TxKind::Edit, ops };
+            let state_id = RecordId(970);
+            let base_ops = vec![Op::Create {
+                id: state_id,
+                record: Record::SceneState(SceneState {
+                    scene,
+                    more: [
+                        (row("rows"), MoreValue::Int(42)),
+                        (row("has_doors"), MoreValue::Bool(true)),
+                        (row("doors"), MoreValue::ints(vec![0, -800, 1200, 1, 1, 0, 0, 900, -1100, 2, 0, 0])),
+                    ]
+                    .into_iter()
+                    .collect(),
+                }),
+            }];
+            mapcro_schema::apply_tx(&mut base, &tx(0, base_ops)).expect("valid");
+            let log_tx = tx(1, vec![Op::Set { id: state_id, value: FieldValue::More { key: row("doors"), value: Some(MoreValue::ints(vec![1, 400, -400, 0, -1, 1])) } }]);
+            let (codec, stored) = codec::encode(&serde_json::to_vec(&log_tx).expect("json"));
+            assert!(store.create_room(RoomKind::Board, "doors19".into(), base, crate::links::hash("o"), 1, 10, u64::MAX, None).await.expect("create") == GrantWrite::Written);
+            store.commit("doors19".into(), vec![Write::Op { seq: 1, codec, stored }]).await.expect("log");
+        }
+        // v18 (R1) opens v19 untouched on rollback; v17 and older refuse.
+        let c = Connection::open(&path).expect("open");
+        reconcile(&c, DOORS_READER).expect("the v18 reader (R1) opens v19");
+        for older in 5..DOORS_READER {
+            assert!(matches!(reconcile(&c, older), Err(StoreError::Corrupt(_))), "v{older} is below floor 18 and must refuse v19");
+        }
+        drop(c);
+        assert_eq!((meta(&path, "schema_version"), meta(&path, "compat_floor")), (Some(v.clone()), Some(floor.clone())), "v18 left v19 untouched");
+        // Reopening at v18 loads the board holding doors cleanly.
+        let rb = Store::open_at(&path, DOORS_READER).expect("v18 rollback open");
+        let caps = LoadCaps { ops: 1000, bytes: 1 << 20, clients: 10, rejections: 10 };
+        let loaded = rb.load_board("doors19".into(), caps, Quota::default()).await.expect("load").expect("board");
+        let doors_val = loaded
+            .authority
+            .doc()
+            .iter_live()
+            .find_map(|(_, r)| match r {
+                Record::SceneState(s) => s.more.get(RowId::of("doors").expect("doors")).cloned(),
+                _ => None,
+            });
+        assert_eq!(doors_val, Some(MoreValue::ints(vec![1, 400, -400, 0, -1, 1])));
+        assert_eq!((meta(&path, "schema_version"), meta(&path, "compat_floor")), (Some(v.clone()), Some(floor.clone())), "v18 rollback open preserved v19 + floor 18");
+
+        // A v18 database migrates cleanly to v19, raising compat_floor from 16 to 18.
+        let v18_path = dir.path().join("v18.sqlite");
+        Store::open_at(&v18_path, DOORS_READER).expect("create v18");
+        assert_eq!(meta(&v18_path, "compat_floor").as_deref(), Some("16"));
+        Store::open(&v18_path).expect("migrate v18 -> v19");
+        assert_eq!((meta(&v18_path, "schema_version"), meta(&v18_path, "compat_floor")), (Some(v.clone()), Some(floor.clone())));
+
+        // A v17 database also migrates forward cleanly to v19 (floor 16 -> 18).
+        let v17_path = dir.path().join("v17.sqlite");
+        Store::open_at(&v17_path, PHASE5_WRITER_B).expect("create v17");
+        assert_eq!(meta(&v17_path, "compat_floor").as_deref(), Some("16"));
+        Store::open(&v17_path).expect("migrate v17 -> v19");
+        assert_eq!((meta(&v17_path, "schema_version"), meta(&v17_path, "compat_floor")), (Some(v), Some(floor)));
     }
 
     /// A session's listed links say they're a session's, as `link` does (security review of

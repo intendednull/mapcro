@@ -22,6 +22,7 @@ import { formatClock, parseClock } from "../core/clock";
 import { parseSouls, splitTotal, teamTotal, ultFromVector, ultStep } from "../core/souls";
 import { colorOf } from "../core/device";
 import type { RecordId } from "../gen/RecordId";
+import type { WorldPos } from "../gen/WorldPos";
 import type { Art } from "../map/pack";
 import type { Viewpoint } from "../map/transform";
 import { InlineEdit } from "../ui/InlineEdit";
@@ -41,6 +42,7 @@ import { canRetake, retakeOps, slotKey } from "../match/save";
 import { ladderKeyFor, loadStatTable, tableKeyFor, type LoadedTable } from "../match/stats";
 import { BuildColumn } from "../player/BuildColumn";
 import { centreTimer, effectiveCamp } from "../player/Camps";
+import { DOORMAN_HERO_ID } from "../player/Doors";
 import type { PlayerHost } from "../player/host";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { buildPanels } from "./buildPanels";
@@ -126,7 +128,11 @@ export function TopBar(p: {
   onFocus?: (team: string, slot: number) => void;
   /** Hands the board the hero menu, to open from a token's right click on the map (feedback
    * #53); `undefined` once this bar is gone. */
-  bindMenu?: (open: ((player: RecordId, at: { x: number; y: number }) => void) | undefined) => void;
+  bindMenu?: (open: ((player: RecordId, at: { x: number; y: number }, fromToken?: boolean) => void) | undefined) => void;
+  /** Doorman `hero-menu`: place a doorway (from portrait -> Step 1; from map token -> Step 2 beside token). */
+  onPlaceDoorway?: (team: "amber" | "sapphire", fromPos?: WorldPos) => void;
+  /** Doorman `hero-menu`: remove all doors belonging to that team in one tx. */
+  onClearDoorways?: (team: "amber" | "sapphire") => void;
 }) {
   const friend = () => (p.vp === "sapphire" ? "Sapphire" : "Amber");
   const enemy = () => (friend() === "Amber" ? "Sapphire" : "Amber");
@@ -219,7 +225,7 @@ export function TopBar(p: {
     openName.get(id)?.();
   };
   // The portrait menu: one at a time, for a (slot, player) pair, at the pointer.
-  const [menu, setMenu] = createSignal<{ slot: Slot; player: Player; label: string; at: { x: number; y: number } }>();
+  const [menu, setMenu] = createSignal<{ slot: Slot; player: Player; label: string; at: { x: number; y: number }; fromToken?: boolean }>();
   const openMenu = (e: MouseEvent, slot: Slot, player: Player, label: string) => {
     // Editors only; a text field (the souls being typed) keeps the browser's menu.
     const t = e.target as HTMLElement;
@@ -233,14 +239,14 @@ export function TopBar(p: {
   // The same menu from a hero's token on the map: its player in this scene, editors only.
   if (p.bindMenu) {
     const bind = p.bindMenu;
-    bind((id, at) => {
+    bind((id, at, fromToken) => {
       if (!editable()) return;
       const player = [...players().values()].find((pl) => pl.id === id);
       const slot = player && p.state.roster().find((s) => s.id === player.state.slot);
       if (!player || !slot) return;
       const held = heroIn({ slot });
       const hero = held != null ? p.art.heroes.get(held) : undefined;
-      setMenu({ slot, player, label: portraitTitle(nameOf(slot) || slotPlaceholder(slot.slot.team, slot.slot.slot), hero), at });
+      setMenu({ slot, player, label: portraitTitle(nameOf(slot) || slotPlaceholder(slot.slot.team, slot.slot.slot), hero), at, ...(fromToken ? { fromToken: true } : {}) });
     });
     onCleanup(() => bind(undefined));
   }
@@ -475,6 +481,23 @@ export function TopBar(p: {
     if (heroIn(m) == null && p.onFocus) items.push({ label: "Show on the map", testid: "hero-menu-focus", run: () => p.onFocus!(m.slot.slot.team, m.slot.slot.slot) });
     items.push({ label: "Rename…", testid: "hero-menu-rename", run: () => rename(m.slot.id) });
     if (p.onPickHero) items.push({ label: heroIn(m) != null ? "Change hero…" : "Pick hero…", testid: "hero-menu-hero", run: () => p.onPickHero!(m.slot.id) });
+    if (heroIn(m) === DOORMAN_HERO_ID) {
+      const doorTeam = m.slot.slot.team === "Amber" ? "amber" : "sapphire";
+      if (p.onPlaceDoorway) {
+        items.push({
+          label: "Place doorway",
+          testid: "hero-menu-doorway",
+          run: () => p.onPlaceDoorway!(doorTeam, m.fromToken ? pl().state.pos : undefined),
+        });
+      }
+      if (p.onClearDoorways && p.ms.scene().doors().some((d) => d.team === doorTeam)) {
+        items.push({
+          label: "Clear doorways",
+          testid: "hero-menu-clear-doors",
+          run: () => p.onClearDoorways!(doorTeam),
+        });
+      }
+    }
     return <ContextMenu at={m.at} label={m.label} testid="hero-menu" onClose={() => setMenu(undefined)} items={items} />;
   };
 

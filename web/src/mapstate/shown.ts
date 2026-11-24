@@ -130,12 +130,16 @@ export interface ShownDoor extends DoorNow {
   draw: "seen" | "faded" | "hidden";
 }
 
-/** Doorman doorways projected through Vision: `seen` under All, own team, no sight data, or enemy
- * line-of-sight; otherwise `faded` in a Scene (D3) and `hidden` in Player (fed into `visionFade`). */
+/** Doorman doorways projected through Vision:
+ * - Without `has("sight")` (blank board or pre-sight scene): matches `heroDraw`'s D5 fallback
+ *   (`faded` in a Scene when `!inSight`, `seen` in Player).
+ * - With `has("sight")`: `seen` under All, own team, or enemy line-of-sight; otherwise `faded` in
+ *   a Scene (D3) and `hidden` in Player (fed into `visionFade`). */
 export function shownDoors(ms: MapState, vision: Vision, stored: boolean): ShownDoor[] {
   const sight = ms.has("sight");
   return ms.scene().doors().map((d) => {
-    if (!sight || vision === "all" || d.team === vision || d.inSight) return { ...d, draw: "seen" };
+    if (!sight) return { ...d, draw: stored && !d.inSight ? "faded" : "seen" };
+    if (vision === "all" || d.team === vision || d.inSight) return { ...d, draw: "seen" };
     return { ...d, draw: stored ? "faded" : "hidden" };
   });
 }

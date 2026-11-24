@@ -150,13 +150,12 @@ fn an_export_imports_as_the_same_board_under_fresh_ids() {
     // A legacy board (no `has_heroes` or Phase 5 rows) exports `BASE_FILE_ROWS` (15) so v11..v14
     // and R1 all accept it alongside version 2.
     assert_eq!(first["rows"], json!(mapcro_schema::BASE_FILE_ROWS));
-    // In Doorman R1 (store v18), rows 0..40 (`hero`..`rejuv`) are `Live`; rows 40..42 (`has_doors`, `doors`) are `Ahead`.
-    let last_live = mapcro_schema::ROWS.iter().position(|r| r.key == "rejuv").expect("the row");
+    // In Doorman R2 (store v19), all 42 rows (`hero`..`doors`) are `Live`.
+    let last_live = mapcro_schema::ROWS.iter().position(|r| r.key == "doors").expect("the row");
     assert_eq!(mapcro_schema::written_rows(), last_live + 1);
-    assert_eq!(mapcro_schema::written_rows(), 40);
+    assert_eq!(mapcro_schema::written_rows(), 42);
     assert_eq!(mapcro_schema::ROWS.len(), 42);
-    assert!(mapcro_schema::ROWS[..40].iter().all(|r| r.status != mapcro_schema::Status::Ahead));
-    assert!(mapcro_schema::ROWS[40..].iter().all(|r| r.status == mapcro_schema::Status::Ahead));
+    assert!(mapcro_schema::ROWS.iter().all(|r| r.status != mapcro_schema::Status::Ahead));
     assert!(first["build"].as_str().is_some_and(|b| b.len() == 16), "the server's build");
     assert!(first["exported_at"].as_i64().is_some_and(|t| t > 1_700_000_000));
     assert_eq!(first["matches"], json!([130816395]), "the match comes back by its id");
@@ -344,32 +343,26 @@ fn a_file_with_map_state_imports_and_a_row_still_ahead_makes_no_board() {
         let out = server.export_json(&board, &owner);
         assert_eq!((&out["version"], &out["rows"]), (&json!(6), &json!(40)), "Group B exports v6 at version {version}");
         server.import_ok(&out);
-        // Doorman doorways rows (`has_doors`, `doors`) are Ahead in R1; this loop checks each is refused.
+        // A scene holding Doorman doorways (rows 40–41) imports at any file version 1..=7, exports
+        // version 7 (`head.rows == 42`), and re-imports cleanly (including matchless `matches: []`).
+        let doors_v7 = versioned(&|v| {
+            state(
+                v,
+                json!({
+                    "rows": 42,
+                    "has_doors": true,
+                    "doors": [1, -1200, 800, 1, 1, 0, 1, 1400, -600, 2, 0, 0]
+                }),
+            );
+            v["matches"] = json!([]);
+        });
+        let (board, owner, _) = server.import_ok(&doors_v7);
+        let out = server.export_json(&board, &owner);
+        assert_eq!((&out["version"], &out["rows"]), (&json!(7), &json!(42)), "Doors export v7 at version {version}");
+        server.import_ok(&out);
+        // All 42 rows are Live in Doorman R2 (no Ahead rows remaining).
         let ahead_keys: Vec<&str> = ROWS.iter().filter(|r| r.status == Status::Ahead).map(|r| r.key).collect();
-        assert_eq!(ahead_keys, ["has_doors", "doors"], "Doorman R1 Ahead rows");
-        let valid_json = |kind: mapcro_schema::Kind| -> Value {
-            match kind {
-                mapcro_schema::Kind::Bool => json!(true),
-                mapcro_schema::Kind::Int { min, .. } => json!(min),
-                mapcro_schema::Kind::Text { .. } => json!("a"),
-                mapcro_schema::Kind::Pos => json!({ "x": 0, "y": 0 }),
-                mapcro_schema::Kind::Ints { min, .. } => json!([min]),
-            }
-        };
-        for ahead in ROWS.iter().filter(|r| r.status == Status::Ahead) {
-            let val = valid_json(ahead.kind);
-            let file = versioned(&|v| match ahead.entity {
-                mapcro_schema::Entity::Hero => hero(v, json!({ "level": 12, ahead.key: val.clone() })),
-                mapcro_schema::Entity::Scene => state(v, json!({ "rows": 16, ahead.key: val.clone() })),
-                mapcro_schema::Entity::Lane => {
-                    let scene = scene_of(v);
-                    records(v).push(json!(["00000000000000000000000000005009", { "Wave": { "scene": scene, "lane": "lane4", "t": 500, "more": { ahead.key: val.clone() } } }]));
-                }
-                mapcro_schema::Entity::Marker => unreachable!(),
-            });
-            let (status, body) = server.import(file.to_string().as_bytes());
-            assert_eq!((status, error_of(&body)), (422, "invalid".into()), "{} at version {version}", ahead.key);
-        }
+        assert!(ahead_keys.is_empty(), "Doorman R2 has no Ahead rows: {ahead_keys:?}");
     }
     // A second state for one scene is not a board.
     let twice = with(|v| {
@@ -405,11 +398,11 @@ fn bad_files_are_refused_with_a_code_and_make_no_board() {
     let send = |v: &Value| code(server.import(v.to_string().as_bytes()));
     let title_at = |v: &mut Value| -> usize { records(v).iter().position(|r| r[1].get("BoardMeta").is_some()).expect("meta") };
 
-    // A newer build's file: refused whole, whatever its body. Versions 2 to 6 are read in R3;
-    // a file whose version is >= 7 or whose writer knew more map-state rows than this build is
+    // A newer build's file: refused whole, whatever its body. Versions 2 to 7 are read in Doorman R2;
+    // a file whose version is >= 8 or whose writer knew more map-state rows than this build is
     // newer at any version.
     let rows = mapcro_schema::ROWS.len();
-    assert_eq!(send(&with(|v| v["version"] = json!(7))), (422, "newer".into()));
+    assert_eq!(send(&with(|v| v["version"] = json!(8))), (422, "newer".into()));
     assert_eq!(send(&with(|v| { v["version"] = json!(99); v["records"] = json!(marker); })), (422, "newer".into()));
     assert_eq!(send(&with(|v| { v["version"] = json!(2); v["rows"] = json!(rows + 1); v["records"] = json!(marker); })), (422, "newer".into()));
     assert_eq!(send(&with(|v| v["rows"] = json!(rows + 1))), (422, "newer".into()));

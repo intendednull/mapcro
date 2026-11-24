@@ -148,8 +148,8 @@ pub const ROWS: &[Row] = &[
     row("has_rejuv", Entity::Scene, Kind::Bool),
     row("rejuv", Entity::Scene, Kind::Ints { len: 8, min: -1, max: ID }),
     // Doorman doorways (docs/specs/doorman-doors.md): reader in store v18; writer in store v19.
-    ahead("has_doors", Entity::Scene, Kind::Bool),
-    ahead("doors", Entity::Scene, Kind::Ints { len: 24, min: -16384, max: 16384 }),
+    row("has_doors", Entity::Scene, Kind::Bool),
+    row("doors", Entity::Scene, Kind::Ints { len: 24, min: -16384, max: 16384 }),
 ];
 
 /// `SceneState`'s own status: the record kind is gated as a row is. Its reader ships a release
@@ -1258,7 +1258,7 @@ mod tests {
     fn the_file_version_table_covers_every_gated_version_and_derives_reads() {
         use crate::records::{Scene, Stroke};
         assert_eq!(ROWS.len(), 42);
-        assert_eq!(written_rows(), 40);
+        assert_eq!(written_rows(), 42);
         assert_eq!(ROWS[15].key, "has_heroes");
         assert_eq!(ROWS[16].key, "has_sight");
         assert_eq!(ROWS[26].key, "skulls");
@@ -1266,11 +1266,11 @@ mod tests {
         assert_eq!(ROWS[39].key, "rejuv");
         assert_eq!(ROWS[40].key, "has_doors");
         assert_eq!(ROWS[41].key, "doors");
-        // In Doorman R1 (store v18), rows 0–39 are Live and rows 40–41 are Ahead, so `reads_file_version()` stays 6.
-        assert_eq!(reads_file_version(), 6);
+        // In Doorman R2 (store v19), all 42 rows (0–41) are Live, so `reads_file_version()` is 7.
+        assert_eq!(reads_file_version(), 7);
         assert_eq!(
             FILE_VERSIONS.iter().map(|v| (v.version, v.live, v.rows)).collect::<Vec<_>>(),
-            [(3, true, 15), (4, true, 16), (5, true, 27), (6, true, 40), (7, false, 42)]
+            [(3, true, 15), (4, true, 16), (5, true, 27), (6, true, 40), (7, true, 42)]
         );
         assert!(FILE_VERSIONS.iter().all(|v| v.rows <= ROWS.len()));
 
@@ -1392,10 +1392,10 @@ mod tests {
             assert_eq!(Admit::READS.record(&rec), Ok(()), "{} record admitted by READS", r.key());
             assert_eq!(rows_ahead.record(&rec), Err(Reject::WrongField), "{} record refused while Ahead", r.key());
         }
-        // Doorman doorways (rows 40..=41): Status::Ahead in Release 1 — READS admits, DEPLOYED refuses.
+        // Doorman doorways (rows 40..=41): Status::Live in Release 2 — DEPLOYED and READS admit, Ahead refuses.
         for i in 40..=41 {
             let r = RowId(i as u16);
-            assert_eq!(r.row().status, Status::Ahead, "{} status in Doorman R1", r.key());
+            assert_eq!(r.row().status, Status::Live, "{} status in Doorman R2", r.key());
             let v = valid_value(r.row().kind);
             assert_eq!(v.check(r.row()), Ok(()), "valid value for {}", r.key());
             for op in [
@@ -1404,14 +1404,16 @@ mod tests {
                 Op::SetIf { id: RecordId(5), expect: FieldValue::More { key: r, value: None }, value: pos.clone() },
                 Op::SetIf { id: RecordId(5), expect: pos.clone(), value: FieldValue::More { key: r, value: Some(v.clone()) } },
             ] {
+                assert_eq!(Admit::DEPLOYED.tx(&tx(vec![op.clone()])), Ok(()), "{} admitted by DEPLOYED", r.key());
                 assert_eq!(Admit::READS.tx(&tx(vec![op.clone()])), Ok(()), "{} admitted by READS", r.key());
-                assert_eq!(Admit::DEPLOYED.tx(&tx(vec![op])), Err(Reject::WrongField), "{} refused by DEPLOYED while Ahead", r.key());
+                assert_eq!(rows_ahead.tx(&tx(vec![op])), Err(Reject::WrongField), "{} refused while Ahead", r.key());
             }
             let m: More = [(r, v)].into_iter().collect();
             assert_eq!(m.check(Entity::Scene), Ok(()), "{} map valid", r.key());
             let rec = scene_state(m);
+            assert_eq!(Admit::DEPLOYED.record(&rec), Ok(()), "{} record admitted by DEPLOYED", r.key());
             assert_eq!(Admit::READS.record(&rec), Ok(()), "{} record admitted by READS", r.key());
-            assert_eq!(Admit::DEPLOYED.record(&rec), Err(Reject::WrongField), "{} record refused by DEPLOYED while Ahead", r.key());
+            assert_eq!(rows_ahead.record(&rec), Err(Reject::WrongField), "{} record refused while Ahead", r.key());
         }
     }
 

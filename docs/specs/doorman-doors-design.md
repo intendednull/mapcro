@@ -263,7 +263,7 @@ We evaluate the three candidate entry points against desktop discoverability, bl
 |---|---|---|---|
 | Door is unpaired (`partner === null`) | **`Link second door`** | `door-menu-link` | Enters Step-2 live link preview anchored at this door's position; next map click/tap places & links Door 2 |
 | Door is linked (`partner !== null`) | **`Unlink door`** | `door-menu-unlink` | Removes this door and converts its partner to an unpaired Door 1 (`role: "unpaired"`, `partner: null`) |
-| Always (enemy sight toggle, matching `hero-menu-vision`) | **`Mark not seen`** (when `inSight`) / **`Mark in vision`** (when `!inSight`) | `door-menu-vision` | Toggles `unseen` (`0 ↔ 1`) on this door **and its linked partner in lockstep** (matching Deadlock's FOW lockstep rule); sets `has_sight: true` on `SceneState.more` if unset |
+| Always (enemy sight toggle, matching `hero-menu-vision`) | **`Mark not seen`** (when `inSight`) / **`Mark in vision`** (when `!inSight`) | `door-menu-vision` | Toggles `unseen` (`0 ↔ 1`) on this door **and its linked partner in lockstep** (matching Deadlock's FOW lockstep rule); writes only `doors` (never sets `has_sight: true` — see `doorman-doors.md` Amendment #4) |
 | Always | **`Remove doorway`** | `door-menu-remove` | Deletes the doorway (the unpaired door, or **both** doors of a linked pair) |
 
 - **`Erase` Tool (`D`) and Hover + `D` Key:**
@@ -271,7 +271,7 @@ We evaluate the three candidate entry points against desktop discoverability, bl
   - In `Erase` tool (`D`), hovering or scrubbing over a `.pl-door` dims the doorway (both doors and their link arc if linked, `.erasing`), and releasing commits **one transaction** removing the doorway (the unpaired door or the linked pair).
   - Pressing `D` while hovering a `.pl-door` in any tool (`Layers.tsx:792-805`) immediately deletes that doorway in one transaction.
 - **Undo / Redo Atomicity:**
-  - Every doorway operation (place pair, place unpaired, link second door, drag door, unlink door, toggle sight, remove doorway) writes a single transaction to `SceneState.more` (`doors`, plus `has_doors: true` / `has_sight: true` when first initialized), so every edit is **one atomic undo/redo step**.
+  - Every doorway operation (place pair, place unpaired, link second door, drag door, unlink door, toggle sight, remove doorway) writes a single transaction to `SceneState.more` (`doors` via `SetIf`, plus `has_doors: true` when first initialized), so every edit is **one atomic undo/redo step**.
 
 ### 2.5 `Clear` Menu (`ClearKind`) Boundary
 
