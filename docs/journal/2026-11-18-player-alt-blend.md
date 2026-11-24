@@ -28,7 +28,7 @@ because the columns beside it are equal. The current speed is a tag on Play's fo
 
 - Phone upright: the clock and lane, then the speed list and Events, Play, Map layers and More. No
   skip keys, and speed stays a list (feedback #58). 103 px tall.
-- Phone on its side: one row, the clock and lane, the keys, the tabs. 53 px tall.
+- Phone on its side: one row, the clock and lane, the keys, the tabs. 53 px tall. Below 700 px wide, the clock shows elapsed time only (`--clock-w: 44px`) to give the scrubber more room (operator lean, 2026-11-24).
 - Tablet upright: as a phone upright, with the whole cluster.
 - Tablet on its side: two rows, so the lane keeps at least 40% of the width.
 - The tool rail (Laser, Edit) needs the width, so Play goes back beside the lane there.

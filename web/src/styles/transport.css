@@ -302,6 +302,12 @@
   .phone .pl-keys .pl-play { width: 44px; min-width: 44px; height: 44px; }
   .phone .pl-speed { bottom: -4px; }
 }
+/* Shortest landscape phones (<= 700 px) show elapsed time only, freeing track space. */
+@media (orientation: landscape) and (max-width: 700px) {
+  .phone .pl-bar { --clock-w: 44px; }
+  .phone .match-clock .clock-of { display: none; }
+  .phone .pl-tail .match-clock { min-width: 0; }
+}
 @media (orientation: landscape) and (min-width: 780px) {
   .phone .pl-bar { --clock-w: 104px; }
   .phone .pl-bar:has(.p-rail) .pl-transport > .pl-scrub { margin-left: 0; }

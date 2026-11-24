@@ -82,6 +82,8 @@ test("the sidebar: a scene shows its note and no events list; Player shows the e
 test("speed: − and + step through the five speeds, each disabled at its end, and the keys stay the board's (#58)", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Speed"), "Coach");
   await openMatch(a);
+  const follower = await joinNew(browser, a.url(), "Guest");
+  await follower.getByTestId("follow-Coach").click();
   const group = a.getByTestId("match-speed");
   const [down, up, now] = [a.getByTestId("speed-down"), a.getByTestId("speed-up"), a.getByTestId("speed-now")];
   // No list on the desktop: the speed keys are the outer ends of the cluster around Play.
@@ -134,6 +136,11 @@ test("speed: − and + step through the five speeds, each disabled at its end, a
   expect(await focused()).toBe("speed-down");
   await a.keyboard.press("Enter");
   await expect(now).toHaveText("4×");
+  await expect(follower.getByTestId("speed-now")).toHaveText("4×");
+  expect(await focused()).toBe("speed-down");
+  const beforeSeek = await clock();
+  await a.keyboard.press("ArrowRight");
+  expect(await clock()).toBe(beforeSeek + 5);
   expect(await focused()).toBe("speed-down");
 });
 
