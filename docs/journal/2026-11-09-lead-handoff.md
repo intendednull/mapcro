@@ -3,7 +3,38 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
-## Paused (operator, 2026-11-23)
+## Deployed c94cdac: Map-state Phase 5, Release R3 (Writer B, store v17 floor 16, file v6) — Phase 5 COMPLETE (2026-11-24, lead 2a42cd74)
+
+- **Prod `web` runs `c94cdac`** (`infra` `6b90446`, bundle `/assets/index-qKSeC2sg.js`, `/healthz ok rooms=0`).
+  - **Store migrated cleanly to v17** (`Step::NeedsReader { reader: 16 }`, `compat_floor = 16`,
+    `PRAGMA integrity_check: ok`; mandatory online SQLite backup verified at
+    `/var/lib/mapcro/mapcro.sqlite.pre-v17`, `32M`, `0600 mapcro:mapcro`, `PRAGMA integrity_check: ok`).
+  - **Closure diff strictly mapcro-only** (`DIFF: 1.80 KiB`; only `mapcro-server`, `mapcro-replay`,
+    `mapcro-web`, `mapcro-stats`, and their systemd units changed; zero non-mapcro downtime;
+    `healthz-check.service` passed; `journalctl` confirmed `migrated database schema to=17` and all
+    9 asset packs indexed with zero errors; `mapcro-stats` 0 5xx / 0 abnormal WS closes / 0 OOM).
+  - **Live prod verification (`129738985`):** `11:30` pre-live announced Rift (`Active`/`Destroyed`,
+    0 rings, `"Rift opens in 0:46"`), `31:20` Sapphire 3-revive Rejuvenator HUD + 10 hero health
+    arcs, 0 Retake buttons, `.mapcro` v6 export (`{ format: "mapcro-board", version: 6, rows: 40 }`),
+    0 console/page errors.
+  - **Full gate + Stage C3b rollback check passed before merge:** 4 rounds of independent adversarial
+    review (`APPROVE`), 12/12 manual mutants killed, Stage C1 (590 workspace tests, 2,000 sim seeds,
+    `reader-check` vs R2.1 `9d1f206`, 88/88 web suites / 1,032 passed), C2a Chromium 589/589, C2b
+    Firefox Android 52/52, C3a NixOS VM test, C3b live walkthrough (`1:00`, `10:30`, `11:30`,
+    `12:40`, `31:20`, 20-scene `.mapcro` v6 avg 3.15 ObjectiveStates/scene, TD-162 matchless
+    import), and live R3 (`v17`) → R2.1 (`9d1f206`, `v16`) binary rollback check (pixel-identical
+    rendering, `schema_version=17 / compat_floor=16` preserved untouched).
+  - **Post-deploy locks updated:** `crates/schema/rows.lock` verified unchanged at all **40
+    map-state rows**; `justfile` `reader` bumped to **`c94cdac`**. `map-state-r3-p5` worktree &
+    branch cleaned up.
+- **Next in active queue (resumed 2026-11-24, Antigravity/agy usage only):**
+  1. **GitHub feedback `#62`** (`feedback-62-ability-tooltips`, `9a26449`): gate, re-extract asset
+     pack with `upgrade_props` + boon-data, deploy web + pack, verify live, close `#62`.
+  2. **Exploratory QA Cycle 2, Pass 006** (`qa-browser` v1.5, Neon medium): live prod verification
+     of R3 + `#62` (`FM-091`) + deepen all 14 remaining `smoke` rows → 100% `deep` (`70/70`).
+  3. **Held:** `player-transport` (`6ed0179`) stays held awaiting the operator's 2 answers.
+
+## Paused (operator, 2026-11-23) [RESUMED 2026-11-24]
 
 Paused per operator instruction relayed by the concierge (`84c1d783`, `2026-11-23 ~09:02 UTC`). All
 workers are cleanly committed, pushed, and archived; zero mapcro processes or heavy jobs are running
