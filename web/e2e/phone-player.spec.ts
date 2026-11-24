@@ -579,9 +579,15 @@ for (const [width, height, touch] of [[1920, 1080, false], [1440, 900, false], [
     } else await expect(p.getByTestId("match-speed-list")).toBeVisible();
 
     // Touch keys are 44 px or more: Play, the speed, and Back and Forward where they show.
-    if (touch) for (const id of ["match-play", upright ? "match-speed-list" : "speed-up", ...(upright ? [] : ["speed-down"]), ...(skips ? ["match-back", "match-forward"] : [])]) {
-      const b = await box(id);
-      expect(Math.min(b.width, b.height), id).toBeGreaterThanOrEqual(43.9);
+    if (touch) {
+      for (const id of ["match-play", upright ? "match-speed-list" : "speed-up", ...(upright ? [] : ["speed-down"]), ...(skips ? ["match-back", "match-forward"] : [])]) {
+        const b = await box(id);
+        expect(Math.min(b.width, b.height), id).toBeGreaterThanOrEqual(43.9);
+      }
+      // Shortest landscape phones (<= 700 px) show elapsed time only, freeing track space.
+      const of = p.locator(".match-clock .clock-of");
+      if (landscape && width <= 700) await expect(of).toBeHidden();
+      else await expect(of).toBeVisible();
     }
     if (!touch) {
       // Inside the bar and inside the stage: the bar runs under the side panels' edges.
