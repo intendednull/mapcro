@@ -6,7 +6,7 @@ what it is, and what it depends on.
 
 ## Doorman doorway indicators — Player + Scenes (2026-11-24, queued)
 
-Operator request (2026-11-24): show little indicators on the minimap where The Doorman (`hero_id: 69`) has placed his doors, in **both Player and Scenes**. Art is already extracted in pack `6864-upgrades` (`icons/doorman_doorway_psd` from `panorama/images/minimap/doorman_doorway_psd.vtex_c`, plus `.map_button.doorman_doorway` in `hud_minimap.vcss` and `ability_doorman_doorway` `m_ColorStart`/`m_ColorEnd` in vdata).
+Operator request (2026-11-24): show little door indicators on the minimap where The Doorman (`hero_id: 69`) has placed his doors — **styled as little doors like they show up in-game** — in **both Player and Scenes**. Art is already extracted in pack `6864-upgrades` (`icons/doorman_doorway_psd` from `panorama/images/minimap/doorman_doorway_psd.vtex_c`, plus `.map_button.doorman_doorway` in `hud_minimap.vcss` and `ability_doorman_doorway` `m_ColorStart`/`m_ColorEnd` in vdata), with a crisp fallback SVG door icon when running without a pack.
 
 Staged plan (Antigravity/agy usage only):
 1. **Stage 0 — Demo probe & research (in progress, branch `doorman-doors-probe`):** Probe standard 6v6 Doorman replay `142815246` (`game_mode == 1`, 1,514 s) via `crates/replay/examples/doorman_door_probe.rs` to confirm the exact networked entity class(es), coordinates, owner/team, linked pair/partner reference, unpaired-door state, duration/expiry lifecycle, max simultaneous doors, and `CCitadelTeam.m_vecFOWEntities` Vision behavior. Document in `docs/research/README.md` and `docs/research/doorman-doors.md`.
