@@ -240,15 +240,15 @@ describe("a step that writes a hero's record in a scene that holds its heroes", 
       return tight;
     };
 
-    it("fitting hero: rewrites non-null Group A hero writes from SetIf to Set (leaving SceneState SetIf intact)", () => {
+    it("fitting hero: rewrites non-null Group A hero writes and activating SceneState has_* flags from SetIf to Set (leaving rows SetIf intact)", () => {
       const records = view({ hero: { hero: M, ...BUILD } });
       const d = decideStep(captureRedo, records);
       expect(d.changed).toBe(true);
       expect(d.ops).toEqual([
         set(H, "unseen", true),
         set(H, "height", 1),
-        setIf(STATE, "has_sight", null, true),
-        setIf(STATE, "has_movement", null, true),
+        set(STATE, "has_sight", true),
+        set(STATE, "has_movement", true),
         setIf(STATE, "rows", 16, 27),
       ]);
     });
@@ -313,14 +313,14 @@ describe("a step that writes a hero's record in a scene that holds its heroes", 
         setIf(STATE, "has_sight", null, true),
         setIf(STATE, "rows", 16, 27),
       ];
-      // Hero already has `cc: 4` (mismatching `expect: null`), while `unseen` is absent (matches `expect: null`).
+      // Hero already has `cc: 4` (mismatching `expect: null`), while `unseen` and matching `has_*` flags harden to Set.
       const records = view({ hero: { hero: M, ...BUILD, cc: 4 } });
       expect(decideStep(step, records)).toEqual({
         ops: [
           setIf(H, "cc", null, 2),
           set(H, "unseen", true),
-          setIf(STATE, "has_cc", null, true),
-          setIf(STATE, "has_sight", null, true),
+          set(STATE, "has_cc", true),
+          set(STATE, "has_sight", true),
           setIf(STATE, "rows", 16, 27),
         ],
         carry: [],

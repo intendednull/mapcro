@@ -124,8 +124,20 @@ describe("map state, as it is before MapState (phase 0 pins)", () => {
     const bare = matchSceneOps(roster as never, [], undefined, replay, 3, markers, (() => { let n = 0; return () => `id${n++}`; })(), lanes, { source: sourceOf(replay), builds: false }).ops;
     expect(new Set(bare.flatMap((o) => ("Create" in o ? Object.keys(o.Create.record) : [])))).toEqual(new Set(["ObjectiveState", "PlayerState", "Scene", "SceneState", "Wave"]));
     expect(bare.flatMap((o) => ("Create" in o && "PlayerState" in o.Create.record ? [o.Create.record.PlayerState.more] : []))).toEqual(replay.players.map((p) => ({ hero: p.hero_id })));
-    expect(bare.flatMap((o) => ("Create" in o && "SceneState" in o.Create.record ? [o.Create.record.SceneState.more] : []))).toEqual([{ rows: ROWS.skulls.index + 1, has_heroes: true }]);
-    const plain = (ops: Op[]) => ops.filter((o) => !("Create" in o && "SceneState" in o.Create.record)).map((o) => JSON.parse(JSON.stringify(o, (k, v) => (k === "more" ? undefined : v))));
+    expect(bare.flatMap((o) => ("Create" in o && "SceneState" in o.Create.record ? [o.Create.record.SceneState.more] : []))).toEqual([{ rows: ROWS.rejuv.index + 1, has_heroes: true }]);
+    // In R3, Save with builds omits baseline-covered camp/midboss ObjectiveStates (`camp:neutral:lane0:3`,
+    // `mid_boss:neutral:lane0:1`), while bare (`builds: false`) keeps all legacy ObjectiveStates.
+    const dropCovered = (list: Op[]) =>
+      list.filter(
+        (o) =>
+          !("Create" in o && "SceneState" in o.Create.record) &&
+          !("Create" in o && "ObjectiveState" in o.Create.record && (o.Create.record.ObjectiveState.key === "camp:neutral:lane0:3" || o.Create.record.ObjectiveState.key === "mid_boss:neutral:lane0:1")),
+      );
+    const plain = (list: Op[]) =>
+      dropCovered(list).map((o) => JSON.parse(JSON.stringify(o, (k, v) => (k === "more" || k === "id" ? undefined : v))));
     expect(plain(bare)).toEqual(plain(ops.filter((o) => !("Set" in o))));
+    expect(ops.filter((o) => "Create" in o && "ObjectiveState" in o.Create.record).length).toBe(
+      bare.filter((o) => "Create" in o && "ObjectiveState" in o.Create.record).length - 2,
+    );
   });
 });

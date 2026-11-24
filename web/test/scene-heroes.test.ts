@@ -56,7 +56,7 @@ describe("the row", () => {
   it("is written by this build: its save holds the scene's heroes", () => {
     expect(ROWS.has_heroes).toMatchObject({ entity: "scene", kind: "bool", status: "live" });
     expect(WRITTEN).toBeGreaterThanOrEqual(LATER);
-    expect(WRITTEN).toBe(ROWS.skulls.index + 1);
+    expect(WRITTEN).toBe(ROWS.rejuv.index + 1);
     expect(writesHeroes()).toBe(true);
     expect(captureScene(tl).has_heroes).toBe(true);
     expect(matchSceneOps(roster() as never, [], undefined, tl, 4, markers, minter(), [], { source: sourceOf(tl) }).ops).toEqual(save({ written: WRITTEN }).ops);

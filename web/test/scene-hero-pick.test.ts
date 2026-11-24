@@ -21,13 +21,13 @@ import { LIMITS } from "../src/gen/limits";
 import { ROWS } from "../src/gen/rows";
 import type { Op } from "../src/gen/Op";
 import type { RosterSlot } from "../src/gen/RosterSlot";
-import { BUILD_KEYS, captureBuild, captureScene, captured, heroBuildAt, moreBytes, sceneHero } from "../src/mapstate/build";
+import { BUILD_KEYS, WRITTEN, captureBuild, captureScene, captured, heroBuildAt, moreBytes, sceneHero } from "../src/mapstate/build";
 import { holdsBuild } from "../src/mapstate/buildView";
 import { encodeCC } from "../src/mapstate/codec";
 import { pickHeroOps } from "../src/mapstate/edit";
 import { secondPart, tenthPart } from "../src/mapstate/frame";
-import { retakeOps, slotKey } from "../src/match/save";
-import { replay } from "./support/synthetic-match";
+import { canRetake, retakeOps, slotKey } from "../src/match/save";
+import { markers, replay } from "./support/synthetic-match";
 
 const ROOT = resolve(__dirname, "../..");
 const ORIGIN = "http://localhost:5173";
@@ -570,5 +570,359 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
       expect(captured(stateOf(s)).sight).toBe(false);
     }
     [a, b].forEach((x) => x.stop());
+  });
+
+  // Phase 5 R3: Group B Retake -> undo -> Peer B consumes SceneState `max_more_bytes` -> Peer A redoes:
+  // `decideStep` preflights `SceneState` (dropping settled overflow) and hardens activating payload
+  // `SetIf`s (`camps`, etc.) to `Op::Set` (aborting concurrent overflow atomically with `TxTooLarge`),
+  // never leaving `has_camps: true` without `camps` under `UNFIT_UNDO`!
+  it("R3 Group B Retake redo against near-cap SceneState never leaves has_camps captured without camps (settled & concurrent)", async () => {
+    const hugeCamps = Array.from({ length: 600 }, () => 4_294_967_295);
+    const hugeObjHealth = Array.from({ length: 120 }, () => 4_294_967_295);
+    const hugePowerups = Array.from({ length: 20 }, () => 4_294_967_295);
+    const hugeSkulls = Array.from({ length: 36 }, () => 255);
+    const fillerState: More = {
+      rows: 27,
+      has_builds: true,
+      has_heroes: true,
+      has_obj_health: true,
+      obj_health: hugeObjHealth,
+      powerups: hugePowerups,
+      skulls: hugeSkulls,
+    };
+    expect(moreBytes({ ...fillerState, has_camps: true, camps: hugeCamps, rows: 40 })).toBeGreaterThan(LIMITS.max_more_bytes);
+
+    for (const mode of ["settled", "concurrent"] as const) {
+      const [ga, gb] = [heldSocket(), heldSocket()];
+      const { a, b, scene } = await board([ga.open, gb.open]);
+      const stateId = newRecordId();
+      const stateOf = (s: BoardSession) => (s.records.get(stateId)?.record as { SceneState?: { more?: More } } | undefined)?.SceneState?.more;
+      expect(a.edit([{ Create: { id: stateId, record: { SceneState: { scene, more: { rows: 27, has_builds: true, has_heroes: true } } } } }])).toBe(true);
+      expect(await settled(a, b)).toBe(true);
+      expect(await until(() => b.records.has(stateId))).toBe(true);
+
+      // 1. Peer A performs a Group B Retake-shaped edit (`has_camps: true`, `camps: hugeCamps`, `rows: 40`), then undoes.
+      expect(
+        a.edit([
+          { Set: { id: stateId, value: { More: { key: "has_camps", value: true } } } },
+          { Set: { id: stateId, value: { More: { key: "camps", value: hugeCamps } } } },
+          { SetIf: { id: stateId, expect: { More: { key: "rows", value: 27 } }, value: { More: { key: "rows", value: 40 } } } },
+        ]),
+      ).toBe(true);
+      expect(await settled(a, b)).toBe(true);
+      expect(await until(() => captured(stateOf(b)).camps)).toBe(true);
+      a.undo();
+      expect(await settled(a, b)).toBe(true);
+      expect(await until(() => !captured(stateOf(b)).camps && stateOf(b)?.camps === undefined)).toBe(true);
+
+      // 2. Peer B fills SceneState with legal `obj_health` + `powerups` + `skulls` (settled or racing Peer A's redo).
+      const fillOps: Op[] = [
+        { Set: { id: stateId, value: { More: { key: "has_obj_health", value: true } } } },
+        { Set: { id: stateId, value: { More: { key: "obj_health", value: hugeObjHealth } } } },
+        { Set: { id: stateId, value: { More: { key: "powerups", value: hugePowerups } } } },
+        { Set: { id: stateId, value: { More: { key: "skulls", value: hugeSkulls } } } },
+      ];
+      const beforeProblems = a.problems.length;
+      if (mode === "settled") {
+        expect(b.edit(fillOps)).toBe(true);
+        expect(await settled(a, b)).toBe(true);
+        expect(await until(() => stateOf(a)?.obj_health !== undefined)).toBe(true);
+        a.redo();
+      } else {
+        ga.hold();
+        a.redo();
+        expect(b.edit(fillOps)).toBe(true);
+        expect(await settled(b)).toBe(true);
+        ga.release();
+        expect(await until(() => a.problems.length > beforeProblems)).toBe(true);
+        expect(a.problems.slice(beforeProblems).join(" ")).toMatch(/TxTooLarge/);
+      }
+      expect(await settled(a, b)).toBe(true);
+      expect(await until(() => JSON.stringify(stateOf(a)) === JSON.stringify(stateOf(b)))).toBe(true);
+      for (const s of [a, b]) {
+        expect(stateOf(s)?.has_camps).toBeUndefined();
+        expect(stateOf(s)?.camps).toBeUndefined();
+        expect(stateOf(s)?.rows).toBe(27);
+        expect(captured(stateOf(s)).camps).toBe(false);
+      }
+      [a, b].forEach((x) => x.stop());
+    }
+  });
+
+  // Finding 2 (server+WASM): near-8,192-byte R2-watermark SceneState with dormant `camps` + `obj_health`
+  // at an all-camps-alive frame: Retake commits cleanly because `camps: null` precedes `has_camps: true`,
+  // whereas reversing those two ops fails `TxTooLarge` on the server (per-op `max_more_bytes` check).
+  it("near-cap dormant-payload Retake commits cleanly on the real server because clears precede growing ops (Finding 2)", async () => {
+    const base = replay();
+    const tl = {
+      ...base,
+      camps: markers.filter((m) => m.kind === "camp").slice(0, 3).map((m) => ({ key: m.key, first_s: 0, cleared: [] })),
+      heals: [],
+      crates: [],
+      powerups: [],
+      objective_health: [],
+      rifts: undefined,
+      urn: undefined,
+      rejuv: undefined,
+    } as unknown as typeof base;
+    const hugeObjHealth = Array.from({ length: 120 }, () => 4_294_967_295);
+    const hugePowerups = Array.from({ length: 20 }, () => 4_294_967_295);
+    const hugeSkulls = Array.from({ length: 36 }, () => 255);
+    const hugeCamps = Array.from({ length: 600 }, () => 4_294_967_295);
+    const nearCapDormant: More = {
+      rows: 27,
+      has_builds: true,
+      has_heroes: true,
+      has_sight: true,
+      has_cc: true,
+      has_movement: true,
+      has_lanes: true,
+      has_skulls: true,
+      skulls: hugeSkulls,
+      camps: hugeCamps,
+      powerups: hugePowerups,
+      obj_health: hugeObjHealth,
+    };
+    while (moreBytes(nearCapDormant) > LIMITS.max_more_bytes) {
+      hugeCamps.pop();
+    }
+    expect(hugeCamps.length).toBeLessThanOrEqual(600);
+    expect(moreBytes(nearCapDormant)).toBeLessThanOrEqual(LIMITS.max_more_bytes);
+    expect(moreBytes({ ...nearCapDormant, has_camps: true })).toBeGreaterThan(LIMITS.max_more_bytes);
+
+    const { a, b, scene } = await board();
+    const stateId = newRecordId();
+    const stateOf = (s: BoardSession) => (s.records.get(stateId)?.record as { SceneState?: { more?: More } } | undefined)?.SceneState?.more;
+    expect(a.edit([{ Create: { id: stateId, record: { SceneState: { scene, more: nearCapDormant } } } }])).toBe(true);
+    expect(await settled(a, b)).toBe(true);
+    expect(await until(() => b.records.has(stateId))).toBe(true);
+
+    // 1. Proves the engine/server enforces per-op `max_more_bytes`: sending `has_camps: true` BEFORE `camps: null` is refused!
+    expect(
+      a.edit([
+        { Set: { id: stateId, value: { More: { key: "has_camps", value: true } } } },
+        { Set: { id: stateId, value: { More: { key: "camps", value: null } } } },
+      ]),
+    ).toBe(false);
+    expect(stateOf(a)?.has_camps).toBeUndefined();
+
+    // 2. Real `retakeOps` clears `camps` FIRST and commits cleanly on the server!
+    const scRow = { id: scene, scene: { name: "s", order: "a", clock: 4, source: { match_id: tl.match_id, t: 4, tier: "replay" } } } as never;
+    const txs = retakeOps(scRow, { id: stateId, more: stateOf(a) }, [], [], tl, newRecordId, WRITTEN, markers, new Map());
+    expect(txs).toHaveLength(1);
+    const beforeOk = a.problems.length;
+    expect(a.edit(txs[0]!)).toBe(true);
+    expect(await settled(a, b)).toBe(true);
+    expect(a.problems.length).toBe(beforeOk);
+    expect(await until(() => stateOf(b)?.has_camps === true && stateOf(b)?.camps === undefined && stateOf(b)?.rows === 40)).toBe(true);
+    [a, b].forEach((x) => x.stop());
+  });
+
+  // Finding 4 (server+WASM): multi-feature Retake redo (`obj_health` + `rejuv`) under concurrent byte pressure
+  // where `has_obj_health` + `obj_health` WOULD fit, while the subsequent `has_rejuv: true` overflows `max_more_bytes`:
+  // because `decideStep` hardens activating `has_*` flags to `Op::Set`, the ENTIRE redo aborts atomically!
+  it("multi-feature Retake redo aborts atomically when a later activating has_* flag overflows under concurrent byte pressure (Finding 4)", async () => {
+    const baseMore: More = { rows: 27, has_builds: true, has_heroes: true };
+    const medObjHealth = Array.from({ length: 100 }, () => 4_294_967_295);
+    const [ga2, gb2] = [heldSocket(), heldSocket()];
+    const { a: a2, b: b2, scene: scene2 } = await board([ga2.open, gb2.open]);
+    const st2 = newRecordId();
+    const stateOf2 = (s: BoardSession) => (s.records.get(st2)?.record as { SceneState?: { more?: More } } | undefined)?.SceneState?.more;
+    expect(a2.edit([{ Create: { id: st2, record: { SceneState: { scene: scene2, more: baseMore } } } }])).toBe(true);
+    expect(await settled(a2, b2)).toBe(true);
+    expect(await until(() => b2.records.has(st2))).toBe(true);
+
+    expect(
+      a2.edit([
+        { Set: { id: st2, value: { More: { key: "has_obj_health", value: true } } } },
+        { Set: { id: st2, value: { More: { key: "obj_health", value: medObjHealth } } } },
+        { Set: { id: st2, value: { More: { key: "has_rejuv", value: true } } } },
+        { SetIf: { id: st2, expect: { More: { key: "rows", value: 27 } }, value: { More: { key: "rows", value: 40 } } } },
+      ]),
+    ).toBe(true);
+    expect(await settled(a2, b2)).toBe(true);
+    expect(await until(() => captured(stateOf2(b2)).obj_health && captured(stateOf2(b2)).rejuv)).toBe(true);
+    a2.undo();
+    expect(await settled(a2, b2)).toBe(true);
+    expect(await until(() => !captured(stateOf2(b2)).obj_health && !captured(stateOf2(b2)).rejuv)).toBe(true);
+
+    const fillCamps = Array.from({ length: 600 }, () => 4_294_967_295);
+    const fillPowerups = Array.from({ length: 20 }, () => 4_294_967_295);
+    const fillSkulls = Array.from({ length: 36 }, () => 255);
+    const fillMore: More = {
+      ...baseMore,
+      has_camps: true,
+      camps: fillCamps,
+      has_powerups: true,
+      powerups: fillPowerups,
+      has_skulls: true,
+      skulls: fillSkulls,
+    };
+    while (moreBytes({ ...fillMore, has_obj_health: true, obj_health: medObjHealth }) > LIMITS.max_more_bytes) {
+      fillCamps.pop();
+    }
+    // Now `fillMore + has_obj_health + medObjHealth` is within [8181, 8192] B: fits, while adding `has_rejuv: true` (+17 B) overflows!
+    expect(moreBytes({ ...fillMore, has_obj_health: true, obj_health: medObjHealth })).toBeLessThanOrEqual(LIMITS.max_more_bytes);
+    expect(moreBytes({ ...fillMore, has_obj_health: true, obj_health: medObjHealth, has_rejuv: true })).toBeGreaterThan(LIMITS.max_more_bytes);
+
+    const fillOps: Op[] = [
+      { Set: { id: st2, value: { More: { key: "has_camps", value: true } } } },
+      { Set: { id: st2, value: { More: { key: "camps", value: fillCamps } } } },
+      { Set: { id: st2, value: { More: { key: "has_powerups", value: true } } } },
+      { Set: { id: st2, value: { More: { key: "powerups", value: fillPowerups } } } },
+      { Set: { id: st2, value: { More: { key: "has_skulls", value: true } } } },
+      { Set: { id: st2, value: { More: { key: "skulls", value: fillSkulls } } } },
+    ];
+    const beforeProblems = a2.problems.length;
+    ga2.hold();
+    a2.redo();
+    expect(b2.edit(fillOps)).toBe(true);
+    expect(await settled(b2)).toBe(true);
+    ga2.release();
+    expect(await until(() => a2.problems.length > beforeProblems)).toBe(true);
+    expect(a2.problems.slice(beforeProblems).join(" ")).toMatch(/TxTooLarge/);
+    expect(await settled(a2, b2)).toBe(true);
+    expect(await until(() => JSON.stringify(stateOf2(a2)) === JSON.stringify(stateOf2(b2)))).toBe(true);
+    // Entire redo aborted atomically: NEITHER `obj_health` NOR `has_obj_health` NOR `has_rejuv` NOR `rows: 40` landed!
+    for (const s of [a2, b2]) {
+      expect(stateOf2(s)?.has_obj_health).toBeUndefined();
+      expect(stateOf2(s)?.obj_health).toBeUndefined();
+      expect(stateOf2(s)?.has_rejuv).toBeUndefined();
+      expect(stateOf2(s)?.rows).toBe(27);
+    }
+    [a2, b2].forEach((x) => x.stop());
+  });
+
+  // Astra Round 2 Medium #3 (server+WASM): imported `rows: 40` scene with all Phase 5 flags already set,
+  // existing hero builds, absent `has_builds`, and less room in `SceneState.more` than `has_builds` needs:
+  // `canRetake` returns `false` and `retakeOps` returns `[]` (no rejected write / stuck button);
+  // once `SceneState.more` has room, `canRetake` returns `true` and `retakeOps` commits cleanly on the server!
+  it("build-only Retake checks SceneState max_more_bytes in both canRetake and retakeOps (Round 2 #3)", async () => {
+    const tl = replay();
+    const { a, b, scene } = await board();
+    const stateId = newRecordId();
+    const stateOf = (s: BoardSession) => (s.records.get(stateId)?.record as { SceneState?: { more?: More } } | undefined)?.SceneState?.more;
+    const scObj = { name: "s", order: "a", clock: 4, source: { match_id: tl.match_id, t: 4, tier: "replay" } };
+    const scRow = { id: scene, scene: scObj } as never;
+
+    const fullCamps = Array.from({ length: 600 }, () => 4_294_967_295);
+    const fullObjHealth = Array.from({ length: 120 }, () => 4_294_967_295);
+    const fullPowerups = Array.from({ length: 20 }, () => 4_294_967_295);
+    const fullSkulls = Array.from({ length: 36 }, () => 255);
+    const tightMore: More = {
+      rows: 40,
+      build: 6839,
+      has_heroes: true,
+      has_sight: true,
+      has_cc: true,
+      has_movement: true,
+      has_lanes: true,
+      has_skulls: true,
+      skulls: fullSkulls,
+      has_camps: true,
+      camps: fullCamps,
+      has_powerups: true,
+      powerups: fullPowerups,
+      has_obj_health: true,
+      obj_health: fullObjHealth,
+      has_rifts: true,
+      has_urn: true,
+      has_rejuv: true,
+    };
+    while (moreBytes(tightMore) > LIMITS.max_more_bytes) fullCamps.pop();
+    expect(moreBytes(tightMore)).toBeLessThanOrEqual(LIMITS.max_more_bytes);
+    expect(moreBytes({ ...tightMore, has_builds: true })).toBeGreaterThan(LIMITS.max_more_bytes);
+
+    expect(a.edit([{ Create: { id: stateId, record: { SceneState: { scene, more: tightMore } } } }])).toBe(true);
+    expect(await settled(a, b)).toBe(true);
+    expect(await until(() => b.records.has(stateId))).toBe(true);
+
+    // 1. Tight SceneState (lacks room for `has_builds: true`): `canRetake` is false and `retakeOps` is empty!
+    expect(canRetake(scObj, stateOf(a), tl, WRITTEN, markers, [], [], new Map())).toBe(false);
+    expect(retakeOps(scRow, { id: stateId, more: stateOf(a) }, [], [], tl, newRecordId, WRITTEN, markers, new Map())).toEqual([]);
+
+    // 2. Free 3 ints from `camps` (~33 B) so `has_builds: true` fits: `canRetake` flips true and commits cleanly!
+    const roomierCamps = fullCamps.slice(0, -3);
+    expect(a.edit([{ Set: { id: stateId, value: { More: { key: "camps", value: roomierCamps } } } }])).toBe(true);
+    expect(await settled(a, b)).toBe(true);
+    expect(canRetake(scObj, stateOf(a), tl, WRITTEN, markers, [], [], new Map())).toBe(true);
+    const txs = retakeOps(scRow, { id: stateId, more: stateOf(a) }, [], [], tl, newRecordId, WRITTEN, markers, new Map());
+    expect(txs).toHaveLength(1);
+    const beforeProblems = a.problems.length;
+    expect(a.edit(txs[0]!)).toBe(true);
+    expect(await settled(a, b)).toBe(true);
+    expect(a.problems.length).toBe(beforeProblems);
+    expect(await until(() => stateOf(b)?.has_builds === true)).toBe(true);
+    expect(canRetake(scObj, stateOf(a), tl, WRITTEN, markers, [], [], new Map())).toBe(false);
+    [a, b].forEach((x) => x.stop());
+  });
+
+  // Astra Round 3 Medium: a scene with `rows: 40` and `has_builds: true` whose only missing
+  // feature (`camps`) cannot be supplied by the frame (>200 downed camps) must NOT offer Retake
+  // after a coach picks a hero away and back (`A -> B -> A`, clearing that slot's build keys),
+  // whereas a scene genuinely missing builds (`has_builds: false`) still offers partial progress.
+  it("canRetake does not offer Retake on cleared hero builds when has_builds is already true and missing features cannot fit (Round 3)", () => {
+    const base = replay();
+    const p0 = base.players[0]!;
+    const sampleCamp = markers.find((m) => m.kind === "camp")!;
+    const overMarkers = [
+      ...markers,
+      ...Array.from({ length: 205 }, (_, i) => ({
+        ...sampleCamp,
+        key: `camp:neutral:lane1:extra${i}`,
+      })),
+    ];
+    const overTl = {
+      ...base,
+      players: base.players.map((p, i) => (i === 0 ? { ...p, items: [[0, 9001, 1]] as Array<[number, number, number]>, level: [[0, 5]] as Array<[number, number]> } : p)),
+      camps: [
+        ...(base.camps ?? []),
+        ...Array.from({ length: 205 }, (_, i) => ({
+          key: `camp:neutral:lane1:extra${i}`,
+          first_s: 0,
+          cleared: [[1, 100]] as Array<[number, number]>,
+        })),
+      ],
+    };
+    const scObj = { source: { match_id: overTl.match_id, t: 4, tier: "replay" } };
+    const slotId = "slot-0";
+    const roster = [{ id: slotId, slot: { team: (p0.team === "amber" ? "Amber" : "Sapphire") as "Amber" | "Sapphire", slot: p0.slot, name: "", hero: p0.hero_id } }];
+    // Hero slot 0 was re-picked A -> B -> A: `hero` matches p0.hero_id, build keys cleared.
+    const heroes = [{
+      id: "h0",
+      state: {
+        scene: "sc0",
+        slot: slotId,
+        pos: { x: 0, y: 0 },
+        alive: true,
+        placed: true,
+        souls: null,
+        ult_cooldown: null,
+        visible: true,
+        respawn: null,
+        more: { hero: p0.hero_id },
+      },
+    }];
+    const baseState: More = {
+      rows: 40,
+      build: 6839,
+      has_builds: true,
+      has_heroes: true,
+      has_sight: true,
+      has_cc: true,
+      has_movement: true,
+      has_lanes: true,
+      has_skulls: true,
+      has_camps: false,
+      has_powerups: true,
+      has_obj_health: true,
+      has_rifts: true,
+      has_urn: true,
+      has_rejuv: true,
+    };
+    // `has_builds: true`, `camps` exceeds 200-entry cap (`missingSet` empty) -> must NOT offer Retake!
+    expect(canRetake(scObj, baseState, overTl, WRITTEN, overMarkers, heroes, roster, new Map())).toBe(false);
+    // `has_builds: false` (genuinely missing builds) -> still offers partial build backfill!
+    expect(canRetake(scObj, { ...baseState, has_builds: false }, overTl, WRITTEN, overMarkers, heroes, roster, new Map())).toBe(true);
   });
 });

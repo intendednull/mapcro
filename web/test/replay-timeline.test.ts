@@ -7,6 +7,7 @@ import { type Timeline, scoreboardValueAt, campsAt, downAt, lanesAt, markerKey, 
 import { urnTip } from "../src/player/Urn";
 import { label, groupOf, namesFor } from "../src/player/events";
 import { splitEdges } from "../src/map/lanes";
+import { decodeCamps, decodeRift, decodeUrn } from "../src/mapstate/codec";
 import { matchSceneOps } from "../src/match/save";
 
 const markers = modelFromFallback(FALLBACK).markers;
@@ -98,18 +99,31 @@ describe("replay timeline", () => {
     const records = ops.flatMap((o) => ("Create" in o ? [o.Create.record] : []));
     const player = records.find((r) => "PlayerState" in r) as { PlayerState: { ult_cooldown: number | null } };
     expect(player.PlayerState.ult_cooldown).toBe(50);
+    const state = records.find((r) => "SceneState" in r) as { SceneState: { more: Record<string, unknown> } };
+    // At 2 s the east rift is up and camp 3 is cleared: Group B captures both on SceneState and
+    // omits the baseline-covered ObjectiveStates.
+    expect(state.SceneState.more.has_rifts).toBe(true);
+    expect(decodeRift(state.SceneState.more.rift, 2, markers)?.activeKey).toBe("rift:neutral:lane6:1");
+    expect(state.SceneState.more.has_camps).toBe(true);
+    expect(Object.fromEntries(decodeCamps(state.SceneState.more.camps, 2, markers))).toEqual({
+      "camp:neutral:lane0:3": { state: "cleared", at: 4 },
+    });
     const states = records.flatMap((r) => ("ObjectiveState" in r ? [[r.ObjectiveState.key, r.ObjectiveState.status]] : []));
-    // At 2 s the east rift is up, both powerups are available and camp 3 is cleared: the rift
-    // and the camp differ from a new scene's defaults.
-    expect(states).toEqual([["rift:neutral:lane6:1", "Active"], ["camp:neutral:lane0:3", "Destroyed"]]);
+    expect(states).toEqual([]);
     // A scene has one split per lane: the middle of the zipline colours' gap.
     const waves = records.flatMap((r) => ("Wave" in r ? [r.Wave] : []));
     expect(waves.map((w) => [w.lane, w.t])).toEqual([["lane4", 500]]);
     const later = matchSceneOps(roster as never, [], undefined, replay, 3, markers, mint, lanes).ops.flatMap((o) => ("Create" in o ? [o.Create.record] : []));
+    const laterState = later.find((r) => "SceneState" in r) as { SceneState: { more: Record<string, unknown> } };
+    // Camps (including Mid-Boss) are baseline-covered; pre-fmt2 powerups have no Group B flag
+    // so the taken powerup still falls back to an ObjectiveState.
+    expect(laterState.SceneState.more.has_camps).toBe(true);
+    expect(Object.fromEntries(decodeCamps(laterState.SceneState.more.camps, 3, markers))).toEqual({
+      "camp:neutral:lane0:3": { state: "cleared", at: 4 },
+      "mid_boss:neutral:lane0:1": { state: "cleared", at: 400 },
+    });
     expect(later.flatMap((r) => ("ObjectiveState" in r ? [[r.ObjectiveState.key, r.ObjectiveState.status]] : []))).toEqual([
-      ["mid_boss:neutral:lane0:1", "Destroyed"],
       ["powerup:neutral:lane1:1", "Destroyed"],
-      ["camp:neutral:lane0:3", "Destroyed"],
     ]);
   });
 
@@ -176,9 +190,16 @@ describe("replay timeline", () => {
   it("saves the open urn point with the scene", () => {
     let n = 0;
     const { ops } = matchSceneOps([] as never, [], undefined, urnMatch, 3, markers, () => `id${n++}`, lanes);
-    const states = ops.flatMap((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [[o.Create.record.ObjectiveState.key, o.Create.record.ObjectiveState.status]] : []));
-    expect(states).toContainEqual(["urn:neutral:lane6:1", "Active"]);
-    expect(states.some(([k]) => k === "urn:neutral:lane1:1")).toBe(false);
+    const state = ops.flatMap((o) => ("Create" in o && "SceneState" in o.Create.record ? [o.Create.record.SceneState.more] : []))[0] as Record<string, unknown>;
+    expect(state.has_urn).toBe(true);
+    expect(decodeUrn(state.urn, state.urn_at, 3, markers, () => null)).toMatchObject({
+      state: "carried",
+      team: "amber",
+      slot: 0,
+      delivery: "urn:neutral:lane6:1",
+    });
+    const states = ops.flatMap((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [[o.Create.record.ObjectiveState.key, o.Create.record.ObjectiveState.status] as const] : []));
+    expect(states.some(([k]) => k.startsWith("urn:"))).toBe(false);
   });
 
   it("labels urn events with the hero, and files them under Urn", () => {

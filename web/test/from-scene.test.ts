@@ -240,9 +240,11 @@ function saved(tl: Timeline, t: number): SceneRecords {
     heroes: () => made<HeroRecord>("PlayerState").map((state) => ({ state })),
     roster,
     objectives: () => new Map(made<{ key: string; status: ObjectiveStatus }>("ObjectiveState").map((o) => [o.key, { status: o.status }])),
-    waves: () => new Map(made<{ lane: string; t: number }>("Wave").map((w) => [w.lane, { t: w.t }])),
+    waves: () => new Map(made<{ lane: string; t: number; more?: More }>("Wave").map((w) => [w.lane, { t: w.t, ...(w.more ? { more: w.more } : {}) }])),
     state: () => made<{ more?: More }>("SceneState")[0]?.more,
     tier: () => made<{ source?: { tier: string } }>("Scene")[0]?.source?.tier,
+    frame: () => made<{ source?: { t: number } }>("Scene")[0]?.source?.t,
+    markers: () => markers,
   };
 }
 /** What a marker shows, from the state alone: the stored status, else the frame's site or an
@@ -283,7 +285,7 @@ describe("Save as scene, read back", () => {
           for (const m of markers) {
             expect(shownStatus(scene, m), `${m.key} at ${t}`).toBe(shownStatus(player, m));
             if (scene.marker(m.key).down()) seen.down++;
-            if (offByDefault(m.kind as never) && scene.marker(m.key).status() === "Active") seen.on++;
+            if (offByDefault(m.kind as never) && shownStatus(scene, m) === "Active") seen.on++;
           }
           for (const l of model.lanes) {
             const split = player.lane(l.key).split();
@@ -331,16 +333,18 @@ describe("Save as scene, read back", () => {
     });
   });
 
-  it("Group A matches Player in R2; what a scene can't hold yet (Group B) differs, and the state says so", () => {
+  it("both Group A and Group B match Player in R3, and the state says so", () => {
     const tl = replay();
     createRoot((dispose) => {
       const player = fromTimeline({ tl: () => tl, t: () => 4, markers: () => markers });
       const scene = fromScene(saved(tl, 4));
       expect(FEATURES.filter((f) => player.has(f))).toEqual([...FEATURES]);
-      expect(FEATURES.filter((f) => scene.has(f))).toEqual(["health", "sight", "cc", "movement", "lanes", "skulls"]);
-      // R2 stores sight (unseen) so the scene's sight matches Player's at the frame.
+      expect(FEATURES.filter((f) => scene.has(f))).toEqual([...FEATURES]);
+      // R3 stores both Group A (sight, cc, movement, lanes, skulls) and Group B (camps, powerups, obj_health, rifts, urn, rejuv).
       expect(SLOTS.some((k) => !player.hero(k).inSight())).toBe(true);
       expect(SLOTS.every((k) => scene.hero(k).inSight() === player.hero(k).inSight())).toBe(true);
+      expect(scene.scene().rejuv()).toEqual(player.scene().rejuv());
+      expect(scene.scene().urn()).toEqual(player.scene().urn());
       dispose();
     });
   });

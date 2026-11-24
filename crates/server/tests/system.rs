@@ -558,15 +558,27 @@ async fn a_client_writes_map_state_that_is_live_and_not_a_row_still_ahead() {
     let (scene, player) = (scene_of(a.replica()), players(a.replica())[0]);
     let more = |key: &str, value| FieldValue::More { key: row(key), value };
     let state = mapcro_schema::RecordId(0x5000);
-    let snapshot: More = [(row("rows"), MoreValue::Int(27)), (row("has_builds"), MoreValue::Bool(true)), (row("has_sight"), MoreValue::Bool(true))].into_iter().collect();
+    let snapshot: More = [
+        (row("rows"), MoreValue::Int(40)),
+        (row("has_builds"), MoreValue::Bool(true)),
+        (row("has_sight"), MoreValue::Bool(true)),
+        (row("has_camps"), MoreValue::Bool(true)),
+        (row("camps"), MoreValue::ints(vec![123456, 1, 90])),
+        (row("has_urn"), MoreValue::Bool(true)),
+        (row("urn"), MoreValue::ints(vec![1, -1, -1, 567890, 120, -1, -1])),
+        (row("urn_at"), MoreValue::Pos(WorldPos { x: 100, y: -200 })),
+        (row("has_rejuv"), MoreValue::Bool(true)),
+        (row("rejuv"), MoreValue::ints(vec![1, 3, 120, 15])),
+    ]
+    .into_iter()
+    .collect();
     let mut edits: Vec<Vec<Op>> = vec![
         vec![Op::Set { id: player, value: more("hero", Some(MoreValue::Int(13))) }, Op::Create { id: state, record: Record::SceneState(SceneState { scene, more: snapshot.clone() }) }],
         vec![Op::Set { id: player, value: more("items", Some(MoreValue::ints(vec![9000, -1, 2, -1]))) }, Op::Set { id: player, value: more("unseen", Some(MoreValue::Bool(true))) }],
         vec![Op::Set { id: player, value: more("level", Some(MoreValue::Int(12))) }, Op::Set { id: player, value: more("level", None) }],
     ];
     let mut expected = vec![];
-    // A row still ahead (Group B in R2, on SceneState), beside a valid edit: the whole transaction
-    // goes (with a valid value of its kind so local validation passes and `Admit::DEPLOYED` refuses).
+    // If any row is still ahead, beside a valid edit the whole transaction is rejected.
     if let Some(ahead) = RowId::all().find(|r| r.row().status == Status::Ahead && matches!(r.row().entity, mapcro_schema::Entity::Hero | mapcro_schema::Entity::Scene)) {
         let target = if ahead.row().entity == mapcro_schema::Entity::Hero { player } else { state };
         let val = match ahead.row().kind {
@@ -579,7 +591,7 @@ async fn a_client_writes_map_state_that_is_live_and_not_a_row_still_ahead() {
         edits.push(vec![Op::Set { id: player, value: FieldValue::PlayerPos(WorldPos { x: 900, y: 900 }) }, Op::Set { id: target, value: FieldValue::More { key: ahead, value: Some(val) } }]);
         expected.push(Reject::WrongField);
     }
-    assert!(!expected.is_empty(), "R2 keeps Group B Ahead so the refused-Ahead case runs");
+    assert!(expected.is_empty(), "all 40 rows are Live in R3");
     assert_eq!(edits_until_decided(&mut a, edits.len(), |_, i| edits[i].clone()).await, expected);
 
     let (d, port) = server.kill9();
@@ -2008,7 +2020,7 @@ async fn a_real_v4_database_migrates_and_its_board_compacts_and_rebases() {
         let c = rusqlite::Connection::open(&path).expect("open");
         let v: String = c.query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |r| r.get(0)).expect("version");
         let floor: String = c.query_row("SELECT value FROM meta WHERE key = 'compat_floor'", [], |r| r.get(0)).expect("floor");
-        assert_eq!((v.as_str(), floor.as_str()), ("16", "15"), "migrated to v16 (floor 15)");
+        assert_eq!((v.as_str(), floor.as_str()), ("17", "16"), "migrated to v17 (floor 16)");
         let codecs: i64 = c.query_row("SELECT COUNT(*) FROM ops WHERE codec = 'zstd-v1'", [], |r| r.get(0)).expect("ops");
         assert_eq!(codecs as u64, entries, "the v4 rows are untouched");
     }
@@ -2142,7 +2154,7 @@ async fn a_migration_interrupted_by_a_crash_still_boots() {
     assert!(fresh.replica().view().live(mapcro_schema::RecordId(0xa0a0)).is_some());
     let v: String = rusqlite::Connection::open(&path).expect("open").query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |r| r.get(0)).expect("v");
     let floor: String = rusqlite::Connection::open(&path).expect("open").query_row("SELECT value FROM meta WHERE key = 'compat_floor'", [], |r| r.get(0)).expect("f");
-    assert_eq!((v.as_str(), floor.as_str()), ("16", "15"), "migrated to v16 (floor 15)");
+    assert_eq!((v.as_str(), floor.as_str()), ("17", "16"), "migrated to v17 (floor 16)");
 }
 
 #[tokio::test(flavor = "multi_thread")]
