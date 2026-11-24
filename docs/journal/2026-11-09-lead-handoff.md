@@ -3,6 +3,15 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Deployed 7ad68f3: Player transport short-landscape elapsed-only clock (Option 1) + Doorman Stage 0 probe (`4817f46`) (2026-11-24, lead 2a42cd74)
+
+- **Prod `web` runs `7ad68f3`** (`infra` `5af0948`, CSS `/assets/index-CYBqpk3k.css`, JS `/assets/index-pHZ7jrMg.js`, `/healthz ok rooms=0`, store **v17** floor **16**, `justfile` `reader := "c94cdac"`, newest asset pack **`6864-upgrades`** `pack_id: 62feb9ec...`).
+  - Per operator + concierge confirmation (`2026-11-24`, Option 1), applied ONLY the elapsed-only clock on landscape phones `<= 700px` wide (`--clock-w: 44px`, `.clock-of { display: none }`) to `web/src/styles/transport.css` + the 2 speed-sync e2e assertions (`web/e2e/player-sidebar-speed.spec.ts`) and `.clock-of` Red→Green coverage (`web/e2e/phone-player.spec.ts`). Gated 72/72 Chromium + 5/5 Firefox Android; deployed strictly `mapcro-web-0.0.0` (`DIFF: 168 bytes`) and verified live on `615×344`, `667×375`, `844×390`, `390×844`. Stopped carrying `player-transport` (`6ed0179`) as held; its branch stays untouched and unmerged per `memory/player-direction.md`.
+- **Doorman doorway indicators — Player + Scenes (`4817f46`, Stage 0 DONE → Stage 1 starting):**
+  - Operator requested little-door indicators ("like how they show up in game") in **both Player and Scenes**. Valve's `icons/doorman_doorway_psd` (`137×137`, white-alpha open door with doorknob & arrow; `.map_button.doorman_doorway` in `hud_minimap.vcss`) is already extracted in **all** deployed asset packs (`6860-*`, `6861-*`, `6864-upgrades`) — zero pack re-extraction needed.
+  - **Stage 0 merged (`4817f46`):** `docs/research/doorman-doors.md`, `docs/research/README.md`, `crates/replay/examples/doorman_door_probe.rs` (0 clippy warnings). Confirmed non-pooled `CCitadel_DoorwayPortal`, exact skeleton origin + yaw, `m_iTeamNum`, `m_hLinkedDoorway`, deterministic `door1`/`door2` via `m_flCreateTime`, exact enemy LOS FOW in `CCitadelTeam.m_vecFOWEntities` (`m_eClass == 88` matched by live entity index; linked pairs flip in lockstep), ~3.2 KB raw JSON/match.
+  - **Next:** Stage 1 spec (`docs/specs/doorman-doors.md`) + Gemini 4 Argon visual/Scene UX design (`docs/design/doorman-doors.md`) → Stage 2 Release 1 (Player + Scene Reader `Status::Ahead`) → Stage 3 Release 2 (Scene Writer + manual Scene placement `Status::Live`, store `v18` floor `17`).
+
 ## Deployed c8d5782: GitHub Feedback #62 (property-only ability upgrade tooltips) + pack `6864-upgrades` (2026-11-24, lead 2a42cd74)
 
 - **Prod `web` runs `c8d5782`** (`infra` `4bdf782`, bundle `/assets/index-CYA9NFiz.js`, `/healthz ok rooms=0`).
