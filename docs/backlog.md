@@ -4,6 +4,13 @@ Ideas the operator wants kept but not built yet. Newest first. Each entry record
 what it is, and what it depends on.
 
 
+## Exploratory QA Pass 006 findings (2026-11-24)
+
+Found during [QA Pass 006](qa/passes/2026-11-24-pass-006-r3-tooltips-100pct-deep.md) live on production (`c8d5782` + pack `6864-upgrades`, reference replay `129738985`) — **all Goal 1 items passed live on prod** (Phase 5 R3 Group B `1:00`/`10:30`/`11:30`/`12:40`/`31:20`, `.mapcro` v6 export + TD-162 matchless import, Feedback `#62` `.gt-tier-props` tooltips with 0 blank upgrade tiers) and **all 14 remaining `smoke` rows deepened to `deep` (`70/70` = 100% web coverage)**:
+
+- **Raw HTML entity `&amp;` rendered in visible ability upgrade tooltip text on Apollo's `Riposte` Tier 3** (`bug-minor`, `FM-091`). On `129738985` at `20:00` (pack `6864-upgrades`), hovering Apollo's `Riposte` displays Tier 3 (`5`) as `"Gain 75% Bullet, Spirit &amp; Melee Lifesteal against the Riposte target for 13s"` with literal `&amp;` in DOM `textContent`. Decode HTML entities (at least `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&#...;`) during localization extraction in `crates/extract` or tooltip text formatting in `web/src/`, and add a regression test.
+
+
 ## Exploratory QA Pass 005 findings (2026-11-23)
 
 Found during [QA Pass 005](qa/passes/2026-11-23-pass-005-prod-r2-verify.md) live on production (`01e29a8`, reference replay `129738985`) — **all Goal 1 items passed live on prod** (Pass 004 Phone `390×844` & `360×800` Feedback header fix, TD-117 Session `Open in app` owner/guest token isolation, Phase 5 R2 Q2/Q3/Q5/Q7 + TD-161, `.mapcro` v5 export + TD-162 matchless import; 13 more `smoke` rows deepened to `deep`):
