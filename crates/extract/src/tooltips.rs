@@ -130,6 +130,11 @@ pub struct Tip {
     pub sections: Vec<Section>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub upgrades: Vec<Upgrade>,
+    /// Property metadata for text-less upgrade tiers whose properties aren't already in `header`
+    /// or `sections`, so the client can render property-only tiers with the game's label, prefix
+    /// and postfix.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub upgrade_props: BTreeMap<String, Prop>,
     /// `{s:Name}` names that are another property's `m_strLocTokenOverride` (`DMarkMaxMarks` →
     /// `MaxStacks`): the text substitutes that property's value.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -422,8 +427,25 @@ fn tip(name: &str, d: &Value, names: &BTreeMap<String, String>) -> Tip {
         .flatten()
         .filter_map(|(k, p)| Some((p["m_strLocTokenOverride"].as_str().filter(|o| !o.is_empty() && o != k)?.to_owned(), k.clone())))
         .collect();
+    let upgrades = if item { Vec::new() } else { upgrades };
+    let existing: BTreeSet<&str> = header
+        .iter()
+        .chain(sections.iter().flat_map(|s| s.cooldown.iter().chain(s.blocks.iter().flat_map(|b| b.important.iter().chain(&b.basic)))))
+        .map(|p| p.key.as_str())
+        .collect();
+    let mut upgrade_props = BTreeMap::new();
+    for u in upgrades.iter().filter(|u| u.text.is_none()) {
+        for key in &u.props {
+            if !existing.contains(key.as_str())
+                && !upgrade_props.contains_key(key)
+                && let Some(p) = upgrade_property(key, &props[key], names)
+            {
+                upgrade_props.insert(key.clone(), p);
+            }
+        }
+    }
     let stack_label = d["m_sCustomStackLabel"].as_str().and_then(loc);
-    Tip { header, sections, upgrades: if item { Vec::new() } else { upgrades }, aliases, stack_label }
+    Tip { header, sections, upgrades, upgrade_props, aliases, stack_label }
 }
 
 /// `values` cut to what `tip` shows or substitutes (the rest of `m_mapAbilityProperties` is
@@ -462,6 +484,27 @@ fn property(key: &str, p: &Value, names: &BTreeMap<String, String>) -> Option<Pr
             .map(|f| (scale["m_eSpecificStatScaleType"].as_str().unwrap_or("").to_owned(), f)),
         conditional: p["m_eStatsUsageFlags"].as_str().is_some_and(|f| f.contains("ConditionallyApplied")),
         negative: p["m_bIsNegativeAttribute"] == true,
+    })
+}
+
+/// Property metadata for a text-less upgrade tier: reads `m_mapAbilityProperties[key]` via
+/// [`property`] when present, or falls back to `<key>_label` / `_prefix` / `_postfix` when the
+/// property is inherited without an entry in `m_mapAbilityProperties`.
+fn upgrade_property(key: &str, p: &Value, names: &BTreeMap<String, String>) -> Option<Prop> {
+    if p.is_object() {
+        return property(key, p, names);
+    }
+    let text = |suffix: &str| names.get(&format!("{key}_{suffix}").to_ascii_lowercase()).map(|s| s.trim().to_owned());
+    let label = text("label").filter(|s| !s.is_empty())?;
+    Some(Prop {
+        key: key.to_owned(),
+        label,
+        prefix: text("prefix").unwrap_or_default(),
+        postfix: text("postfix").unwrap_or_default(),
+        css: String::new(),
+        scale: None,
+        conditional: false,
+        negative: false,
     })
 }
 
@@ -805,5 +848,60 @@ mod tests {
         assert_eq!(image_entry("panorama/images/../scripts/x.vtex"), None);
         assert_eq!(image_entry("panorama/layout/x.vtex"), None);
         assert_eq!(image_entry("panorama/images/x.png"), None);
+    }
+
+    #[test]
+    fn property_only_upgrade_tiers_carry_missing_prop_metadata() {
+        let mut n = names();
+        n.insert("abilitycharges_label".to_owned(), "Charges".to_owned());
+        n.insert("overridetoken_label".to_owned(), "Bonus".to_owned());
+        n.insert("overridetoken_prefix".to_owned(), "{s:sign}".to_owned());
+        n.insert("overridetoken_postfix".to_owned(), "%".to_owned());
+        n.insert("hiddenprop_label".to_owned(), "Hidden".to_owned());
+        n.insert("inheritedonly_label".to_owned(), "Inherited".to_owned());
+        n.insert("inheritedonly_postfix".to_owned(), "m".to_owned());
+        let mut a = ability();
+        a["m_mapAbilityProperties"]["AbilityCharges"] = json!({"m_strValue": "0", "m_strCSSClass": "charges"});
+        a["m_mapAbilityProperties"]["AbilityDuration"] = json!({"m_strValue": "5", "m_strCSSClass": "duration"});
+        a["m_mapAbilityProperties"]["CustomBonus"] = json!({"m_strValue": "0", "m_strLocTokenOverride": "OverrideToken"});
+        a["m_mapAbilityProperties"]["HiddenProp"] = json!({"m_strValue": "0", "m_bIsHidden": true});
+        a["m_mapAbilityProperties"]["UnlabelledProp"] = json!({"m_strValue": "0"});
+        // Tier 1 has text (ability_test_t1_desc); Tier 2 has no text.
+        a["m_vecAbilityUpgrades"] = json!([
+            {"m_vecPropertyUpgrades": [
+                {"m_strPropertyName": "MaxStacks", "m_strBonus": "1"},
+                {"m_strPropertyName": "AbilityDuration", "m_strBonus": "2"}
+            ]},
+            {"m_vecPropertyUpgrades": [
+                {"m_strPropertyName": "AbilityCooldown", "m_strBonus": "-0.75"},
+                {"m_strPropertyName": "AbilityCharges", "m_strBonus": "1"},
+                {"m_strPropertyName": "CustomBonus", "m_strBonus": "15"},
+                {"m_strPropertyName": "HiddenProp", "m_strBonus": "1"},
+                {"m_strPropertyName": "UnlabelledProp", "m_strBonus": "1"},
+                {"m_strPropertyName": "InheritedOnly", "m_strBonus": "4"}
+            ]}
+        ]);
+        let t = tip("ability_test", &a, &n);
+        // Only properties referenced by text-less tiers and absent from header/sections go in
+        // upgrade_props: AbilityCooldown is in header, AbilityDuration is only in a text tier,
+        // HiddenProp is hidden, UnlabelledProp has no label.
+        assert_eq!(t.upgrade_props.keys().map(String::as_str).collect::<Vec<_>>(), ["AbilityCharges", "CustomBonus", "InheritedOnly"]);
+        assert_eq!(t.upgrade_props["AbilityCharges"].label, "Charges");
+        assert_eq!(t.upgrade_props["CustomBonus"].label, "Bonus");
+        assert_eq!(t.upgrade_props["CustomBonus"].prefix, "{s:sign}");
+        assert_eq!(t.upgrade_props["CustomBonus"].postfix, "%");
+        assert_eq!(t.upgrade_props["InheritedOnly"].label, "Inherited");
+        assert_eq!(t.upgrade_props["InheritedOnly"].postfix, "m");
+        // Empty upgrade_props is omitted from serialized JSON (backwards-compatible format 1).
+        let item_json = serde_json::to_value(tip("upgrade_test", &item(), &n)).expect("serialize Tip");
+        assert!(item_json.get("upgrade_props").is_none());
+        // Patch overlays still carry changed bonus values for property-only tiers.
+        let id = crate::token("ability_test");
+        let base = values([("ability_test", &a)]);
+        let mut older = a.clone();
+        older["m_vecAbilityUpgrades"][1]["m_vecPropertyUpgrades"][1]["m_strBonus"] = json!("2");
+        let patch = values([("ability_test", &older)]);
+        let o = overlay(&BTreeMap::from([(id, t)]), &base, &patch);
+        assert_eq!(o[&id].upgrades[1]["AbilityCharges"], "2");
     }
 }

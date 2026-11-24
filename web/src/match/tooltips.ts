@@ -38,6 +38,8 @@ export interface Tip {
   header?: TipProp[];
   sections: TipSection[];
   upgrades?: Array<{ text?: string; props: string[]; kinds?: Record<string, string> }>;
+  /** Property metadata for text-less upgrade tiers whose properties aren't in `header` or `sections`. */
+  upgrade_props?: Record<string, TipProp>;
   /** `{s:Name}` names that are another property's token override → that property. */
   aliases?: Record<string, string>;
   /** The words before the stacks held on it (`m_sCustomStackLabel`): "Current Bonus:",
@@ -284,4 +286,71 @@ export function blockShown(b: TipBlock, tip: Tip, tier: number | null | undefine
   if (!b.requires) return true;
   if (tier == null) return false;
   return (tip.upgrades ?? []).some((u, i) => i < tier && u.props.includes(b.requires!));
+}
+
+export interface UpgradeLine {
+  key: string;
+  value: string;
+  label: string;
+}
+
+function findProp(tip: Tip, key: string): TipProp | undefined {
+  for (const p of tip.header ?? []) if (p.key === key) return p;
+  for (const s of tip.sections) {
+    if (s.cooldown?.key === key) return s.cooldown;
+    for (const b of s.blocks) {
+      for (const p of b.important ?? []) if (p.key === key) return p;
+      for (const p of b.basic ?? []) if (p.key === key) return p;
+    }
+  }
+  return tip.upgrade_props?.[key];
+}
+
+function formatUpgradeValue(prop: TipProp, raw: string, kind: string): string {
+  const n = num(raw);
+  if (kind === "EAddToScale") {
+    const sign = n != null && n > 0 && !raw.startsWith("+") ? "+" : "";
+    return `${sign}${raw}×`;
+  }
+  if (kind === "EMultiplyScale" || kind === "EMultiplyBase") {
+    return `×${raw}`;
+  }
+  const postfix = prop.postfix ?? "";
+  const prefix = prop.prefix ?? "";
+  if (prefix.includes("{s:sign}")) {
+    const sign = n != null && n > 0 ? "+" : "";
+    return `${prefix.replace("{s:sign}", sign)}${raw}${postfix}`;
+  }
+  if (prefix === "-") {
+    if (n != null && n < 0 && raw.startsWith("-")) return `+${raw.slice(1)}${postfix}`;
+    return `-${raw}${postfix}`;
+  }
+  if (prefix === "+") {
+    if (n != null && n < 0) return `${raw}${postfix}`;
+    return `+${raw}${postfix}`;
+  }
+  const sign = n != null && n > 0 && !raw.startsWith("+") && !raw.startsWith("-") ? "+" : "";
+  return `${prefix}${sign}${raw}${postfix}`;
+}
+
+/** Fallback lines for a property-only upgrade tier (no localised `{name}_t{N}_desc`), driven by
+ * `values.upgrades[tierIndex]` so patch overlays reach the displayed numbers. */
+export function upgradeLines(tip: Tip, values: TipValues, tierIndex: number): UpgradeLine[] {
+  const u = tip.upgrades?.[tierIndex];
+  const uvals = values.upgrades?.[tierIndex];
+  if (!u || u.text || !uvals) return [];
+  const seen = new Set<string>();
+  const out: UpgradeLine[] = [];
+  for (const key of u.props) {
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const raw = uvals[key];
+    const n = num(raw);
+    if (raw == null || raw.trim() === "" || n === 0) continue;
+    const prop = findProp(tip, key);
+    if (!prop) continue;
+    const kind = u.kinds?.[key] ?? "EAddToBase";
+    out.push({ key, value: formatUpgradeValue(prop, raw, kind), label: prop.label });
+  }
+  return out;
 }
