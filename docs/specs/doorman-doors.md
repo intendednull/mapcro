@@ -59,7 +59,7 @@ pub struct Doorway {
     /// Tenth of a second when linked (`None` if never linked).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link_ds: Option<u32>,
-    /// Deletion (or match-end) time in tenths of a second (`floor(t_end * 10)`).
+    /// Deletion (or match-end) time in tenths of a second (`ceil(t_end * 10)`).
     pub end_ds: u32,
     /// Partner `Doorway::id` once linked (`None` if never linked).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -144,7 +144,7 @@ Add `doors_ok(&t.doors, t.duration_s)`:
    - `web/src/mapstate/build.ts`: add `doors?: boolean; doorsData?: number[]` to `SceneCapture` / `CapturedSnapshot`, gated behind `ROWS.doors.index < written` (`WRITTEN = 40` keeps writer dormant in Release 1, testable with synthetic `written = 42`).
    - `web/src/mapstate/scene.ts`: read `has_doors` + `doors` in `fromScene` (`has("doors")`, `scene().doors()`), so Release 1 ALREADY renders any v19 board's doors cleanly on rollback!
    - `web/src/mapstate/shown.ts`: add `shownDoors(ms, vision, stored)` implementing Player (`seen`/`hidden`) and Scene D3 (`seen`/`faded`).
-   - `web/src/player/Doors.tsx` (new) + `web/src/styles/minimap.css`: render `<DoormanDoors />` in `Board.tsx` right after `<UrnMark />`, clipped to `--mm-stencil-view`, with Argon's badge (`DOOR_R = 14`, `DOOR_GLYPH = 21`), `DOOR_FB` fallback SVG, team rim, unpaired dashed state, curved dashed link arc, hover pair highlight, and `visionFade`.
+   - `web/src/player/Doors.tsx` (new) + `web/src/styles/minimap.css`: render `<DoormanDoors />` in `Board.tsx` right before `<Layers />` (after `<TrooperDots />`, below `<Tokens />` and coach annotations), clipped to `--mm-stencil-view`, with Argon's badge (`DOOR_R = 14`, `DOOR_GLYPH = 21`), `DOOR_FB` fallback SVG, team rim, unpaired dashed state, curved dashed link arc, hover pair highlight, and `visionFade`.
    - `web/src/player/Camps.tsx` (`MarkerTips`): check visible doors in `near(at)` right after `urn()`, returning `door:<id>` (`"Doorway"`).
    - **No `view_state.rs` change** (doors are always-on when present, preserving bit 7 of `Presence.layers`).
 4. **Post-deploy Release 1 lock step:**

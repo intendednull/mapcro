@@ -2,7 +2,7 @@
 // replay's `seen` intervals (timeline format 4; docs/research/replay-vision.md). Pure.
 
 import type { PlayerVision } from "../gen/PlayerVision";
-import { type Timeline, type TimelinePlayer, positionAt } from "../match/timeline";
+import { type Timeline, type TimelinePlayer, positionAt, timelineHasVision } from "../match/timeline";
 
 /** Whose view the map draws: every hero (as before), or one team's. */
 export type Vision = "all" | "amber" | "sapphire";
@@ -31,7 +31,7 @@ export function visionToWire(view: Vision, ghosts: boolean): PlayerVision {
 }
 
 /** Whether the timeline says when each hero was seen (format 4 on): else only "All" applies. */
-export const hasVision = (tl: Timeline): boolean => tl.players.some((p) => (p.seen?.length ?? 0) > 0);
+export const hasVision = (tl: Timeline): boolean => timelineHasVision(tl);
 
 /** An enemy hero at t as its enemies saw it. */
 export type SeenAt =

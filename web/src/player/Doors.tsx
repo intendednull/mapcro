@@ -90,24 +90,25 @@ function DoorLink(p: {
         };
         const faded = () => pair().a.draw === "faded" || pair().b.draw === "faded";
         return (
-          <Show when={d()}>
-            {(path) => (
-              <g
-                ref={setLinkEl}
-                class={cx("pl-door-link", pair().a.team, hot() && "hot", faded() && "faded")}
-                data-testid="door-link"
-                data-pair={p.pairKey}
-                data-team={pair().a.team}
-                data-hot={hot() ? "" : undefined}
-                data-faded={faded() ? "" : undefined}
-                data-fading={vf.leaving() ? "out" : undefined}
-                aria-hidden="true"
-              >
-                <path class="pl-door-link-casing" d={path()} />
-                <path class="pl-door-link-thread" d={path()} />
-              </g>
-            )}
-          </Show>
+          <g ref={setLinkEl} class="pl-door-link-wrap" data-fading={vf.leaving() ? "out" : undefined} aria-hidden="true">
+            <Show when={d()}>
+              {(path) => (
+                <g
+                  class={cx("pl-door-link", pair().a.team, hot() && "hot", faded() && "faded")}
+                  data-testid="door-link"
+                  data-pair={p.pairKey}
+                  data-team={pair().a.team}
+                  data-hot={hot() ? "" : undefined}
+                  data-faded={faded() ? "" : undefined}
+                  data-fading={vf.leaving() ? "out" : undefined}
+                  aria-hidden="true"
+                >
+                  <path class="pl-door-link-casing" d={path()} />
+                  <path class="pl-door-link-thread" d={path()} />
+                </g>
+              )}
+            </Show>
+          </g>
         );
       }}
     </Show>

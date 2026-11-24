@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("solid-js", async () => await import(/* @vite-ignore */ "solid-js/dist/" + "solid.js"));
 
 import { createRoot, createSignal } from "solid-js";
+import { visionFade } from "../src/board/fade";
 import { ROWS } from "../src/gen/rows";
 import { IMAGE_BLOBS } from "../src/map/pack";
 import { WRITTEN, captureScene, captured } from "../src/mapstate/build";
@@ -107,10 +108,10 @@ describe("doorsAt", () => {
     ]);
   });
 
-  it("treats all doors as inSight when the timeline has no vision data", () => {
+  it("treats all doors as inSight when the timeline has no vision data (agreeing with hasVision)", () => {
     const tl = baseTimeline({
       players: [],
-      doors: [{ id: 0, team: "amber", x: 10, y: 20, start_ds: 0, end_ds: 100 }],
+      doors: [{ id: 0, team: "amber", x: 10, y: 20, start_ds: 0, end_ds: 100, seen: [[10, 20]] }],
     });
     expect(doorsAt(tl, 50.5)).toEqual([
       { id: 0, team: "amber", at: { x: 10, y: 20 }, role: "unpaired", partner: null, inSight: true },
@@ -169,6 +170,90 @@ describe("encodeDoors / decodeDoors", () => {
       { id: 1, team: "sapphire", at: { x: -500, y: 500 }, role: "door2", partner: 0, inSight: false },
       { id: 2, team: "amber", at: { x: 100, y: 200 }, role: "unpaired", partner: null, inSight: true },
     ]);
+
+    // Same-role pairs (`door1`+`door1` and `door2`+`door2`) degrade cleanly to unpaired on both encode & decode.
+    expect(
+      decodeDoors([
+        0, 100, 100, 1, 1, 0,
+        0, 200, 200, 1, 0, 0,
+        1, 300, 300, 2, 3, 0,
+        1, 400, 400, 2, 2, 0,
+      ]),
+    ).toEqual([
+      { id: 0, team: "amber", at: { x: 100, y: 100 }, role: "unpaired", partner: null, inSight: true },
+      { id: 1, team: "amber", at: { x: 200, y: 200 }, role: "unpaired", partner: null, inSight: true },
+      { id: 2, team: "sapphire", at: { x: 300, y: 300 }, role: "unpaired", partner: null, inSight: true },
+      { id: 3, team: "sapphire", at: { x: 400, y: 400 }, role: "unpaired", partner: null, inSight: true },
+    ]);
+    expect(
+      decodeDoors(
+        encodeDoors([
+          { id: 0, team: "amber", at: { x: 100, y: 100 }, role: "door1", partner: 1, inSight: true },
+          { id: 1, team: "amber", at: { x: 200, y: 200 }, role: "door1", partner: 0, inSight: true },
+        ]),
+      ),
+    ).toEqual([
+      { id: 0, team: "amber", at: { x: 100, y: 100 }, role: "unpaired", partner: null, inSight: true },
+      { id: 1, team: "amber", at: { x: 200, y: 200 }, role: "unpaired", partner: null, inSight: true },
+    ]);
+
+    // Invalid unseenInt (anything other than 0 or 1) drops the malformed entry.
+    expect(
+      decodeDoors([
+        0, 100, 100, 0, -1, 99,
+        1, 200, 200, 0, -1, -1,
+        1, 300, 300, 0, -1, 0,
+      ]),
+    ).toEqual([{ id: 0, team: "sapphire", at: { x: 300, y: 300 }, role: "unpaired", partner: null, inSight: true }]);
+
+    // encodeDoors filters invalid-team entries BEFORE indexing so later partner indices stay aligned.
+    const withBogusTeam = [
+      { id: 99, team: "bogus" as unknown as "amber", at: { x: 0, y: 0 }, role: "unpaired" as const, partner: null, inSight: true },
+      { id: 10, team: "sapphire" as const, at: { x: -500, y: 500 }, role: "door1" as const, partner: 11, inSight: true },
+      { id: 11, team: "sapphire" as const, at: { x: 500, y: -500 }, role: "door2" as const, partner: 10, inSight: false },
+    ];
+    expect(decodeDoors(encodeDoors(withBogusTeam))).toEqual([
+      { id: 0, team: "sapphire", at: { x: -500, y: 500 }, role: "door1", partner: 1, inSight: true },
+      { id: 1, team: "sapphire", at: { x: 500, y: -500 }, role: "door2", partner: 0, inSight: false },
+    ]);
+  });
+});
+
+describe("visionFade defense-in-depth (unmounted element)", () => {
+  it("clears held immediately on fade-out when el() is undefined instead of wedging", async () => {
+    // Simulate browser fadeTiming() > 0 ms in Node by stubbing document + getComputedStyle briefly.
+    const prevDoc = globalThis.document;
+    const prevStyle = globalThis.getComputedStyle;
+    (globalThis as Record<string, unknown>).document = { documentElement: {} };
+    (globalThis as Record<string, unknown>).getComputedStyle = () => ({
+      getPropertyValue: (k: string) => (k === "--value-ease-ms" ? "350ms" : "cubic-bezier(0.16, 1, 0.3, 1)"),
+    });
+    try {
+      let ctrl!: {
+        setVal: (v: string | undefined) => void;
+        setHidden: (h: boolean) => void;
+        vf: ReturnType<typeof visionFade<string>>;
+        dispose: () => void;
+      };
+      createRoot((dispose) => {
+        const [val, setVal] = createSignal<string | undefined>("pair");
+        const [hidden, setHidden] = createSignal(false);
+        const vf = visionFade({ value: val, hidden, smooth: () => true, el: () => undefined });
+        ctrl = { setVal, setHidden, vf, dispose };
+      });
+      await Promise.resolve();
+      expect(ctrl.vf.shown()).toBe("pair");
+      ctrl.setHidden(true);
+      ctrl.setVal(undefined);
+      await Promise.resolve();
+      // Without an element to animate, visionFade finishes "out" immediately and never leaves `held` wedged.
+      expect(ctrl.vf.shown()).toBeUndefined();
+      expect(ctrl.vf.leaving()).toBe(false);
+      ctrl.dispose();
+    } finally {
+      (globalThis as Record<string, unknown>).document = prevDoc;
+      (globalThis as Record<string, unknown>).getComputedStyle = prevStyle;
+    }
   });
 });
 

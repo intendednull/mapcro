@@ -93,7 +93,11 @@ export function visionFade<T>(o: { value: Accessor<T | undefined>; hidden: Acces
   createEffect(
     on(s, (x) => {
       const el = o.el();
-      if (!el || !x.fade) return;
+      if (!el) {
+        if (x.fade === "out") setFinished(x.id);
+        return;
+      }
+      if (!x.fade) return;
       if (x.fade === "in") fadeTo(el, 1);
       else if (x.fade === "out") fadeTo(el, 0, () => setFinished(x.id));
       else stopFade(el);

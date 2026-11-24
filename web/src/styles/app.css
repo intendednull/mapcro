@@ -572,7 +572,7 @@ svg[data-tool="select"] .pl-skull[data-recap] { pointer-events: auto; cursor: po
 .pl-door .vis { pointer-events: none; }
 .pl-door .vis circle { fill: #0b1714; stroke: var(--warn); stroke-width: 1.5; }
 .pl-door .vis path { fill: none; stroke: var(--warn); stroke-width: 1.6; stroke-linecap: round; }
-.pl-door-link { pointer-events: none; }
+.pl-door-link-wrap, .pl-door-link { pointer-events: none; }
 .pl-door-link .pl-door-link-casing { fill: none; stroke: #0b1714; stroke-width: 3; stroke-opacity: 0.35; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 .pl-door-link .pl-door-link-thread { fill: none; stroke: var(--team-c); stroke-width: 1.6; stroke-dasharray: 4 6; stroke-opacity: 0.52; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 .pl-door-link.hot .pl-door-link-thread { stroke-width: 2.2; stroke-dasharray: 5 5; stroke-opacity: 0.92; }

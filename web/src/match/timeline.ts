@@ -631,11 +631,16 @@ export function rejuvAt(tl: Pick<Timeline, "rejuv">, t: number): RejuvNow[] {
   return out.sort((a, b) => (a.team === b.team ? 0 : a.team === "amber" ? -1 : 1));
 }
 
+/** Whether the timeline holds enemy-vision `seen` intervals (format 4+): shared by `doorsAt` and
+ * `player/vision.ts` `hasVision` so `doorsAt` and `shownDoors` always agree. */
+export const timelineHasVision = (tl: Pick<Timeline, "players">): boolean =>
+  tl.players.some((p) => (p.seen?.length ?? 0) > 0);
+
 /** Active Doorman doorways at `ds` (tenths of a second, e.g. `Math.floor(t * 10) + 0.5`). Pure. */
 export function doorsAt(tl: Pick<Timeline, "doors" | "players">, ds: number): DoorNow[] {
   const list = tl.doors;
   if (!list?.length) return [];
-  const sighted = tl.players.some((p) => (p.seen?.length ?? 0) > 0) || list.some((d) => (d.seen?.length ?? 0) > 0);
+  const sighted = timelineHasVision(tl);
   const live = new Map<number, TimelineDoor>();
   for (const d of list) {
     if (d.start_ds <= ds && ds < d.end_ds) live.set(d.id, d);

@@ -90,6 +90,10 @@ function replayTimeline() {
       { id: 0, team: "sapphire", x: -2200, y: 1200, start_ds: 40, link_ds: 100, end_ds: 300, partner: 1, seen: [[60, 160], [200, 280]] },
       { id: 1, team: "sapphire", x: 2400, y: -1400, start_ds: 100, link_ds: 100, end_ds: 300, partner: 0, seen: [[100, 160], [200, 280]] },
       { id: 2, team: "amber", x: -500, y: -3200, start_ds: 320, end_ds: 380, seen: [] },
+      // Short-span Sapphire pair (~18.6 view units apart: suppressed at default zoom k~0.93, visible when zoomed in k<0.55).
+      // Seen by enemy 31.0s..33.0s, then hidden 33.0s..39.0s (regression guard for M1 hidden short-span DoorLink leak).
+      { id: 3, team: "sapphire", x: -200, y: 0, start_ds: 310, link_ds: 310, end_ds: 390, partner: 4, seen: [[310, 330]] },
+      { id: 4, team: "sapphire", x: 200, y: 0, start_ds: 310, link_ds: 310, end_ds: 390, partner: 3, seen: [[310, 330]] },
     ],
   };
 }
@@ -250,8 +254,8 @@ test("Player renders fallback SVG, unpaired vs linked pair + link arc + pair hov
   await expect(door1).not.toHaveAttribute("data-hot", "");
   await expect(link).not.toHaveAttribute("data-hot", "");
 
-  // After close (t = 31s): pair is gone.
-  await scrubTo(p, 31);
+  // After close (t = 30.5s): first pair is gone (before short-span pair spawns at 31s).
+  await scrubTo(p, 30);
   await expect(doors).toHaveCount(0);
   await expect(links).toHaveCount(0);
 });
@@ -279,8 +283,9 @@ test("Player enemy Vision fades doors out and back in smoothly (350 ms, never a 
   await openReplay(p, queue);
 
   const door0Sel = '[data-testid=map] [data-testid=doorman-door][data-door-id="0"]';
-  const linkSel = '[data-testid=map] [data-testid=door-link]';
+  const linkWrapSel = "[data-testid=map] .pl-door-link-wrap";
   const doors = p.locator("[data-testid=map] [data-testid=doorman-door]");
+  const links = p.locator("[data-testid=map] [data-testid=door-link]");
 
   // Switch Vision to Amber (enemy of Sapphire Doorman).
   await p.getByTestId("vision-select").selectOption("amber");
@@ -288,12 +293,14 @@ test("Player enemy Vision fades doors out and back in smoothly (350 ms, never a 
   // At t = 15s (seen [100..160]): both doors visible. Start continuous playback across t = 16.0s -> fade out!
   await scrubTo(p, 15);
   await expect(doors).toHaveCount(2);
+  await expect(links).toHaveCount(1);
   await p.getByTestId("match-play").click();
-  const [doorOut, linkOut] = await Promise.all([catchFade(p, door0Sel), catchFade(p, linkSel)]);
+  const [doorOut, linkOut] = await Promise.all([catchFade(p, door0Sel), catchFade(p, linkWrapSel)]);
   expect(doorOut).toEqual({ from: 1, to: 0, easing: EXPO, duration: 350, out: true });
   expect(linkOut).toEqual({ from: 1, to: 0, easing: EXPO, duration: 350, out: true });
   await resumeFades(p);
   await expect(doors).toHaveCount(0);
+  await expect(links).toHaveCount(0);
   await p.getByTestId("match-play").click(); // pause
 
   // At t = 19s (unseen): start continuous playback across t = 20.0s -> fade back in!
@@ -311,6 +318,32 @@ test("Player enemy Vision fades doors out and back in smoothly (350 ms, never a 
   await expect(doors).toHaveCount(0);
   await p.getByTestId("vision-select").selectOption("sapphire");
   await expect(doors).toHaveCount(2);
+
+  // Regression guard (M1): short-span linked pair (doors 3 & 4, suppressed at default zoom) goes
+  // hidden under enemy Vision during playback; zooming in afterward must NEVER reveal a stale link arc!
+  await p.getByTestId("vision-select").selectOption("amber");
+  await scrubTo(p, 32);
+  // Under Amber Vision at t = 32s: amber door 2 + seen sapphire short-span pair (3 & 4) = 3 doors, 0 links.
+  await expect(doors).toHaveCount(3);
+  await expect(links).toHaveCount(0);
+  await p.getByTestId("match-play").click();
+  // Cross t = 33.0s -> sapphire short-span pair fades out, leaving only amber door 2.
+  await expect(doors).toHaveCount(1);
+  await p.getByTestId("match-play").click(); // pause while sapphire pair is hidden (33s..38s)
+  // Zoom in over the map centre so `k` drops below ~0.45 and `d > 2.4 * DOOR_R * k`.
+  const mapBox = (await p.getByTestId("map").boundingBox())!;
+  await p.mouse.move(mapBox.x + mapBox.width / 2, mapBox.y + mapBox.height / 2);
+  for (let i = 0; i < 12; i++) await p.mouse.wheel(0, -180);
+  await expect
+    .poll(async () => Number(((await p.getByTestId("map").getAttribute("data-view")) ?? "0 0 1000").split(" ")[2]))
+    .toBeLessThan(400);
+  // Still under Amber Vision: hidden enemy short-span pair must render 0 link arcs!
+  await expect(links).toHaveCount(0);
+  await expect(doors).toHaveCount(1);
+  // Switching to Sapphire Vision at the exact same zoomed view proves the zoom crossed the arc threshold.
+  await p.getByTestId("vision-select").selectOption("sapphire");
+  await expect(doors).toHaveCount(2);
+  await expect(links).toHaveCount(1);
 });
 
 test("Release 1 Scene reader renders stored v19 SceneState.more.doors (seen & D3 faded) while refusing Ahead rows on import", async ({ browser }) => {

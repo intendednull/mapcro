@@ -830,6 +830,7 @@ pub fn doors_ok(doors: &[Doorway], duration_s: u32) -> bool {
                     _ => false,
                 }
                 && seen_ok(&d.seen, duration_s)
+                && d.seen.iter().all(|[a, b]| d.start_ds <= *a && *b <= d.end_ds)
         })
 }
 
@@ -1263,6 +1264,8 @@ mod tests {
             Box::new(|t| t.doors[1].end_ds = 17),
             Box::new(|t| t.doors[0].seen = vec![[5, 5]]),
             Box::new(|t| t.doors[0].seen = vec![[0, 21]]),
+            Box::new(|t| t.doors[0].seen = vec![[1, 10]]),
+            Box::new(|t| t.doors[0].seen = vec![[4, 19]]),
             Box::new(|t| t.doors[0].seen = vec![[2, 5], [9, 15]]),
             Box::new(|t| {
                 t.doors = (0..=MAX_LIST)

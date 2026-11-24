@@ -110,10 +110,8 @@ Stage 0 confirmed that an unpaired Door 1 is a live `CCitadel_DoorwayPortal` (`m
 - **Exact SVG layer stack inside `svg.mm-overlay.map` (`Board.tsx` / `Layers.tsx`):**
   1. `<rect class="notes-area" />`
   2. `<TrooperDots />` (`.pl-troopers`)
-  3. `<RiftRings />` (`.pl-rift-rings`)
-  4. `<UrnMark />` (`.pl-urn`)
-  5. **`<DoormanDoors />` (`.pl-doors`: link arcs `.pl-door-link` first, then door badges `.pl-door`)**
-  6. `<Layers />`:
+  3. **`<DoormanDoors />` (`.pl-doors`: link arcs `.pl-door-link` first, then door badges `.pl-door`)**
+  4. `<Layers />`:
      - `<g class="arrows">`
      - `<g class="inks">`
      - `<rect class="marquee">`
@@ -124,6 +122,8 @@ Stage 0 confirmed that an unpaired Door 1 is a live `CCitadel_DoorwayPortal` (`m
      - `<g class="lasers">`
      - `<g class="pings">`
      - `<Cursors />`
+  5. `<RiftRings />` (`.pl-rift-rings`)
+  6. `<UrnMark />` (`.pl-urn`)
   7. `<DeathSkulls />` (`.pl-skulls`)
   8. `<TeleporterLink />` (`.tele-link`)
   9. `<MarkerTips />` (`.marker-tips`)
@@ -305,14 +305,14 @@ We evaluate the three candidate entry points against desktop discoverability, bl
 
 | Field | Rust type | TS type | Description & bounds |
 |---|---|---|---|
-| `id` | `u16` | `number` | Non-pooled `CCitadel_DoorwayPortal` entity index (`0..=16383`). |
+| `id` | `u16` | `number` | Dense sequential spawn index (`0..doors.len()`), independent of Source 2 entity slot reuse. |
 | `team` | `Team` | `"amber" \| "sapphire"` | Owning team (`m_iTeamNum`: `2` = `"amber"`, `3` = `"sapphire"`). |
 | `x` | `i32` | `number` | World X coordinate, rounded to integer world units (`-10752..=10752`). |
 | `y` | `i32` | `number` | World Y coordinate, rounded to integer world units (`-10752..=10752`). |
 | `start_ds` | `u32` | `number` | Spawn time in tenths of a second (`floor(t_spawn * 10)`). |
 | `link_ds` | `Option<u32>` | `number \| null \| undefined` | Tenth of a second when linked (`None` if never linked; equals `Some(door2.start_ds)` for both doors of a pair). |
-| `end_ds` | `u32` | `number` | Deletion time in tenths of a second (`floor(t_delete * 10)`). |
-| `partner` | `Option<u16>` | `number \| null \| undefined` | Partner `CCitadel_DoorwayPortal` entity index (`id`) once linked (`None` if never linked). |
+| `end_ds` | `u32` | `number` | Deletion (or match-end) time in tenths of a second (`ceil(t_delete * 10)`). |
+| `partner` | `Option<u16>` | `number \| null \| undefined` | Partner dense sequential `Doorway::id` once linked (`None` if never linked). |
 | `seen` | `Vec<[u32; 2]>` | `Array<[number, number]>` | Enemy FOW visibility intervals `[start_ds, end_ds)` in tenths of a second (`m_bVisibleOnMap == true` in enemy `CCitadelTeam.m_vecFOWEntities`). |
 
 - **Derivation at playback time `t` (computed on `TenthPart` clock at `ds = Math.floor(t * 10) + 0.5`):**
@@ -329,7 +329,7 @@ We evaluate the three candidate entry points against desktop discoverability, bl
 - **`SceneFacts.doors` (`web/src/mapstate/state.ts`):**
   ```ts
   export interface DoorNow {
-    /** Door index (0..3 in a scene) or entity id (in Player). */
+    /** Dense door index (`0..3` in a scene, `0..doors.len()` in Player). */
     id: number;
     team: "amber" | "sapphire";
     at: { x: number; y: number };

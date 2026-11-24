@@ -62,6 +62,9 @@ const TEAM: &str = "CCitadelTeam";
 const FOW: &str = "m_vecFOWEntities";
 /// `m_eClass` of a hero pawn's entry.
 const FOW_HERO: i64 = 1;
+/// `m_eClass` of a `CCitadel_DoorwayPortal` entry (shared with other classes, so always matched
+/// alongside a live `doors.active` entity index).
+const FOW_DOORWAY: i64 = 88;
 /// More entries than this isn't the feed we know (about 120 on 129738985).
 const MAX_FOW: usize = 512;
 const ORIGIN: &str = "CBodyComponent.m_skeletonInstance.m_vecOrigin";
@@ -806,25 +809,37 @@ fn door_changes(now: &[DoorTick], game: f32, doors: &mut DoorTracker) {
     for d in now {
         let Some(partner_ent) = d.linked_ent else { continue };
         let (Some(a), Some(b)) = (doors.active.get(&d.index).map(|x| x.seq), doors.active.get(&partner_ent).map(|x| x.seq)) else { continue };
-        if a == b {
+        if a == b || (doors.raw[a].partner == Some(b) && doors.raw[b].partner == Some(a)) {
             continue;
         }
-        if doors.raw[a].partner.is_none() {
-            doors.raw[a].partner = Some(b);
-            doors.raw[a].link_s = Some(game);
+        // If a live door relinks to a different live door, clear any prior stale partner reference
+        // on either side before recording the new symmetric pair.
+        if let Some(old_b) = doors.raw[a].partner.take()
+            && old_b != b
+            && doors.raw.get(old_b).is_some_and(|p| p.partner == Some(a))
+        {
+            doors.raw[old_b].partner = None;
+            doors.raw[old_b].link_s = None;
         }
-        if doors.raw[b].partner.is_none() {
-            doors.raw[b].partner = Some(a);
-            doors.raw[b].link_s = Some(game);
+        if let Some(old_a) = doors.raw[b].partner.take()
+            && old_a != a
+            && doors.raw.get(old_a).is_some_and(|p| p.partner == Some(b))
+        {
+            doors.raw[old_a].partner = None;
+            doors.raw[old_a].link_s = None;
         }
+        doors.raw[a].partner = Some(b);
+        doors.raw[a].link_s = Some(game);
+        doors.raw[b].partner = Some(a);
+        doors.raw[b].link_s = Some(game);
     }
 }
 
 /// Each team's minimap feed for the other team's heroes and doorways, on every tick (docs/research/
 /// replay-vision.md, docs/research/doorman-doors.md): a [`VisionObs`] wherever a hero's
 /// `m_bVisibleOnMap` for the enemy team changes, and a [`DoorVisionObs`] wherever a live
-/// `CCitadel_DoorwayPortal`'s enemy `m_bVisibleOnMap` changes (matched strictly by live entity
-/// index, never by `m_eClass == 88` alone).
+/// `CCitadel_DoorwayPortal`'s enemy `m_bVisibleOnMap` changes (requiring both `m_eClass == 88` and
+/// a live doorway entity index).
 #[allow(clippy::too_many_arguments)]
 fn vision_tick(
     ctx: &boon::Context,
@@ -866,7 +881,8 @@ fn vision_tick(
                 if now.insert(player, v) != Some(v) {
                     out.push(VisionObs { game, player, visible: v });
                 }
-            } else if !doors.active.is_empty()
+            } else if eclass == Some(FOW_DOORWAY)
+                && !doors.active.is_empty()
                 && let Some(&door) = int(t.field_value(*ent)).and_then(|i| i32::try_from(i).ok()).and_then(|i| doors.active.get(&i))
                 && door.team != observer
             {
@@ -1087,5 +1103,19 @@ mod tests {
         b.close_open(120.0);
         assert_eq!(b.raw[2].end_s, Some(120.0));
         assert!(b.active.is_empty());
+
+        // Relinking: if door 0 (linked to door 1) relinks to live door 2, door 1's stale partner
+        // is cleared cleanly and door 0 <-> door 2 becomes the new symmetric pair.
+        let mut r = DoorTracker::default();
+        door_changes(&[dt(10, 1, 5.0, 3, [0.0, 0.0], Some(20)), dt(20, 1, 5.0, 3, [10.0, 0.0], Some(10))], 5.0, &mut r);
+        assert_eq!((r.raw[0].partner, r.raw[1].partner), (Some(1), Some(0)));
+        door_changes(
+            &[dt(10, 1, 5.0, 3, [0.0, 0.0], Some(30)), dt(20, 1, 5.0, 3, [10.0, 0.0], None), dt(30, 1, 12.0, 3, [20.0, 0.0], Some(10))],
+            12.0,
+            &mut r,
+        );
+        assert_eq!((r.raw[0].partner, r.raw[0].link_s), (Some(2), Some(12.0)));
+        assert_eq!((r.raw[1].partner, r.raw[1].link_s), (None, None));
+        assert_eq!((r.raw[2].partner, r.raw[2].link_s), (Some(0), Some(12.0)));
     }
 }
