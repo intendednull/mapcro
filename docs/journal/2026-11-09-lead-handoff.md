@@ -21,7 +21,8 @@ compaction). The newest state is at the top; the history is in git and the other
     - Operator greenlit Doorman doors in **both Player and Scenes** and asked to queue the work (`docs/backlog.md`).
     - Art already extracted in `6864-upgrades` (`icons/doorman_doorway_psd`).
     - Staged pipeline: Stage 0 demo probe on standard 6v6 Doorman replay `142815246` (`doorman-doors-probe`) → Stage 1 spec + Argon visual/Scene UX design → Stage 2 Release 1 (Player + Scene Reader `Status::Ahead`) → Stage 3 Release 2 (Scene Writer + manual Scene placement `Status::Live`, store `v18` floor `17`).
-  - **Held:** `player-transport` (`6ed0179`) stays held awaiting the operator's 2 answers.
+  - **Player transport short-landscape elapsed-only clock (2026-11-24, Option 1 — DEPLOYING):**
+    - Per operator + concierge confirmation (`2026-11-24`), `player-transport` (`6ed0179`, 2026-11-16) was already superseded on 2026-11-18 by `player-alt-blend` (`web/src/styles/transport.css`, live on prod). Applied ONLY the remaining lean — elapsed-only clock on landscape phones `<= 700px` wide (`--clock-w: 44px`, `.clock-of { display: none }`) — plus the 2 extra speed-sync e2e assertions onto `transport.css` (`transport-short-landscape`, gated 72/72 Chromium + 5/5 Firefox Android). Stopped carrying `player-transport` as held; its branch remains untouched and unmerged per `memory/player-direction.md`.
 
 ## Deployed c94cdac: Map-state Phase 5, Release R3 (Writer B, store v17 floor 16, file v6) — Phase 5 COMPLETE (2026-11-24, lead 2a42cd74)
 
