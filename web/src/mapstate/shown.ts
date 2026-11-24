@@ -8,7 +8,7 @@
 // location is on (operator, 2026-11-14). A scene that holds no sight data keeps its legacy
 // meaning: a hero marked out of sight is faded for every viewer (D5).
 
-import { type UrnNow, slotKey } from "../match/timeline";
+import { type DoorNow, type UrnNow, slotKey } from "../match/timeline";
 import type { CrowdControl } from "../player/cc";
 import type { Vision } from "../player/vision";
 import type { Shown } from "./frame";
@@ -123,4 +123,19 @@ export function shownDeaths(ms: MapState, vision: Vision): Death[] {
   const view = sightOf(ms, vision);
   const deaths = ms.scene().deaths();
   return view ? deaths.filter((d) => d.team === view || d.seen) : deaths;
+}
+
+/** A Doorman doorway under the viewer's Vision (docs/specs/doorman-doors-design.md §1.7, §3.2). */
+export interface ShownDoor extends DoorNow {
+  draw: "seen" | "faded" | "hidden";
+}
+
+/** Doorman doorways projected through Vision: `seen` under All, own team, no sight data, or enemy
+ * line-of-sight; otherwise `faded` in a Scene (D3) and `hidden` in Player (fed into `visionFade`). */
+export function shownDoors(ms: MapState, vision: Vision, stored: boolean): ShownDoor[] {
+  const sight = ms.has("sight");
+  return ms.scene().doors().map((d) => {
+    if (!sight || vision === "all" || d.team === vision || d.inSight) return { ...d, draw: "seen" };
+    return { ...d, draw: stored ? "faded" : "hidden" };
+  });
 }

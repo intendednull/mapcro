@@ -172,6 +172,7 @@ export const IMAGE_BLOBS: Record<string, string> = {
   teleporter: "icons/minimap_teleporter_go_right",
   "teleporter-lit": "icons/minimap_teleporter_highlight",
   heal: "icons/health_pad_psd",
+  "doorman-door": "icons/doorman_doorway_psd",
   "death-skull": "topbar/skull",
   "tb-mask": "topbar/hero_image_mask_psd",
   "tb-ult": "topbar/icon_ultimate",

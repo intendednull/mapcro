@@ -552,6 +552,32 @@ svg[data-tool="select"] .pl-skull[data-recap] { pointer-events: auto; cursor: po
    img-shadow 0 0 18px shardColor&50 (#99FFD6, as the rift's border); carried, .held_idol_image's
    img-shadow 0 0 8px 0.5 white and its pulse, @keyframes held_idol_image over 1.3 s. */
 .pl-urn { pointer-events: none; }
+/* Doorman doorways (player/Doors.tsx; docs/specs/doorman-doors-design.md §1.1–§1.7) */
+.pl-doors { pointer-events: none; }
+.pl-door { pointer-events: none; }
+.pl-door.amber, .pl-door-link.amber { --team-c: var(--amber); }
+.pl-door.sapphire, .pl-door-link.sapphire { --team-c: var(--sapphire); }
+.pl-door .pl-door-badge { filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.88)); }
+.pl-door.linked .pl-door-badge { filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.88)) drop-shadow(0 0 2.5px var(--team-c)); }
+.pl-door .pl-door-bg { fill: #0b1714; fill-opacity: 0.92; }
+.pl-door.unpaired .pl-door-bg { fill-opacity: 0.78; }
+.pl-door.hot .pl-door-bg { fill-opacity: 0.96; }
+.pl-door .pl-door-rim { fill: none; stroke: var(--team-c); }
+.pl-door.hot .pl-door-rim { stroke: var(--text); }
+.pl-door .pl-door-hot-ring { fill: none; stroke: var(--team-c); stroke-opacity: 0.9; }
+.pl-door .pl-door-art { pointer-events: none; }
+.pl-door.unpaired .pl-door-art { opacity: 0.78; }
+.pl-door.hot .pl-door-art { opacity: 1; }
+.pl-door.faded .pl-door-badge { opacity: 0.42; }
+.pl-door .vis { pointer-events: none; }
+.pl-door .vis circle { fill: #0b1714; stroke: var(--warn); stroke-width: 1.5; }
+.pl-door .vis path { fill: none; stroke: var(--warn); stroke-width: 1.6; stroke-linecap: round; }
+.pl-door-link-wrap, .pl-door-link { pointer-events: none; }
+.pl-door-link .pl-door-link-casing { fill: none; stroke: #0b1714; stroke-width: 3; stroke-opacity: 0.35; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.pl-door-link .pl-door-link-thread { fill: none; stroke: var(--team-c); stroke-width: 1.6; stroke-dasharray: 4 6; stroke-opacity: 0.52; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.pl-door-link.hot .pl-door-link-thread { stroke-width: 2.2; stroke-dasharray: 5 5; stroke-opacity: 0.92; }
+.pl-door-link.faded .pl-door-link-casing { stroke-opacity: 0.16; }
+.pl-door-link.faded .pl-door-link-thread { stroke-opacity: 0.22; }
 .pl-rift-rings { pointer-events: none; }   /* player/Rift.tsx: each team's capture of the open rift */
 .pl-rift-track { fill: none; stroke: #000000a0; }
 .pl-rift-fill { fill: none; filter: drop-shadow(0 0 1.5px #000); }

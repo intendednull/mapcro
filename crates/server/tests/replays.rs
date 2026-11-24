@@ -283,6 +283,7 @@ fn timeline(id: u64) -> Timeline {
         objective_health: vec![],
         urn: None,
         rejuv: vec![],
+        doors: vec![],
         format: mapcro_replay::timeline::FORMAT,
     }
 }

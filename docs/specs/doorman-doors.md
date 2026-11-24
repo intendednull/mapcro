@@ -18,13 +18,13 @@ Three lead engineering amendments to [doorman-doors-design.md](doorman-doors-des
 
 ---
 
-## 2. Open Operator Confirmation (Locked Before Stage 2 Code)
+## 2. Operator Confirmation (Approved 2026-11-24: `"go with lean"`)
 
-1. **`timeline::FORMAT` bump (`10 → 11`) vs optional field in `10`:**
-   - **Recommended lean: bump `timeline::FORMAT` to `11`.** Matches formats `1..=10`; cached server timelines inside Valve's 3-week window auto-refetch once on open so recent Doorman matches immediately display doors. Because `crates/server/src/replays.rs` `check_client_timeline` rejects `format < FORMAT` with `"Update the mapcro app"`, pair Release 1 with cutting `desktop-v0.2.5` (CI `desktop.yml`) so desktop app users get the update cleanly.
-   - **Alternative:** keep `FORMAT = 10` (`doors` optional). `desktop-v0.2.4` keeps uploading without an update and newly fetched/server-parsed matches get doors, but already-cached matches do not auto-refetch.
-2. **Little-door tinting:**
-   - **Recommended lean (Argon §1.3):** team-tinted rim + link arc (`--amber` / `--sapphire`) with crisp off-white little door glyph (`#FFEFD7` / pack white) on `#0b1714` disc, avoiding the Amber/Sapphire color collision of Valve's 3D `m_ColorStart` gold / `m_ColorEnd` blue.
+1. **`timeline::FORMAT` bump (`10 → 11`) — APPROVED:**
+   - **Adopted (`FORMAT = 11`):** Matches formats `1..=10`; cached server timelines inside Valve's 3-week window auto-refetch once on open so recent Doorman matches immediately display doors. Because `crates/server/src/replays.rs` `check_client_timeline` rejects `format < FORMAT` with `"Update the mapcro app"`, pair Release 1 with cutting `desktop-v0.2.5` (CI `desktop.yml`) so desktop app users get the update cleanly.
+   - *(Rejected alternative: keeping `FORMAT = 10` with optional `doors`.)*
+2. **Little-door tinting — APPROVED:**
+   - **Adopted (Argon §1.3):** team-tinted rim + link arc (`--amber` / `--sapphire`) with crisp off-white little door glyph (`#FFEFD7` / pack white) on `#0b1714` disc, avoiding the Amber/Sapphire color collision of Valve's 3D `m_ColorStart` gold / `m_ColorEnd` blue.
 
 ---
 
@@ -59,7 +59,7 @@ pub struct Doorway {
     /// Tenth of a second when linked (`None` if never linked).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link_ds: Option<u32>,
-    /// Deletion (or match-end) time in tenths of a second (`floor(t_end * 10)`).
+    /// Deletion (or match-end) time in tenths of a second (`ceil(t_end * 10)`).
     pub end_ds: u32,
     /// Partner `Doorway::id` once linked (`None` if never linked).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -144,7 +144,7 @@ Add `doors_ok(&t.doors, t.duration_s)`:
    - `web/src/mapstate/build.ts`: add `doors?: boolean; doorsData?: number[]` to `SceneCapture` / `CapturedSnapshot`, gated behind `ROWS.doors.index < written` (`WRITTEN = 40` keeps writer dormant in Release 1, testable with synthetic `written = 42`).
    - `web/src/mapstate/scene.ts`: read `has_doors` + `doors` in `fromScene` (`has("doors")`, `scene().doors()`), so Release 1 ALREADY renders any v19 board's doors cleanly on rollback!
    - `web/src/mapstate/shown.ts`: add `shownDoors(ms, vision, stored)` implementing Player (`seen`/`hidden`) and Scene D3 (`seen`/`faded`).
-   - `web/src/player/Doors.tsx` (new) + `web/src/styles/minimap.css`: render `<DoormanDoors />` in `Board.tsx` right after `<UrnMark />`, clipped to `--mm-stencil-view`, with Argon's badge (`DOOR_R = 14`, `DOOR_GLYPH = 21`), `DOOR_FB` fallback SVG, team rim, unpaired dashed state, curved dashed link arc, hover pair highlight, and `visionFade`.
+   - `web/src/player/Doors.tsx` (new) + `web/src/styles/minimap.css`: render `<DoormanDoors />` in `Board.tsx` right before `<Layers />` (after `<TrooperDots />`, below `<Tokens />` and coach annotations), clipped to `--mm-stencil-view`, with Argon's badge (`DOOR_R = 14`, `DOOR_GLYPH = 21`), `DOOR_FB` fallback SVG, team rim, unpaired dashed state, curved dashed link arc, hover pair highlight, and `visionFade`.
    - `web/src/player/Camps.tsx` (`MarkerTips`): check visible doors in `near(at)` right after `urn()`, returning `door:<id>` (`"Doorway"`).
    - **No `view_state.rs` change** (doors are always-on when present, preserving bit 7 of `Presence.layers`).
 4. **Post-deploy Release 1 lock step:**

@@ -201,6 +201,8 @@ export interface SceneCapture {
   urnAt?: { x: number; y: number };
   rejuv?: boolean;
   rejuvData?: number[];
+  doors?: boolean;
+  doorsData?: number[];
 }
 
 /** The scene's own rows for a snapshot: the watermark, what it holds, the patch, and any
@@ -234,6 +236,8 @@ export function captureScene(tl: Pick<Timeline, "build">, opts: SceneCapture = {
     urn_at: opts.urn ? opts.urnAt : undefined,
     has_rejuv: opts.rejuv ? true : undefined,
     rejuv: opts.rejuv ? nonEmpty(opts.rejuvData) : undefined,
+    has_doors: opts.doors ? true : undefined,
+    doors: opts.doors ? nonEmpty(opts.doorsData) : undefined,
   };
   return Object.fromEntries(Object.entries(scene).filter(([k, v]) => v !== undefined && ROWS[k as SceneKey].index < written)) as More;
 }
@@ -263,6 +267,7 @@ export interface CapturedSnapshot {
   rifts: boolean;
   urn: boolean;
   rejuv: boolean;
+  doors: boolean;
   rows: number;
   patch: number | undefined;
 }
@@ -286,6 +291,7 @@ export function captured(scene: More | undefined): CapturedSnapshot {
     rifts: flag("has_rifts", "rift"),
     urn: flag("has_urn", "urn_at"),
     rejuv: flag("has_rejuv", "rejuv"),
+    doors: flag("has_doors", "doors"),
     rows,
     patch: int(scene?.build) ?? undefined,
   };

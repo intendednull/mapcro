@@ -676,11 +676,11 @@ mod tests {
         assert_eq!(READS, 6);
         assert_eq!(VERSION, 6);
         assert_eq!(mapcro_schema::written_rows(), 40);
-        // v7+ files and `rows > 40` are refused as `Newer` on R3 (before body parsing).
+        // v7+ files and `rows > ROWS.len()` (42 in Doorman R1) are refused as `Newer` (before body parsing).
         let v7_bytes = file_with(|v| v["version"] = json!(7));
         assert_eq!(read(&v7_bytes, ids(1000), &Admit::DEPLOYED).err(), Some(Refusal::Newer));
-        let rows41_bytes = file_with(|v| v["rows"] = json!(41));
-        assert_eq!(read(&rows41_bytes, ids(1000), &Admit::DEPLOYED).err(), Some(Refusal::Newer));
+        let rows_over_bytes = file_with(|v| v["rows"] = json!(mapcro_schema::ROWS.len() + 1));
+        assert_eq!(read(&rows_over_bytes, ids(1000), &Admit::DEPLOYED).err(), Some(Refusal::Newer));
 
         const R1_READS: u64 = 4;
         const R1_ROWS: u64 = 40;

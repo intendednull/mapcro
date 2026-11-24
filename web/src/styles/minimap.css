@@ -26,7 +26,7 @@
 /* At any zoom, the map's art and what stands on the map (heroes, troopers, selection rings) are
    clipped to the map's own stencil; ink, arrows and comments keep the notes margin. */
 .mm-host:not(.lite) .mm-rot { clip-path: var(--mm-stencil-box); }
-.mm-overlay.map > .tokens, .mm-overlay.map > .pl-troopers, .mm-overlay.map > .picks { clip-path: var(--mm-stencil-view); }
+.mm-overlay.map > .tokens, .mm-overlay.map > .pl-troopers, .mm-overlay.map > .picks, .mm-overlay.map > .pl-doors { clip-path: var(--mm-stencil-view); }
 .mm-defs { position: absolute; width: 0; height: 0; overflow: hidden; pointer-events: none; }
 /* The edge, over everything the stencil clips: compass_frame's rim (rgb 90 90 90, 3 of 880 px),
    opaque and a little wider so it reads over the map; the drawn frame's cream without the pack.

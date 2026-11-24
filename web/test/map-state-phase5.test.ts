@@ -162,13 +162,13 @@ function captureToScene(tl: Timeline, second: number, written: number, rs = rost
 }
 
 describe("Phase 5 R3: exhaustive §9 round-trip property (Groups A & B both live)", () => {
-  it("R3 ships with WRITTEN = 40 and all 40 rows live (none ahead)", () => {
+  it("WRITTEN stays 40 while rows 40–41 (has_doors, doors) are ahead", () => {
     expect(WRITTEN).toBe(40);
     expect(WRITTEN).toBe(WRITTEN_B);
     const keys = Object.keys(ROWS) as RowKey[];
-    expect(keys).toHaveLength(40);
+    expect(keys).toHaveLength(42);
     for (const k of keys) {
-      expect(ROWS[k].status, k).toBe("live");
+      expect(ROWS[k].status, k).toBe(ROWS[k].index < WRITTEN ? "live" : "ahead");
     }
   });
 
@@ -350,6 +350,15 @@ describe("Phase 5 R3: exhaustive §9 round-trip property (Groups A & B both live
         if (written < WRITTEN_B) return;
         expect(s.scene().rejuv()).toEqual(p.scene().rejuv());
       },
+      // Doorman doorways (40–41, ahead in Release 1)
+      has_doors: ({ p, s, written }) => {
+        if (written > ROWS.doors.index) expect(s.has("doors")).toBe(p.has("doors"));
+        else expect(s.has("doors")).toBe(false);
+      },
+      doors: ({ p, s, written }) => {
+        if (written <= ROWS.doors.index) return;
+        expect(s.scene().doors()).toEqual(p.scene().doors());
+      },
     };
 
     for (const written of [WRITTEN, WRITTEN_B]) {
@@ -378,7 +387,7 @@ describe("Phase 5 R3: exhaustive §9 round-trip property (Groups A & B both live
         });
       }
     }
-    expect(hitRows.size).toBe(40);
+    expect(hitRows.size).toBe(42);
   });
 
   it("round-trips metadata tier on both written=27 and written=40 (only skulls captured from Phase 5)", () => {

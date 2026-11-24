@@ -28,7 +28,7 @@ import {
   captureBuild, captureScene, captured, heroBuildAt, holdsHealth, moreBytes, retakeRows, writesHeroes,
 } from "../mapstate/build";
 import {
-  encodeCC, encodeCamps, encodeEdges, encodeObjHealth, encodePowerups, encodeRejuv, encodeRift, encodeSkulls, encodeUrn,
+  encodeCC, encodeCamps, encodeDoors, encodeEdges, encodeObjHealth, encodePowerups, encodeRejuv, encodeRift, encodeSkulls, encodeUrn,
   isCampKind,
 } from "../mapstate/codec";
 import { type FrameMarkers, type SecondPart, savedPart, secondPart, tenthPart } from "../mapstate/frame";
@@ -64,7 +64,8 @@ export type Phase5Feature =
   | "obj_health"
   | "rifts"
   | "urn"
-  | "rejuv";
+  | "rejuv"
+  | "doors";
 
 export const PHASE5_FEATURES: ReadonlyArray<{
   feature: Phase5Feature;
@@ -84,6 +85,7 @@ export const PHASE5_FEATURES: ReadonlyArray<{
   { feature: "rifts", firstRow: "has_rifts", lastRow: "rift", flag: "rifts", hasIn: (f) => f.rifts },
   { feature: "urn", firstRow: "has_urn", lastRow: "urn_at", flag: "urn", hasIn: (f) => f.urn },
   { feature: "rejuv", firstRow: "has_rejuv", lastRow: "rejuv", flag: "rejuv", hasIn: (f) => f.rejuv },
+  { feature: "doors", firstRow: "has_doors", lastRow: "doors", flag: "doors", hasIn: (f) => f.doors },
 ];
 
 /** Feature drop order when a save exceeds `max_tx_bytes - TX_SLACK`, before trimming `build_order`
@@ -92,6 +94,7 @@ export const DROP_ORDER: readonly Phase5Feature[] = [
   "skulls",
   "movement",
   "cc",
+  "doors",
   "rejuv",
   "urn",
   "rifts",
@@ -118,12 +121,16 @@ interface CapturedFrameData {
   urnData: number[];
   urnAt?: { x: number; y: number };
   rejuvData: number[];
+  doorsData: number[];
 }
 
 function captureFrameData(tl: Timeline, second: number, markers: FrameMarkers, written: number): CapturedFrameData {
   const feat = featuresOf(tl);
   const sec = secondPart(tl, second, markers);
-  const needsTenth = (feat.sight && ROWS.unseen.index < written) || (feat.cc && ROWS.cc.index < written);
+  const needsTenth =
+    (feat.sight && ROWS.unseen.index < written) ||
+    (feat.cc && ROWS.cc.index < written) ||
+    (feat.doors && ROWS.doors.index < written);
   const ten = needsTenth ? tenthPart(tl, second) : undefined;
   const available = new Set<Phase5Feature>();
   const heroSight = new Map<string, More>();
@@ -228,6 +235,11 @@ function captureFrameData(tl: Timeline, second: number, markers: FrameMarkers, w
     available.add("rejuv");
     rejuvData = encodeRejuv(sec.rejuv, second);
   }
+  let doorsData: number[] = [];
+  if (feat.doors && ROWS.doors.index < written) {
+    available.add("doors");
+    doorsData = encodeDoors(ten!.doors);
+  }
 
   return {
     sec,
@@ -246,6 +258,7 @@ function captureFrameData(tl: Timeline, second: number, markers: FrameMarkers, w
     urnData,
     ...(urnAtPos ? { urnAt: urnAtPos } : {}),
     rejuvData,
+    doorsData,
   };
 }
 
@@ -262,6 +275,7 @@ function sceneCaptureFrom(fd: CapturedFrameData, active: ReadonlySet<Phase5Featu
     ...(active.has("rifts") ? { rifts: true, riftData: fd.riftData } : {}),
     ...(active.has("urn") ? { urn: true, urnData: fd.urnData, ...(fd.urnAt ? { urnAt: fd.urnAt } : {}) } : {}),
     ...(active.has("rejuv") ? { rejuv: true, rejuvData: fd.rejuvData } : {}),
+    ...(active.has("doors") ? { doors: true, doorsData: fd.doorsData } : {}),
   };
 }
 
@@ -660,7 +674,7 @@ function planRetakeBuilds(
 export function canRetake(
   scene: Pick<SceneRow["scene"], "source">,
   state: More | undefined,
-  tl: Pick<Timeline, "match_id" | "tier" | "players" | "zips" | "camps" | "heals" | "crates" | "powerups" | "objective_health" | "rifts" | "urn" | "rejuv"> | undefined,
+  tl: Pick<Timeline, "match_id" | "tier" | "players" | "zips" | "camps" | "heals" | "crates" | "powerups" | "objective_health" | "rifts" | "urn" | "rejuv" | "doors"> | undefined,
   written: number = WRITTEN,
   markers?: FrameMarkers,
   heroes?: Player[],
@@ -700,8 +714,8 @@ export function canRetake(
     return admitted.size > 0;
   }
   if (needsBuilds) return true;
-  // If any Group A feature or `rejuv` is missing, it always fits (no list cap / hash collision).
-  const simple = missing.some((f) => f.feature === "sight" || f.feature === "cc" || f.feature === "movement" || f.feature === "lanes" || f.feature === "skulls" || f.feature === "rejuv");
+  // If any Group A feature, `rejuv`, or `doors` is missing, it always fits (no list cap / hash collision).
+  const simple = missing.some((f) => f.feature === "sight" || f.feature === "cc" || f.feature === "movement" || f.feature === "lanes" || f.feature === "skulls" || f.feature === "rejuv" || f.feature === "doors");
   if (simple) return true;
   if (!markers?.length || scene.source?.t == null) return false;
   // For list-capped / hash-checked Group B features, verify at least one actually fits at `source.t`.
@@ -720,6 +734,7 @@ const STATE_PAYLOAD_KEYS: Partial<Record<Phase5Feature, readonly RowKey[]>> = {
   rifts: ["rift"],
   urn: ["urn", "urn_at"],
   rejuv: ["rejuv"],
+  doors: ["doors"],
 };
 
 const rowAfterFeature = (f: Phase5Feature): number => {

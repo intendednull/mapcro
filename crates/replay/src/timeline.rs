@@ -30,7 +30,8 @@ pub const TIER: &str = "replay";
 /// 10: the stacks each hero holds on its own abilities and items (`Player::stacks`, feedback #38;
 /// docs/research/README.md "Own stacks"). Its re-fetch also brings older format-9 timelines the
 /// recap source kinds (TD-22).
-pub const FORMAT: u32 = 10;
+/// 11: The Doorman's placed doorways (`Timeline::doors`; docs/specs/doorman-doors.md).
+pub const FORMAT: u32 = 11;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Timeline {
@@ -81,9 +82,39 @@ pub struct Timeline {
     /// took one.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rejuv: Vec<Rejuv>,
+    /// Replay tier: The Doorman's placed doorways (`CCitadel_DoorwayPortal`, format 11), one entry
+    /// per spawn. Empty when Doorman placed no doors or on timelines from before this layer.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub doors: Vec<Doorway>,
     /// [`FORMAT`] of the worker that wrote it; 0 if it predates the stamp.
     #[serde(default)]
     pub format: u32,
+}
+
+/// One Doorman doorway (`CCitadel_DoorwayPortal`, format 11; docs/specs/doorman-doors.md).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Doorway {
+    /// Dense sequential spawn index (`0..doors.len()`), independent of Source 2 entity slot reuse.
+    pub id: u16,
+    /// `"amber"` or `"sapphire"`.
+    pub team: String,
+    /// World X coordinate, rounded to integer world units.
+    pub x: i32,
+    /// World Y coordinate, rounded to integer world units.
+    pub y: i32,
+    /// Spawn time in tenths of a second (`floor(t_spawn * 10)`).
+    pub start_ds: u32,
+    /// Tenth of a second when linked (`None` if never linked).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_ds: Option<u32>,
+    /// Deletion (or match-end) time in tenths of a second.
+    pub end_ds: u32,
+    /// Partner `Doorway::id` once linked (`None` if never linked).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub partner: Option<u16>,
+    /// Enemy FOW visibility intervals `[start_ds, end_ds)` in tenths of a second.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub seen: Vec<[u32; 2]>,
 }
 
 /// The Soul Urn over the match (exploration round 6): where each one spawned, and its state
@@ -773,6 +804,36 @@ fn ranges_ok(r: &[[u32; 2]], n: u32) -> bool {
     r.len() <= 4096 && r.iter().all(|[a, b]| a < b && *b <= n)
 }
 
+/// Doorman's placed doorways (format 11): dense sequential IDs, valid team/coords/time bounds,
+/// symmetric linked pairs of the same team, and valid enemy FOW `seen` intervals.
+pub fn doors_ok(doors: &[Doorway], duration_s: u32) -> bool {
+    let max_ds = duration_s.saturating_add(1).saturating_mul(10);
+    doors.len() <= MAX_LIST
+        && doors.iter().enumerate().all(|(i, d)| {
+            usize::from(d.id) == i
+                && (d.team == "amber" || d.team == "sapphire")
+                && d.x.unsigned_abs() <= 32768
+                && d.y.unsigned_abs() <= 32768
+                && d.start_ds <= d.end_ds
+                && d.end_ds <= max_ds
+                && d.link_ds.is_some() == d.partner.is_some()
+                && match (d.link_ds, d.partner) {
+                    (Some(link), Some(pid)) => {
+                        d.start_ds <= link
+                            && link <= d.end_ds
+                            && usize::from(pid) != i
+                            && doors.get(usize::from(pid)).is_some_and(|p| {
+                                p.partner == Some(d.id) && p.team == d.team && p.link_ds == Some(link) && p.end_ds == d.end_ds
+                            })
+                    }
+                    (None, None) => true,
+                    _ => false,
+                }
+                && seen_ok(&d.seen, duration_s)
+                && d.seen.iter().all(|[a, b]| d.start_ds <= *a && *b <= d.end_ds)
+        })
+}
+
 /// Bound sparse scoreboard samples on the same integer-second clock as player paths.
 fn scalar_ok(values: &[(u32, Option<u32>)], duration: u32, min: u32, max: u32) -> bool {
     values.len() <= duration as usize + 1
@@ -894,6 +955,7 @@ pub fn validate(bytes: &[u8]) -> Result<Timeline, &'static str> {
                 && r.left.iter().all(|[s, n]| r.taken_s <= *s && *s < r.ends_s && *s <= t.duration_s && *n <= MAX_REJUV)
         })
         && t.rejuv.windows(2).all(|w| w[0].taken_s <= w[1].taken_s)
+        && doors_ok(&t.doors, t.duration_s)
         && t.events.len() <= MAX_EVENTS
         && t.events.iter().all(|e| {
             let team_ok = |s: &str| s == "amber" || s == "sapphire" || s == "neutral";
@@ -995,6 +1057,11 @@ mod tests {
                 ],
             }),
             rejuv: vec![Rejuv { team: "sapphire".into(), taken_s: 1, ends_s: 181, left: vec![[1, 3], [2, 2]] }],
+            doors: vec![
+                Doorway { id: 0, team: "sapphire".into(), x: -1200, y: 800, start_ds: 2, link_ds: Some(8), end_ds: 18, partner: Some(1), seen: vec![[4, 15]] },
+                Doorway { id: 1, team: "sapphire".into(), x: 1400, y: -600, start_ds: 8, link_ds: Some(8), end_ds: 18, partner: Some(0), seen: vec![[8, 15]] },
+                Doorway { id: 2, team: "amber".into(), x: 0, y: 1000, start_ds: 5, link_ds: None, end_ds: 12, partner: None, seen: vec![] },
+            ],
             format: FORMAT,
         }
     }
@@ -1168,6 +1235,43 @@ mod tests {
             Box::new(|t| t.players[0].zipline[1] = [3, 3]),
             Box::new(|t| t.players[0].zipline[1] = [2, 4]),
             Box::new(|t| t.players[0].zipline[1] = [1, 3]),
+            // Format 11: Doorman doorways.
+            Box::new(|t| t.doors[0].id = 1),
+            Box::new(|t| t.doors[0].team = "neutral".into()),
+            Box::new(|t| t.doors[0].x = 32769),
+            Box::new(|t| t.doors[0].x = i32::MIN),
+            Box::new(|t| t.doors[0].y = -32769),
+            Box::new(|t| t.doors[0].start_ds = 19),
+            Box::new(|t| {
+                t.doors[0].end_ds = 31;
+                t.doors[1].end_ds = 31;
+            }),
+            Box::new(|t| t.doors[2].link_ds = Some(6)),
+            Box::new(|t| t.doors[2].partner = Some(0)),
+            Box::new(|t| {
+                t.doors[0].link_ds = Some(1);
+                t.doors[1].link_ds = Some(1);
+            }),
+            Box::new(|t| {
+                t.doors[0].link_ds = Some(19);
+                t.doors[1].link_ds = Some(19);
+            }),
+            Box::new(|t| t.doors[0].partner = Some(0)),
+            Box::new(|t| t.doors[0].partner = Some(9)),
+            Box::new(|t| t.doors[0].partner = Some(2)),
+            Box::new(|t| t.doors[1].team = "amber".into()),
+            Box::new(|t| t.doors[1].link_ds = Some(9)),
+            Box::new(|t| t.doors[1].end_ds = 17),
+            Box::new(|t| t.doors[0].seen = vec![[5, 5]]),
+            Box::new(|t| t.doors[0].seen = vec![[0, 21]]),
+            Box::new(|t| t.doors[0].seen = vec![[1, 10]]),
+            Box::new(|t| t.doors[0].seen = vec![[4, 19]]),
+            Box::new(|t| t.doors[0].seen = vec![[2, 5], [9, 15]]),
+            Box::new(|t| {
+                t.doors = (0..=MAX_LIST)
+                    .map(|i| Doorway { id: i as u16, team: "amber".into(), x: 0, y: 0, start_ds: 0, link_ds: None, end_ds: 10, partner: None, seen: vec![] })
+                    .collect();
+            }),
         ];
         for (i, f) in bad.iter().enumerate() {
             let mut t = tiny();
@@ -1186,6 +1290,7 @@ mod tests {
         o["players"][0].as_object_mut().expect("player").remove("respawn");
         o["players"][0].as_object_mut().expect("player").remove("seen");
         o.remove("rejuv");
+        o.remove("doors");
         o.remove("heals");
         o.remove("crates");
         for f in ["items", "abilities", "casts", "charges", "stacks", "cc", "effects", "recaps", "height", "zipline"] {
@@ -1199,7 +1304,7 @@ mod tests {
         let t = validate(&serde_json::to_vec(&v).expect("json")).expect("an old timeline loads");
         assert_eq!((t.urn, t.format, t.players[0].respawn.len(), t.players[0].seen.len()), (None, 0, 0, 0));
         assert_eq!((t.rifts[0].live_s, t.powerups[0].spawns.len()), (None, 0));
-        assert_eq!((t.rifts[0].give_up_s, t.rifts[0].capture.len(), t.rejuv.len(), t.heals.len(), t.crates.len()), (None, 0, 0, 0, 0));
+        assert_eq!((t.rifts[0].give_up_s, t.rifts[0].capture.len(), t.rejuv.len(), t.doors.len(), t.heals.len(), t.crates.len()), (None, 0, 0, 0, 0, 0));
         let p = &t.players[0];
         assert!(p.items.is_empty() && p.abilities.is_empty() && p.casts.is_empty() && p.charges.is_empty() && p.stacks.is_empty() && p.cc.is_empty());
         assert!(p.effects.is_empty() && p.recaps.is_empty() && p.height.is_empty() && p.zipline.is_empty());
@@ -1266,6 +1371,18 @@ mod tests {
         // Every remainder length (0–3 bytes past the last 4-byte chunk) takes part.
         let ids: std::collections::BTreeSet<u32> = ["abcd", "abcde", "abcdef", "abcdefg"].map(token).into();
         assert_eq!(ids.len(), 4);
+    }
+
+    #[test]
+    fn format_10_timelines_without_doors_still_validate_and_empty_doors_omit_key() {
+        let mut t = tiny();
+        t.doors.clear();
+        t.format = 10;
+        let json = serde_json::to_vec(&t).expect("json");
+        assert!(!String::from_utf8_lossy(&json).contains("\"doors\""), "empty doors omitted from JSON");
+        let parsed = validate(&json).expect("format-10 timeline validates");
+        assert!(parsed.doors.is_empty());
+        assert_eq!(parsed.format, 10);
     }
 
     #[test]

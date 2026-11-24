@@ -7,7 +7,7 @@
 //! are networked whatever the players see (exploration rounds 3 and 4).
 
 use crate::map::{self, Map};
-use crate::timeline::{Camp, Event, FORMAT, SEEN_MERGE_DS, MAX_GIVE_UP_S, MAX_REJUV, MidBoss, Objective, Player, Powerup, PowerupSpawn, REJUV_S, Rejuv, Rift, TIER, Timeline, Urn, UrnAt, UrnSpawn, ZipTrack, event, souls_swings};
+use crate::timeline::{Camp, Doorway, Event, FORMAT, MAX_GIVE_UP_S, MAX_REJUV, MidBoss, Objective, Player, Powerup, PowerupSpawn, REJUV_S, Rejuv, Rift, SEEN_MERGE_DS, TIER, Timeline, Urn, UrnAt, UrnSpawn, ZipTrack, event, souls_swings};
 #[cfg(test)]
 use crate::timeline::decode_troopers;
 use std::collections::BTreeMap;
@@ -228,6 +228,33 @@ pub struct VisionObs {
     pub visible: bool,
 }
 
+/// A Doorman doorway (`CCitadel_DoorwayPortal`) observed across its lifetime, in spawn order.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DoorObs {
+    /// Demo team: 2 Amber, 3 Sapphire.
+    pub team: i64,
+    pub pos: [f32; 2],
+    /// Match-clock seconds when spawned.
+    pub start_s: f32,
+    /// Match-clock seconds when linked (`None` if never linked).
+    pub link_s: Option<f32>,
+    /// Match-clock seconds when deleted or closed at match end (`None` if still open).
+    pub end_s: Option<f32>,
+    /// Partner's index in [`Obs::doors`], once linked.
+    pub partner: Option<usize>,
+}
+
+/// A change in whether the enemy team sees a Doorman doorway (enemy `CCitadelTeam`'s
+/// `m_vecFOWEntities` entry matched by live `CCitadel_DoorwayPortal` entity index).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DoorVisionObs {
+    /// Match-clock seconds.
+    pub game: f32,
+    /// Index in [`Obs::doors`].
+    pub door: usize,
+    pub visible: bool,
+}
+
 #[derive(Clone, Debug)]
 pub struct PowerupObs {
     pub pos: [f32; 2],
@@ -263,6 +290,10 @@ pub struct Obs {
     pub koth: Vec<KothObs>,
     /// Each hero's visibility to the enemy team where it changes, in order (empty: none read).
     pub vision: Vec<VisionObs>,
+    /// Doorman doorways (`CCitadel_DoorwayPortal`) in spawn order (format 11; empty: none read).
+    pub doors: Vec<DoorObs>,
+    /// Enemy-team visibility changes per doorway, in order (format 11; empty: none read).
+    pub door_vision: Vec<DoorVisionObs>,
     /// Format 7's per-hero reads (empty: none read).
     pub hero_data: crate::hero_data::HeroData,
 }
@@ -626,6 +657,7 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
     let (rejuv, rejuv_events) = rejuvs(obs, m, &players, &carriers, duration_s);
     events.extend(rejuv_events);
     events.sort_by(|a, b| (a.t, &a.kind).cmp(&(b.t, &b.kind)));
+    let doors = doors(obs, duration_s);
     Ok(Timeline {
         match_id: obs.match_id,
         start_time: 0,
@@ -648,6 +680,7 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
         objective_health,
         urn,
         rejuv,
+        doors,
         format: FORMAT,
     })
 }
@@ -820,6 +853,159 @@ fn seen_intervals(changes: impl Iterator<Item = (f32, bool)>, end_ds: u32) -> Ve
         push(a, end_ds);
     }
     out
+}
+
+/// Enemy FOW visibility intervals for one doorway, clamped to `[start_ds, end_ds)` with the same
+/// [`SEEN_MERGE_DS`] smoothing as [`seen_intervals`].
+fn door_seen_intervals(changes: impl Iterator<Item = (f32, bool)>, start_ds: u32, end_ds: u32) -> Vec<[u32; 2]> {
+    if start_ds >= end_ds {
+        return Vec::new();
+    }
+    let mut out: Vec<[u32; 2]> = Vec::new();
+    let mut push = |a: u32, b: u32| {
+        let a = a.max(start_ds);
+        let b = b.max(a + 1).min(end_ds);
+        if a >= b {
+            return;
+        }
+        match out.last_mut() {
+            Some(l) if a < l[1] + SEEN_MERGE_DS => l[1] = l[1].max(b),
+            _ => out.push([a, b]),
+        }
+    };
+    let mut open = None;
+    for (game, visible) in changes {
+        let ds = (f64::from(game) * 10.0).round().clamp(f64::from(start_ds), f64::from(end_ds)) as u32;
+        match (visible, open) {
+            (true, None) => open = Some(ds),
+            (false, Some(a)) => {
+                push(a, ds);
+                open = None;
+            }
+            _ => {}
+        }
+    }
+    if let Some(a) = open {
+        push(a, end_ds);
+    }
+    out
+}
+
+/// Derive Doorman's placed doorways (format 11) with dense sequential IDs, symmetric linked pairs,
+/// degenerate/dangling-partner cleanup so `timeline::validate` always passes, and enemy FOW `seen`.
+fn doors(obs: &Obs, duration_s: u32) -> Vec<Doorway> {
+    if obs.doors.is_empty() {
+        return Vec::new();
+    }
+    const MAX_DOORS: usize = 256;
+    let max_ds = duration_s.saturating_mul(10);
+    struct Cand {
+        raw: usize,
+        team: &'static str,
+        x: i32,
+        y: i32,
+        start_ds: u32,
+        link_ds: Option<u32>,
+        end_ds: u32,
+        partner_raw: Option<usize>,
+    }
+    let mut cands: Vec<Option<Cand>> = Vec::with_capacity(obs.doors.len());
+    for (raw, d) in obs.doors.iter().enumerate() {
+        let Some(team) = team_name(d.team) else {
+            cands.push(None);
+            continue;
+        };
+        if !d.pos[0].is_finite() || !d.pos[1].is_finite() {
+            cands.push(None);
+            continue;
+        }
+        let x = d.pos[0].round().clamp(-32768.0, 32768.0) as i32;
+        let y = d.pos[1].round().clamp(-32768.0, 32768.0) as i32;
+        let start_s = d.start_s.max(0.0);
+        let start_ds = (f64::from(start_s) * 10.0 + 1e-4).floor().clamp(0.0, f64::from(max_ds)) as u32;
+        let end_s = d.end_s.unwrap_or(duration_s as f32).max(start_s);
+        let mut end_ds = (f64::from(end_s) * 10.0 - 1e-4).ceil().clamp(0.0, f64::from(max_ds)) as u32;
+        if start_ds < max_ds {
+            end_ds = end_ds.max(start_ds + 1);
+        }
+        let link_ds = d.link_s.map(|l| (f64::from(l.max(0.0)) * 10.0 + 1e-4).floor().clamp(f64::from(start_ds), f64::from(end_ds)) as u32);
+        cands.push(Some(Cand { raw, team, x, y, start_ds, link_ds, end_ds, partner_raw: d.partner }));
+    }
+    // Enforce symmetric same-team pairs with shared link_ds and end_ds; clear anything dangling.
+    for i in 0..cands.len() {
+        let Some(a_p) = cands[i].as_ref().and_then(|c| c.partner_raw) else {
+            if let Some(c) = cands[i].as_mut() {
+                c.link_ds = None;
+            }
+            continue;
+        };
+        if a_p <= i {
+            // Either self-link (a_p == i) or already processed from the smaller index; verify link wasn't asymmetric.
+            let ok = a_p != i
+                && cands.get(a_p).and_then(|x| x.as_ref()).is_some_and(|p| p.partner_raw == Some(i) && p.link_ds.is_some());
+            if !ok
+                && let Some(c) = cands[i].as_mut()
+            {
+                c.partner_raw = None;
+                c.link_ds = None;
+            }
+            continue;
+        }
+        let valid_pair = cands.get(a_p).and_then(|x| x.as_ref()).zip(cands[i].as_ref()).and_then(|(b, a)| {
+            if b.partner_raw != Some(i) || a.team != b.team {
+                return None;
+            }
+            let raw_link = match (a.link_ds, b.link_ds) {
+                (Some(la), Some(lb)) => la.max(lb),
+                (Some(l), None) | (None, Some(l)) => l,
+                (None, None) => return None,
+            };
+            let shared_end = a.end_ds.max(b.end_ds);
+            let shared_link = raw_link.max(a.start_ds).max(b.start_ds).min(shared_end);
+            (a.start_ds < shared_end && b.start_ds < shared_end && shared_link < shared_end).then_some((shared_link, shared_end))
+        });
+        if let Some((shared_link, shared_end)) = valid_pair {
+            if let Some(a) = cands[i].as_mut() {
+                a.link_ds = Some(shared_link);
+                a.end_ds = shared_end;
+            }
+            if let Some(b) = cands[a_p].as_mut() {
+                b.link_ds = Some(shared_link);
+                b.end_ds = shared_end;
+            }
+        } else {
+            if let Some(a) = cands[i].as_mut() {
+                a.partner_raw = None;
+                a.link_ds = None;
+            }
+            if let Some(b) = cands.get_mut(a_p).and_then(|x| x.as_mut())
+                && b.partner_raw == Some(i)
+            {
+                b.partner_raw = None;
+                b.link_ds = None;
+            }
+        }
+    }
+    // Keep only non-degenerate doors (start_ds < end_ds), capped at MAX_DOORS.
+    let mut kept: Vec<Cand> = cands.into_iter().flatten().filter(|c| c.start_ds < c.end_ds).take(MAX_DOORS).collect();
+    let raw_to_new: BTreeMap<usize, u16> = kept.iter().enumerate().map(|(i, c)| (c.raw, i as u16)).collect();
+    for c in &mut kept {
+        if let Some(pr) = c.partner_raw
+            && !raw_to_new.contains_key(&pr)
+        {
+            c.partner_raw = None;
+            c.link_ds = None;
+        }
+    }
+    kept.into_iter()
+        .enumerate()
+        .map(|(i, c)| {
+            let partner = c.partner_raw.and_then(|pr| raw_to_new.get(&pr).copied());
+            let link_ds = partner.and(c.link_ds);
+            let seen = door_seen_intervals(obs.door_vision.iter().filter(|v| v.door == c.raw).map(|v| (v.game, v.visible)), c.start_ds, c.end_ds.min(max_ds));
+            Doorway { id: i as u16, team: c.team.to_owned(), x: c.x, y: c.y, start_ds: c.start_ds, link_ds, end_ds: c.end_ds, partner, seen }
+        })
+        .collect()
 }
 
 /// `[died_s, back_s]` for each death: the second the hero is next seen alive, else, when the
@@ -1948,6 +2134,64 @@ mod tests {
         let t = derive(&Obs { vision, ..obs(s) }, map::current()).expect("timeline");
         let seen: Vec<(&str, &[[u32; 2]])> = t.players.iter().map(|p| (p.team.as_str(), p.seen.as_slice())).collect();
         assert_eq!(seen, [("amber", &[[15, 43], [60, 80]][..]), ("sapphire", &[[0, 30]][..])]);
+        let bytes = serde_json::to_vec(&t).expect("json");
+        assert_eq!(crate::timeline::validate(&bytes), Ok(t));
+    }
+
+    #[test]
+    fn doors_derive_unpaired_linked_pairs_fow_and_clean_up_truncated_or_dangling() {
+        let mut s = seconds(100);
+        for x in &mut s {
+            x.heroes = vec![hero(1, 2, true, [0.0, 0.0]), hero(2, 3, true, [100.0, 0.0])];
+        }
+        let doors = vec![
+            // 0: valid unpaired sapphire door (10.0s .. 25.0s)
+            DoorObs { team: 3, pos: [-1200.4, 800.6], start_s: 10.0, link_s: None, end_s: Some(25.0), partner: None },
+            // 1: invalid team -> dropped, forcing re-indexing of subsequent doors
+            DoorObs { team: 9, pos: [0.0, 0.0], start_s: 12.0, link_s: None, end_s: Some(20.0), partner: None },
+            // 2 & 3: linked amber pair (30.0s -> linked 40.0s -> closed 55.2s; slightly skew end_s normalized)
+            DoorObs { team: 2, pos: [100.0, -200.0], start_s: 30.0, link_s: Some(40.0), end_s: Some(55.2), partner: Some(3) },
+            DoorObs { team: 2, pos: [3500.0, 2100.0], start_s: 40.0, link_s: Some(40.0), end_s: Some(55.1), partner: Some(2) },
+            // 4: dangling partner (points to dropped door 1) -> degrades cleanly to unpaired
+            DoorObs { team: 3, pos: [500.0, 500.0], start_s: 60.0, link_s: Some(61.0), end_s: Some(70.0), partner: Some(1) },
+            // 5: cross-team mismatch with 6 -> both degrade to unpaired
+            DoorObs { team: 2, pos: [600.0, 600.0], start_s: 75.0, link_s: Some(76.0), end_s: Some(80.0), partner: Some(6) },
+            DoorObs { team: 3, pos: [700.0, 700.0], start_s: 76.0, link_s: Some(76.0), end_s: Some(80.0), partner: Some(5) },
+            // 7: still open at match end (end_s = None -> clamped to duration_s = 99s)
+            DoorObs { team: 3, pos: [-300.0, -400.0], start_s: 90.0, link_s: None, end_s: None, partner: None },
+            // 8: degenerate final-tick spawn at 99.0s with end_s 99.0s -> dropped
+            DoorObs { team: 2, pos: [0.0, 0.0], start_s: 99.0, link_s: None, end_s: Some(99.0), partner: None },
+        ];
+        let dv = |game: f32, door: usize, visible: bool| DoorVisionObs { game, door, visible };
+        let door_vision = vec![
+            // Door 0: seen 12.0..15.0, brief 0.3s flicker off (merged by SEEN_MERGE_DS), back 15.3..18.0, then 20.0..28.0 (clamped to end_ds 250)
+            dv(12.0, 0, true),
+            dv(15.0, 0, false),
+            dv(15.3, 0, true),
+            dv(18.0, 0, false),
+            dv(20.0, 0, true),
+            // Door 2 & 3 (pair): seen together after link
+            dv(41.0, 2, true),
+            dv(45.0, 2, false),
+            dv(41.0, 3, true),
+            dv(45.0, 3, false),
+        ];
+        let t = derive(&Obs { doors, door_vision, ..obs(s) }, map::current()).expect("timeline");
+        assert_eq!(t.doors.len(), 7, "dropped unknown-team door 1 and zero-duration door 8");
+        // Dense sequential IDs 0..7
+        assert!(t.doors.iter().enumerate().all(|(i, d)| usize::from(d.id) == i));
+        // Door 0: unpaired, rounded coords, merged & clamped seen
+        assert_eq!(t.doors[0], Doorway { id: 0, team: "sapphire".into(), x: -1200, y: 801, start_ds: 100, link_ds: None, end_ds: 250, partner: None, seen: vec![[120, 180], [200, 250]] });
+        // Doors 1 & 2 (were raw 2 & 3): remapped symmetric partner IDs, normalized end_ds = 552
+        assert_eq!(t.doors[1], Doorway { id: 1, team: "amber".into(), x: 100, y: -200, start_ds: 300, link_ds: Some(400), end_ds: 552, partner: Some(2), seen: vec![[410, 450]] });
+        assert_eq!(t.doors[2], Doorway { id: 2, team: "amber".into(), x: 3500, y: 2100, start_ds: 400, link_ds: Some(400), end_ds: 552, partner: Some(1), seen: vec![[410, 450]] });
+        // Door 3 (was raw 4): dangling partner cleaned up
+        assert_eq!((t.doors[3].partner, t.doors[3].link_ds), (None, None));
+        // Doors 4 & 5 (were raw 5 & 6): cross-team link cleaned up
+        assert_eq!((t.doors[4].partner, t.doors[4].link_ds, t.doors[5].partner, t.doors[5].link_ds), (None, None, None, None));
+        // Door 6 (was raw 7): open at match end closed to duration_s * 10 = 990
+        assert_eq!((t.doors[6].start_ds, t.doors[6].end_ds), (900, 990));
+        // Must pass strict server validator
         let bytes = serde_json::to_vec(&t).expect("json");
         assert_eq!(crate::timeline::validate(&bytes), Ok(t));
     }

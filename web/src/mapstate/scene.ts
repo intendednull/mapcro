@@ -17,7 +17,7 @@ import { shiftEdges } from "../map/lanes";
 import { type CampAt, type PowerupAt, shopsClosed, slotKey } from "../match/timeline";
 import { type CapturedSnapshot, captured, holdsHealth, sceneHero } from "./build";
 import {
-  decodeCC, decodeCamps, decodeEdges, decodeObjHealth, decodePowerups, decodeRejuv, decodeRift, decodeSkulls, decodeUrn,
+  decodeCC, decodeCamps, decodeDoors, decodeEdges, decodeObjHealth, decodePowerups, decodeRejuv, decodeRift, decodeSkulls, decodeUrn,
   isCampKind, isHealthKind,
 } from "./codec";
 import type { FrameMarkers } from "./frame";
@@ -64,6 +64,7 @@ const CAPTURED: { [F in Feature]-?: (snap: Snapshot) => boolean } = {
   rifts: (s) => s.rifts,
   urn: (s) => s.urn,
   rejuv: (s) => s.rejuv,
+  doors: (s) => s.doors,
 };
 
 /**
@@ -181,6 +182,7 @@ export function fromScene(src: SceneRecords): MapState {
         : [],
     sameValue,
   );
+  const doorsDecoded = memo(() => (CAPTURED.doors(snap()) ? decodeDoors(src.state()?.doors) : []), sameValue);
 
   const markers = new Map<string, MarkerState>();
   const marker = (key: string): MarkerState =>
@@ -256,7 +258,7 @@ export function fromScene(src: SceneRecords): MapState {
     const k = bossKey();
     return k ? (campsMap().get(k) ?? { state: "alive" as const }) : undefined;
   }, sameValue);
-  const facts: SceneFacts = { urn: urnDecoded, rejuv: rejuvDecoded, bossCamp, deaths: deathsDecoded };
+  const facts: SceneFacts = { urn: urnDecoded, rejuv: rejuvDecoded, bossCamp, deaths: deathsDecoded, doors: doorsDecoded };
   return { hero, marker, lane, scene: () => facts, has: (f) => CAPTURED[f](snap()) };
 }
 
