@@ -3,6 +3,18 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Deployed c8d5782: GitHub Feedback #62 (property-only ability upgrade tooltips) + pack `6864-upgrades` (2026-11-24, lead 2a42cd74)
+
+- **Prod `web` runs `c8d5782`** (`infra` `4bdf782`, bundle `/assets/index-CYA9NFiz.js`, `/healthz ok rooms=0`).
+  - **Asset pack `6864-upgrades` deployed & active** (`pack_id: 62feb9eca38f2d3ec082e5ce7b9bafe65dfd79fc9c270d86ff37ce33d1035826`, `client_version: 6864`, `769` blobs, 28 boon-data overlays + `vdata-6864`, zero skipped packs, `healthz-check.service` passed; symlinked locally under `~/.local/share/mapcro/packs/6864-upgrades`).
+  - **Fix & audit:** Backwards-compatible `Tip::upgrade_props` (`format: 1`, populated on 69 abilities) + `upgradeLines` fallback formatting from `m_vecPropertyUpgrades`. Across all 600 tooltip records, **380/383** localized text-less tiers resolve cleanly (including all 4 Pocket abilities: Barrage, Flying Cloak, Enchanter's Satchel, Affliction; 3 remaining properties have no `_label` token in Deadlock's localization).
+  - **Gate passed before merge:** `just clippy` (0 warnings after fixing 2 Rust 1.99 lints), `just test` (workspace + failpoints + 2,000 sim seeds + `reader-check` vs `c94cdac`), `just web-test` (88/88 files, 1,034 passed | 1 skipped), `vite build`, Chromium Playwright 19/19 (`player-tooltips`, `player-inspect`, `scene-builds`). Closure diff strictly mapcro-only (`DIFF: 1.62 KiB`).
+  - **Live prod verification (`129738985`):** Hovered all **48 abilities** across all 12 heroes at `20:00` — **41** property-only tiers rendered cleanly (including `+1 Charges`, `-12s Cooldown`, `+16 Damage Per Second`, `+8m Dash Range`, `+1s Immobilize Duration`), **0 blank tiers out of 144**, **0 console/page errors**; visually verified screenshot and deleted temp file.
+  - **Closed GitHub issue `#62`** as completed and cleaned up `feedback-62-ability-tooltips` worktree & remote branch.
+- **Next in active queue:**
+  1. **Exploratory QA Cycle 2, Pass 006** (`qa-browser` v1.5, Neon medium): live prod verification of Phase 5 R3 + `#62` (`FM-091`) + deepen all 14 remaining `smoke` rows → **100% `deep` (`70/70`)**.
+  2. **Held:** `player-transport` (`6ed0179`) stays held awaiting the operator's 2 answers.
+
 ## Deployed c94cdac: Map-state Phase 5, Release R3 (Writer B, store v17 floor 16, file v6) — Phase 5 COMPLETE (2026-11-24, lead 2a42cd74)
 
 - **Prod `web` runs `c94cdac`** (`infra` `6b90446`, bundle `/assets/index-qKSeC2sg.js`, `/healthz ok rooms=0`).
