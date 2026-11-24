@@ -25,7 +25,7 @@ Session lifecycle:
 Tabs & navigation (each tab is an isolated BrowserContext):
   open <tab> <url-or-path> [--viewport WxH] [--touch] [--id <name>]
   close <tab> [--id <name>]
-  resize <tab> <width> <height> [--id <name>]
+  resize <tab> <width> <height> | <WxH> [--id <name>]
   tabs [--id <name>]
   new-board [title] [--id <name>]
 
@@ -395,12 +395,21 @@ async function main() {
       if (!rest[0]) throw new Error("close requires <tab>");
       args.tab = rest[0];
       break;
-    case "resize":
-      if (rest.length < 3) throw new Error("resize requires <tab> <width> <height>");
-      args.tab = rest[0];
-      args.width = Number(rest[1]);
-      args.height = Number(rest[2]);
+    case "resize": {
+      if (rest.length === 2 && /^\d+x\d+$/i.test(rest[1])) {
+        const [w, h] = rest[1].toLowerCase().split("x");
+        args.tab = rest[0];
+        args.width = Number(w);
+        args.height = Number(h);
+      } else if (rest.length >= 3) {
+        args.tab = rest[0];
+        args.width = Number(rest[1]);
+        args.height = Number(rest[2]);
+      } else {
+        throw new Error("resize requires <tab> <width> <height> or <tab> <WxH>");
+      }
       break;
+    }
     case "snapshot":
       if (!rest[0]) throw new Error("snapshot requires <tab>");
       args.tab = rest[0];

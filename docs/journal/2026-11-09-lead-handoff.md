@@ -12,8 +12,13 @@ compaction). The newest state is at the top; the history is in git and the other
   - **Live prod verification (`129738985`):** Hovered all **48 abilities** across all 12 heroes at `20:00` — **41** property-only tiers rendered cleanly (including `+1 Charges`, `-12s Cooldown`, `+16 Damage Per Second`, `+8m Dash Range`, `+1s Immobilize Duration`), **0 blank tiers out of 144**, **0 console/page errors**; visually verified screenshot and deleted temp file.
   - **Closed GitHub issue `#62`** as completed and cleaned up `feedback-62-ability-tooltips` worktree & remote branch.
 - **Next in active queue:**
-  1. **Exploratory QA Cycle 2, Pass 006** (`qa-browser` v1.5, Neon medium): live prod verification of Phase 5 R3 + `#62` (`FM-091`) + deepen all 14 remaining `smoke` rows → **100% `deep` (`70/70`)**.
-  2. **Held:** `player-transport` (`6ed0179`) stays held awaiting the operator's 2 answers.
+  - **Exploratory QA Cycle 2, Pass 006 — COMPLETE & MERGED (`docs/qa/passes/2026-11-24-pass-006-r3-tooltips-100pct-deep.md`):**
+    - Verified all Goal 1 live prod items on `c8d5782` + pack `6864-upgrades` (`129738985`): Phase 5 R3 Group B (`1:00`, `10:30`, `11:30` `"Rift opens in 0:46"`, `12:40` Rift rings + 1-click camp revive & Rift swap, `31:20` Sapphire 3-revive Rejuv + 10 hero health arcs), `.mapcro` v6 (`rows: 40`) export + TD-162 matchless import, and Feedback `#62` `.gt-tier-props` tooltips (0 blank tiers).
+    - Deepened all **14 remaining `smoke` rows → `deep`**, reaching **70 `deep` / 0 `smoke` / 2 `auto-only` / 0 `unmapped`** (**100% of web-testable rows**!) with 0 console/page/network errors.
+    - Found 1 minor bug (`FM-091` `bug-minor`: raw `&amp;` HTML entity in Apollo `Riposte` T3 tooltip text, logged in `docs/backlog.md`).
+    - Upgraded `tools/qa-browser/` to **v1.6** (`resize <tab> <WxH>` + composable `testid:` selector expansion) and logged Pass 006 retro in `docs/qa/process-log.md`.
+  - **Operator idea under discussion (2026-11-24):** Indicators showing where Doorman has placed his doors (`icons/doorman_doorway_psd` is already extracted in `6864-upgrades`; awaiting operator scope/timing reply).
+  - **Held:** `player-transport` (`6ed0179`) stays held awaiting the operator's 2 answers.
 
 ## Deployed c94cdac: Map-state Phase 5, Release R3 (Writer B, store v17 floor 16, file v6) — Phase 5 COMPLETE (2026-11-24, lead 2a42cd74)
 

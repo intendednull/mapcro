@@ -315,10 +315,7 @@ function normalizeSelector(sel) {
   if (typeof sel !== "string" || !sel.trim()) {
     throw new Error("Selector must be a non-empty string");
   }
-  if (sel.startsWith("testid:")) {
-    return `[data-testid="${sel.slice("testid:".length)}"]`;
-  }
-  return sel;
+  return sel.replace(/(^|[,\s>+~(])testid:([A-Za-z0-9_.:-]+)/g, '$1[data-testid="$2"]');
 }
 
 function parseViewport(spec) {

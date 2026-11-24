@@ -144,3 +144,20 @@ Pass 005 (`passes/2026-11-23-pass-005-prod-r2-verify.md`, Neon medium against li
 
 ### Feedback loop triggered
 - Next QA pass (Pass 006): run after Phase 5 R3 (Writer B + store v17 + `.mapcro` v6 `rows: 40`) ships to prod, verifying all Group B features live on `129738985` and deepening the final **14 `smoke` rows** to reach 100% `deep` interactive coverage across the Feature Map.
+
+---
+
+## 2026-11-24 — v1.6: Pass 006 Retro (Live Prod R3 + `#62` Verified, 70/70 = 100% `deep`)
+
+### Pass 006 evaluation (100% `deep` web-testable coverage milestone!)
+Pass 006 (`passes/2026-11-24-pass-006-r3-tooltips-100pct-deep.md`, Neon medium against live prod `c8d5782` + pack `6864-upgrades` with cached reference replay `129738985`) passed **all Goal 1 live checks** (Phase 5 R3 Group B `1:00`/`10:30`/`11:30`/`12:40`/`31:20` including pre-live announced Rift `"Rift opens in 0:46"`, active Rift rings + 1-click camp revive & Rift swap/toggle, Sapphire 3-revive Rejuvenator HUD, `.mapcro` v6 `rows: 40` export + TD-162 matchless import, and Feedback `#62` property-only ability upgrade tooltips with 0 blank tiers across all 12 inspected abilities) and deepened **all 14 remaining `smoke` rows → `deep`**, reaching **70 `deep` / 0 `smoke` / 2 `auto-only` / 0 `unmapped`** (**100% of web-testable rows**!) with 0 console/page/unexpected-network errors.
+- **Real prod bug caught (`FM-091`, `bug-minor`):** Apollo's `Riposte` Tier 3 tooltip displays a literal `&amp;` HTML entity in visible text (`"Gain 75% Bullet, Spirit &amp; Melee Lifesteal against the Riposte target for 13s"`). Logged in `docs/backlog.md` for HTML entity decoding + regression test.
+- **v1.5 upgrades validated:** `scrub-tick` pre-filtering dropped loaded Player `snapshot` candidates from `1254` (v1.3) → `515` (v1.4) → **`191` (v1.5)** with `0` `scrub-tick` entries (~85% noise reduction); `--force` on `click`/`rclick`/`dblclick` eliminated every SVG `.mk` / `.tok` pointer-interception timeout on the first try.
+
+### Driver upgrades applied (`tools/qa-browser/` v1.6, from Pass 006 Meta-Notes)
+1. **Consistent `WxH` viewport syntax on `resize`:** `resize` now accepts both `resize <tab> <width> <height>` and `resize <tab> <WxH>` (matching `open --viewport`).
+2. **Composable `testid:` shorthand in `normalizeSelector`:** Expands `testid:<id>` anywhere inside comma-separated or compound CSS selectors (e.g. `testid:clone-go, [role=dialog] button:has-text("Clone")`), not only when `sel` starts with a bare `testid:`.
+
+### Feedback loop triggered
+- **Cycle 2 complete:** All 70 web-testable Feature Map rows are now `deep`; only `FM-072` (desktop-app-only) and `FM-141` (protocol/release-feed gated) remain `auto-only`.
+- Open non-blocking backlog items from Cycle 2 Passes 005–006: Pass 005 Finding #1 (`FM-130` `ux-rough` Phone Session Scene vertical fold with match loaded, route to Argon) and Pass 006 Finding #1 (`FM-091` `bug-minor` raw `&amp;` entity in tooltip text).
