@@ -40,3 +40,5 @@ urn scene ints 8 -1 4294967295
 urn_at scene pos
 has_rejuv scene bool
 rejuv scene ints 8 -1 4294967295
+has_doors scene bool
+doors scene ints 24 -16384 16384
