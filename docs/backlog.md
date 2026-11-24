@@ -4,6 +4,17 @@ Ideas the operator wants kept but not built yet. Newest first. Each entry record
 what it is, and what it depends on.
 
 
+## Doorman doorway indicators — Player + Scenes (2026-11-24, queued)
+
+Operator request (2026-11-24): show little indicators on the minimap where The Doorman (`hero_id: 69`) has placed his doors, in **both Player and Scenes**. Art is already extracted in pack `6864-upgrades` (`icons/doorman_doorway_psd` from `panorama/images/minimap/doorman_doorway_psd.vtex_c`, plus `.map_button.doorman_doorway` in `hud_minimap.vcss` and `ability_doorman_doorway` `m_ColorStart`/`m_ColorEnd` in vdata).
+
+Staged plan (Antigravity/agy usage only):
+1. **Stage 0 — Demo probe & research (in progress, branch `doorman-doors-probe`):** Probe standard 6v6 Doorman replay `142815246` (`game_mode == 1`, 1,514 s) via `crates/replay/examples/doorman_door_probe.rs` to confirm the exact networked entity class(es), coordinates, owner/team, linked pair/partner reference, unpaired-door state, duration/expiry lifecycle, max simultaneous doors, and `CCitadelTeam.m_vecFOWEntities` Vision behavior. Document in `docs/research/README.md` and `docs/research/doorman-doors.md`.
+2. **Stage 1 — Spec & Argon visual/interaction design:** Specify timeline representation (deciding optional field in format 10 vs `FORMAT` 11 + desktop app parser compatibility), two-release `map_state.rs` rows (`has_doors` / `doors`), Vision filtering, `view_state.rs` layer decision, and route minimap icon/link styling + Scene placement/drag/clear UX to Gemini 4 Argon.
+3. **Stage 2 — Release 1 (Player + Scene Reader, `Status::Ahead`):** Implement replay parsing, Player minimap rendering, and Scene reader (`Status::Ahead` in `crates/schema/src/map_state.rs`), review, gate, deploy, and update `rows.lock` + `justfile` `reader`.
+4. **Stage 3 — Release 2 (Scene Writer + manual Scene placement, `Status::Live`):** Flip rows to `Status::Live` (store `v18` floor `17`, `.mapcro` v7), wire `Save scene` / Retake + manual Scene door placement/drag/clear + undo/redo + multi-user sync + TD-162 matchless import, review, full Stage C gate + rollback check, `pre-v18` backup, and deploy.
+
+
 ## Exploratory QA Pass 006 findings (2026-11-24)
 
 Found during [QA Pass 006](qa/passes/2026-11-24-pass-006-r3-tooltips-100pct-deep.md) live on production (`c8d5782` + pack `6864-upgrades`, reference replay `129738985`) — **all Goal 1 items passed live on prod** (Phase 5 R3 Group B `1:00`/`10:30`/`11:30`/`12:40`/`31:20`, `.mapcro` v6 export + TD-162 matchless import, Feedback `#62` `.gt-tier-props` tooltips with 0 blank upgrade tiers) and **all 14 remaining `smoke` rows deepened to `deep` (`70/70` = 100% web coverage)**:

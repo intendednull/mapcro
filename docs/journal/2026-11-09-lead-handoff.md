@@ -17,7 +17,10 @@ compaction). The newest state is at the top; the history is in git and the other
     - Deepened all **14 remaining `smoke` rows → `deep`**, reaching **70 `deep` / 0 `smoke` / 2 `auto-only` / 0 `unmapped`** (**100% of web-testable rows**!) with 0 console/page/network errors.
     - Found 1 minor bug (`FM-091` `bug-minor`: raw `&amp;` HTML entity in Apollo `Riposte` T3 tooltip text, logged in `docs/backlog.md`).
     - Upgraded `tools/qa-browser/` to **v1.6** (`resize <tab> <WxH>` + composable `testid:` selector expansion) and logged Pass 006 retro in `docs/qa/process-log.md`.
-  - **Operator idea under discussion (2026-11-24):** Indicators showing where Doorman has placed his doors (`icons/doorman_doorway_psd` is already extracted in `6864-upgrades`; awaiting operator scope/timing reply).
+  - **Doorman doorway indicators — Player + Scenes (2026-11-24, QUEUED & Stage 0 in progress):**
+    - Operator greenlit Doorman doors in **both Player and Scenes** and asked to queue the work (`docs/backlog.md`).
+    - Art already extracted in `6864-upgrades` (`icons/doorman_doorway_psd`).
+    - Staged pipeline: Stage 0 demo probe on standard 6v6 Doorman replay `142815246` (`doorman-doors-probe`) → Stage 1 spec + Argon visual/Scene UX design → Stage 2 Release 1 (Player + Scene Reader `Status::Ahead`) → Stage 3 Release 2 (Scene Writer + manual Scene placement `Status::Live`, store `v18` floor `17`).
   - **Held:** `player-transport` (`6ed0179`) stays held awaiting the operator's 2 answers.
 
 ## Deployed c94cdac: Map-state Phase 5, Release R3 (Writer B, store v17 floor 16, file v6) — Phase 5 COMPLETE (2026-11-24, lead 2a42cd74)
