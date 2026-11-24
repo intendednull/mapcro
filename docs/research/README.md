@@ -81,6 +81,21 @@ gives stack or per-kill properties but 129738985 doesn't show (no hero played th
 appeared): backlog "Own stacks: the rest". Siphon Bullets' and Spirit Snatch's counts are in
 health and spirit units, not stacks: unverified what the game prints for them.
 
+**Doorman doorways** ([doorman-doors](doorman-doors.md); checked 2026-11-24 on standard 6v6 replay
+`142815246`, build 6865, 1,514.5 s, `examples/doorman_door_probe.rs`): each placed door is a
+freshly created, non-pooled `CCitadel_DoorwayPortal` (24 spawns = 10 linked pairs + 4 unpaired
+cancels; max 2 concurrent/active). Position is the standard skeleton origin (`Body::of`), facing
+yaw is `CBodyComponent.m_skeletonInstance.m_angRotation`, team is `m_iTeamNum`, owner is
+`m_hOwnerEntity` → `CCitadel_Ability_Doorman_Doorway` (`m_hDoor1` tracks pending Door 1) →
+Doorman's pawn. An unpaired Door 1 spawns live with `m_hLinkedDoorway == 0xFFFFFF` (sat up to
+213.1 s); when Door 2 spawns, both doors' `m_hLinkedDoorway` link on the same tick (`door1` has
+the earlier `m_flCreateTime`), and both delete on the same tick on close or 35 s expiry (8.1–35.0 s
+observed). Both teams' `CCitadelTeam.m_vecFOWEntities` track `CCitadel_DoorwayPortal` under
+`m_eClass == 88` (shared with another class, so match by live entity index): own team is always
+`m_bVisibleOnMap == true`; enemy team flips dynamically both ways (52 on, 41 off) and linked pairs
+flip in lockstep. `CCitadelUserMsgEntityPortalled` (msg 361) fired only twice (non-hero entities)
+and does not track door lifecycle. Per-door intervals + enemy `seen` serialize to ~3.2 KB raw JSON.
+
 **Cache re-fetch** (`crates/server/src/replays.rs` `stale`; spec §6a "Format stamp"; backlog
 "Replay timeline format versions"): a cached fetched timeline whose `format` is below `FORMAT`,
 for a match inside Valve's three weeks, is fetched and parsed again once when an editor opens
