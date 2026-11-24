@@ -124,7 +124,7 @@ describe("map state, as it is before MapState (phase 0 pins)", () => {
     const bare = matchSceneOps(roster as never, [], undefined, replay, 3, markers, (() => { let n = 0; return () => `id${n++}`; })(), lanes, { source: sourceOf(replay), builds: false }).ops;
     expect(new Set(bare.flatMap((o) => ("Create" in o ? Object.keys(o.Create.record) : [])))).toEqual(new Set(["ObjectiveState", "PlayerState", "Scene", "SceneState", "Wave"]));
     expect(bare.flatMap((o) => ("Create" in o && "PlayerState" in o.Create.record ? [o.Create.record.PlayerState.more] : []))).toEqual(replay.players.map((p) => ({ hero: p.hero_id })));
-    expect(bare.flatMap((o) => ("Create" in o && "SceneState" in o.Create.record ? [o.Create.record.SceneState.more] : []))).toEqual([{ rows: ROWS.rejuv.index + 1, has_heroes: true }]);
+    expect(bare.flatMap((o) => ("Create" in o && "SceneState" in o.Create.record ? [o.Create.record.SceneState.more] : []))).toEqual([{ rows: ROWS.doors.index + 1, has_heroes: true }]);
     // In R3, Save with builds omits baseline-covered camp/midboss ObjectiveStates (`camp:neutral:lane0:3`,
     // `mid_boss:neutral:lane0:1`), while bare (`builds: false`) keeps all legacy ObjectiveStates.
     const dropCovered = (list: Op[]) =>

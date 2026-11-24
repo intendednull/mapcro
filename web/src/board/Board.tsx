@@ -34,7 +34,7 @@ import { MarkerTips, TeleporterLink } from "../player/Camps";
 import { markerStates } from "../player/markerStates";
 import { HoverLabels, hoverFromWire, hoverWire, localHover, setRemoteHover } from "../map/HoverLabel";
 import { UrnMark } from "../player/Urn";
-import { DoormanDoors } from "../player/Doors";
+import { DOOR_R, DoormanDoors, type DragDoor, type PlacingDoor } from "../player/Doors";
 import { DeathSkulls } from "../player/Skulls";
 import { SkullRecap } from "../player/SkullRecap";
 import { HeroCard, type HeroCardSlot } from "../player/HeroCard";
@@ -49,17 +49,17 @@ import { openInAppHref } from "../core/applink";
 import { WINDOWS_APP_PORTABLE_URL, appUpdate, desktopAppLinks } from "../player/desktop";
 import { downloadBoard } from "../core/boardfile";
 import { Layers, calloutOrder } from "./Layers";
-import type { TokenFrame } from "./Tokens";
+import { TOKEN_R, type TokenFrame } from "./Tokens";
 import { FRESH_BOARD, randomRosterOps, sceneMatchName } from "./roster";
 import { fromScene, sceneRecords } from "../mapstate/scene";
 import { decodeEdges } from "../mapstate/codec";
-import { pickHeroOps } from "../mapstate/edit";
+import { clearTeamDoorsOps, pickHeroOps, resolveDoorIndex } from "../mapstate/edit";
 import { captured } from "../mapstate/build";
 import type { More } from "../gen/More";
 import type { SceneState } from "../gen/SceneState";
 import { HeroPicker } from "./HeroPicker";
 import { defaultSplit, project, shiftEdges } from "../map/lanes";
-import { FIT_VIEW, worldToMap, worldToView } from "../map/transform";
+import { FIT_VIEW, clampToDisc, viewToWorld, worldToMap, worldToView } from "../map/transform";
 import type { WorldPos } from "../gen/WorldPos";
 import { slotKey } from "../match/save";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
@@ -530,7 +530,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   };
   let pingAt: ((w: WorldPos) => void) | undefined;
   // The top bar's hero menu, opened from a token on the map too (feedback #53); unset in Player.
-  let heroMenu: ((player: RecordId, at: { x: number; y: number }) => void) | undefined;
+  let heroMenu: ((player: RecordId, at: { x: number; y: number }, fromToken?: boolean) => void) | undefined;
   const [focused, setFocused] = createSignal<{ slot: string; n: number }>();
   let focusN = 0;
   let unflash: ReturnType<typeof setTimeout> | undefined;
@@ -746,8 +746,36 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       if ("ObjectiveState" in r) m.set(r.ObjectiveState.key, { id, status: r.ObjectiveState.status });
     return m;
   });
-  // ---- Select: selected heroes, Space to pan, lane splits ----
+  // ---- Select: selected heroes, Space to pan, lane splits, manual Doorman doorways ----
   const [selection, setSelection] = createSignal<Set<RecordId>>(new Set());
+  const [placingDoor, setPlacingDoor] = createSignal<PlacingDoor | undefined>();
+  const [dragDoor, setDragDoor] = createSignal<DragDoor | undefined>();
+  const [erasingDoors, setErasingDoors] = createSignal<Set<number>>(new Set());
+  const startPlaceDoorway = (team: "amber" | "sapphire", fromPos?: WorldPos) => {
+    if (!state.canEdit() || inPlayer() || (phone() && !phoneEdit())) return;
+    let door1: WorldPos | undefined;
+    if (fromPos) {
+      const vp = viewpoint();
+      const k = Math.min(1, view().w / 1000) * (phone() ? 1.4 : 1);
+      const offset = (TOKEN_R + DOOR_R + 6) * k;
+      const v = worldToView(fromPos, vp);
+      const right = { x: v.x + offset, y: v.y };
+      const left = { x: v.x - offset, y: v.y };
+      const chosen = Math.hypot(right.x - 500, right.y - 500) <= 490 ? right : left;
+      door1 = clampToDisc(viewToWorld(chosen, vp));
+    }
+    batch(() => {
+      setTool("select");
+      setPlacingDoor(door1 ? { team, door1 } : { team });
+    });
+  };
+  const clearTeamDoorways = (team: "amber" | "sapphire") => {
+    const sc = scene()?.id;
+    if (!sc || !state.canEdit() || inPlayer() || (phone() && !phoneEdit())) return;
+    const row = state.rowsIn<SceneState>("SceneState", sc)[0];
+    const ops = clearTeamDoorsOps({ scene: sc, state: row ? { id: row.id, more: row.r.more } : undefined, mint: newRecordId }, team);
+    if (ops.length) state.edit(ops);
+  };
   // ---- comments: bubbles by default; your open one (presence `focus`, so followers see it
   // open too), or all of them with the Comments toggle (per board, on this device) ----
   const [openComment, setOpenComment] = createSignal<RecordId>();
@@ -770,7 +798,11 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     sceneKey();
     setSelection(new Set<RecordId>());
     setObjSelection(new Set<string>());
+    setPlacingDoor(undefined);
+    setDragDoor(undefined);
+    setErasingDoors(new Set<number>());
   });
+  // Cancel doorway placement/drag on scene switch (remaining guards live below after `phone`/`phoneEdit`).
   /** Give up the keyboard focus a control holds, so the board's own keys work (operator,
    * 2026-11-08). The page itself, or nothing, keeps it. */
   const leaveControl = () => {
@@ -970,7 +1002,37 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   });
   createEffect(() => {
     // Viewing keeps editing gestures out of the map.
-    if (phone() && !phoneEdit() && tool() !== "select" && tool() !== "laser") setTool("select");
+    if (phone() && !phoneEdit()) {
+      if (tool() !== "select" && tool() !== "laser") setTool("select");
+      setPlacingDoor(undefined);
+      setDragDoor(undefined);
+      setErasingDoors(new Set<number>());
+    }
+  });
+  // Cancel doorway placement/drag on tool switch, Player mode, phone view mode, lost edit access, or vanished/changed target.
+  createEffect(() => {
+    const pl = placingDoor();
+    if (!pl) return;
+    if (inPlayer() || !state.canEdit() || (phone() && !phoneEdit()) || tool() !== "select") {
+      setPlacingDoor(undefined);
+      return;
+    }
+    if (pl.linkIndex !== undefined) {
+      const doors = sceneState.scene().doors();
+      const idx = resolveDoorIndex(doors, pl.linkIndex, pl.linkExpect);
+      if (idx === undefined || doors[idx]!.partner !== null) setPlacingDoor(undefined);
+    }
+  });
+  createEffect(() => {
+    if (inPlayer() || !state.canEdit() || (phone() && !phoneEdit())) {
+      setDragDoor(undefined);
+      setErasingDoors(new Set<number>());
+      return;
+    }
+    const dr = dragDoor();
+    if (dr && resolveDoorIndex(sceneState.scene().doors(), dr.index, dr.expect) === undefined) {
+      setDragDoor(undefined);
+    }
   });
 
   // Rename from "Your boards": the title's editor opens once the board can take the edit. A
@@ -1414,7 +1476,12 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
               view={view()}
               live={following() !== undefined}
               overlayRef={setOverlay}
-              overlayProps={{ "data-tool": tool(), "data-pan": spaceHeld() ? "on" : undefined, onContextMenu: (e: MouseEvent) => e.preventDefault() } as never}
+              overlayProps={{
+                "data-tool": tool(),
+                "data-pan": spaceHeld() ? "on" : undefined,
+                "data-placing-door": placingDoor() ? "on" : undefined,
+                onContextMenu: (e: MouseEvent) => e.preventDefault(),
+              } as never}
               overlayClass={!state.canEdit() && "readonly"}
               status={markerStatus}
               // Replay tier, Health on: each objective's icon filled to its health (operator, 2026-11-08).
@@ -1432,8 +1499,19 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
               <Show when={inPlayer()}>
                 <TrooperDots host={player} vp={viewpoint()} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
               </Show>
-              <Show when={inPlayer() || mapState().has("doors")}>
-                <DoormanDoors art={p.art} vp={viewpoint()} frame={tokenFrame} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
+              <Show when={inPlayer() || mapState().has("doors") || !!placingDoor()}>
+                <DoormanDoors
+                  art={p.art}
+                  vp={viewpoint()}
+                  frame={tokenFrame}
+                  k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)}
+                  editable={() => !inPlayer() && state.canEdit() && (!phone || phoneEdit()) && !placingDoor() && (tool() === "select" || tool() === "erase" || tool() === "arrow")}
+                  phone={phone}
+                  unitsPerPx={() => view().w / (mapPx() * 0.9)}
+                  dragDoor={dragDoor}
+                  erasingDoors={erasingDoors}
+                  placingDoor={placingDoor}
+                />
               </Show>
               <Layers
                 state={state}
@@ -1449,7 +1527,13 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
                 bindPing={(f) => (pingAt = f)}
                 focused={focused}
                 onOpenHero={openHero}
-                onHeroMenu={(id, at) => heroMenu?.(id, at)}
+                onHeroMenu={(id, at, fromToken) => heroMenu?.(id, at, fromToken)}
+                placingDoor={placingDoor}
+                setPlacingDoor={setPlacingDoor}
+                dragDoor={dragDoor}
+                setDragDoor={setDragDoor}
+                erasingDoors={erasingDoors}
+                setErasingDoors={setErasingDoors}
                 svg={overlay}
                 objectives={objectives}
                 markerStatus={markerStatus}
@@ -1681,7 +1765,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
             </div>
           </div>
           <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} ms={matchState} art={p.art} vp={viewpoint()} onFocus={focusHero} onSeek={seekMatch} />}>
-            <TopBar state={state} host={player} art={p.art} vp={viewpoint()} scene={scene()?.id} ms={sceneState} onPickHero={setHeroPick} onFocus={focusHero} bindMenu={(f) => (heroMenu = f)} />
+            <TopBar state={state} host={player} art={p.art} vp={viewpoint()} scene={scene()?.id} ms={sceneState} onPickHero={setHeroPick} onFocus={focusHero} bindMenu={(f) => (heroMenu = f)} onPlaceDoorway={startPlaceDoorway} onClearDoorways={clearTeamDoorways} />
           </Show>
           {/* The map takes all the room left, as the largest square that fits. */}
           <div class="mapfit" ref={measureBoard} data-testid="board-area">

@@ -30,8 +30,8 @@ function sceneWith(more: More, objectives: ReadonlyMap<string, { status: Objecti
 }
 
 describe("Phase 5 R2.1 reader (pre-R3 rollback parity)", () => {
-  it("writes all 40 Phase 5 rows on R3 (WRITTEN = 40)", () => {
-    expect(WRITTEN).toBe(40);
+  it("writes at least all 40 Phase 5 rows on R3+ (WRITTEN >= 40)", () => {
+    expect(WRITTEN).toBeGreaterThanOrEqual(40);
   });
 
   it("decodes pre-live announced rift (open=0 with slot-1 site hash) and keeps lit icon + opening hover", () => {

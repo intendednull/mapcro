@@ -162,9 +162,9 @@ function captureToScene(tl: Timeline, second: number, written: number, rs = rost
 }
 
 describe("Phase 5 R3: exhaustive §9 round-trip property (Groups A & B both live)", () => {
-  it("WRITTEN stays 40 while rows 40–41 (has_doors, doors) are ahead", () => {
-    expect(WRITTEN).toBe(40);
-    expect(WRITTEN).toBe(WRITTEN_B);
+  it("WRITTEN is 42 now that rows 40–41 (has_doors, doors) are live", () => {
+    expect(WRITTEN).toBe(42);
+    expect(WRITTEN).toBeGreaterThanOrEqual(WRITTEN_B);
     const keys = Object.keys(ROWS) as RowKey[];
     expect(keys).toHaveLength(42);
     for (const k of keys) {
@@ -2098,13 +2098,13 @@ describe("Phase 5 R3: Writer B Retake edge cases (dormant Group B flags/payloads
     expect(ops).toContainEqual({ Set: { id: "st_b", value: { More: { key: "camps", value: null } } } });
     expect(ops).toContainEqual({ Set: { id: "st_b", value: { More: { key: "urn_at", value: null } } } });
     expect(ops).toContainEqual({ Set: { id: "st_b", value: { More: { key: "has_powerups", value: true } } } });
-    expect(ops).toContainEqual({ SetIf: { id: "st_b", expect: { More: { key: "rows", value: 27 } }, value: { More: { key: "rows", value: 40 } } } });
+    expect(ops).toContainEqual({ SetIf: { id: "st_b", expect: { More: { key: "rows", value: 27 } }, value: { More: { key: "rows", value: WRITTEN } } } });
     // Retake NEVER touches ObjectiveState records!
     expect(ops.some((o) => ("Create" in o && "ObjectiveState" in o.Create.record) || ("Set" in o && "ObjectiveStatus" in o.Set.value))).toBe(false);
     const after = applyState(dormantMore, ops, "st_b");
     expect(after.camps).toBeUndefined();
     expect(after.urn_at).toBeUndefined();
-    expect(captured(after)).toMatchObject({ camps: true, powerups: true, obj_health: true, rifts: true, urn: true, rejuv: true, rows: 40 });
+    expect(captured(after)).toMatchObject({ camps: true, powerups: true, obj_health: true, rifts: true, urn: true, rejuv: true, rows: WRITTEN });
     expect(canRetake(scObj, after, tl, WRITTEN, markers, r2Cap.heroes, rs, waves)).toBe(false);
 
     // 2. Dormant `has_camps: true` at `rows: 27` when `tl` has NO camps (feature absent): Retake clears `has_camps` to null!
@@ -2323,7 +2323,7 @@ describe("Phase 5 R3: Writer B Retake edge cases (dormant Group B flags/payloads
     }
     expect(cur.camps).toBeUndefined();
     expect(cur.has_camps).toBe(true);
-    expect(cur.rows).toBe(40);
+    expect(cur.rows).toBe(WRITTEN);
   });
 
   it("Pre-live rift (start_s <= t < live_s) keeps lit icon and 'Rift opens in ...' across Player, Save, R1/R2 Retake, metadata->replay Retake, and overrides (Finding 3)", () => {

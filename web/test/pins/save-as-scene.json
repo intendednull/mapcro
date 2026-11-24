@@ -703,7 +703,7 @@
       "SceneState": {
        "scene": "id0",
        "more": {
-        "rows": 40,
+        "rows": 42,
         "has_builds": true,
         "build": 6839,
         "has_heroes": true,
@@ -1497,7 +1497,7 @@
       "SceneState": {
        "scene": "id0",
        "more": {
-        "rows": 40,
+        "rows": 42,
         "has_builds": true,
         "build": 6839,
         "has_heroes": true,
@@ -2223,7 +2223,7 @@
       "SceneState": {
        "scene": "id0",
        "more": {
-        "rows": 40,
+        "rows": 42,
         "has_builds": true,
         "build": 6839,
         "has_heroes": true,

@@ -8,12 +8,39 @@
 import { For, Show, createMemo, createSignal } from "solid-js";
 import { visionFade } from "../board/fade";
 import type { TokenFrame } from "../board/Tokens";
+import type { WorldPos } from "../gen/WorldPos";
 import { localHover, remoteHover } from "../map/HoverLabel";
 import { teamName } from "../map/model";
 import type { Art } from "../map/pack";
 import { type Pt, type Viewpoint, worldToView } from "../map/transform";
+import { type DoorIdentity, resolveDoorIndex } from "../mapstate/edit";
 import { type ShownDoor, shownDoors } from "../mapstate/shown";
 import { cx } from "../ui/cx";
+
+/** Deadlock hero_id for The Doorman (`data/heroes.json`). */
+export const DOORMAN_HERO_ID = 69;
+/** Minimum view-unit distance between Door 1 and Door 2 to commit a linked pair vs unpaired Door 1. */
+export const DOOR_PAIR_MIN_DIST = 12;
+
+export interface PlacingDoor {
+  team: "amber" | "sapphire";
+  /** Anchored Door 1 world position in Step 2; absent in Step 1 (armed from portrait). */
+  door1?: WorldPos;
+  /** Existing unpaired door index when linking a second door via `door-menu-link`. */
+  linkIndex?: number;
+  /** Identity of the unpaired door captured at gesture start (`door-menu-link`). */
+  linkExpect?: DoorIdentity;
+  /** Current pointer position in overlay view units for live link & ghost Door 2 preview. */
+  pointer?: Pt;
+  /** True when driven by touch (suppresses floating ghost Door 2 badge per design §2.3). */
+  touch?: boolean;
+}
+
+export interface DragDoor {
+  index: number;
+  expect: DoorIdentity;
+  pos: WorldPos;
+}
 
 /** Backing badge radius in overlay view units (diameter 28 * k = 61% of a hero token). */
 export const DOOR_R = 14;
@@ -69,6 +96,7 @@ function DoorLink(p: {
   k: number;
   frame: TokenFrame;
   hovered: () => number | undefined;
+  erasingDoors?: (() => ReadonlySet<number>) | undefined;
 }) {
   const drawn = () => {
     const x = p.pair();
@@ -89,12 +117,16 @@ function DoorLink(p: {
           return h !== undefined && (h === pair().a.id || h === pair().b.id);
         };
         const faded = () => pair().a.draw === "faded" || pair().b.draw === "faded";
+        const erasing = () => {
+          const set = p.erasingDoors?.();
+          return !!set && (set.has(pair().a.id) || set.has(pair().b.id));
+        };
         return (
           <g ref={setLinkEl} class="pl-door-link-wrap" data-fading={vf.leaving() ? "out" : undefined} aria-hidden="true">
             <Show when={d()}>
               {(path) => (
                 <g
-                  class={cx("pl-door-link", pair().a.team, hot() && "hot", faded() && "faded")}
+                  class={cx("pl-door-link", pair().a.team, hot() && "hot", faded() && "faded", erasing() && "erasing")}
                   data-testid="door-link"
                   data-pair={p.pairKey}
                   data-team={pair().a.team}
@@ -123,6 +155,10 @@ function DoorBadge(p: {
   k: number;
   frame: TokenFrame;
   hovered: () => number | undefined;
+  editable: () => boolean;
+  hitR: () => number;
+  dragging: () => boolean;
+  erasingDoors?: (() => ReadonlySet<number>) | undefined;
 }) {
   const drawn = () => {
     const d = p.door();
@@ -141,6 +177,10 @@ function DoorBadge(p: {
           const h = p.hovered();
           return h !== undefined && (h === d().id || h === d().partner);
         };
+        const erasing = () => {
+          const set = p.erasingDoors?.();
+          return !!set && (set.has(d().id) || (d().partner !== null && set.has(d().partner!)));
+        };
         const r = () => DOOR_R * p.k;
         const glyph = () => DOOR_GLYPH * p.k * (hot() ? 1.08 : 1);
         const dashed = () => (!linked() && !hot()) || faded();
@@ -148,9 +188,19 @@ function DoorBadge(p: {
         return (
           <g
             ref={setEl}
-            class={cx("pl-door", d().team, linked() ? "linked" : "unpaired", hot() && "hot", faded() && "faded")}
+            class={cx(
+              "pl-door",
+              d().team,
+              linked() ? "linked" : "unpaired",
+              hot() && "hot",
+              faded() && "faded",
+              p.editable() && "editable",
+              p.dragging() && "dragging",
+              erasing() && "erasing",
+            )}
             data-testid="doorman-door"
             data-door-id={d().id}
+            data-erase-door={!p.frame.player() ? String(d().id) : undefined}
             data-team={d().team}
             data-role={d().role}
             data-partner={d().partner != null ? String(d().partner) : undefined}
@@ -163,6 +213,9 @@ function DoorBadge(p: {
             aria-label={`${teamName(d().team)} Doorway`}
             transform={`translate(${at().x} ${at().y})`}
           >
+            <Show when={p.editable()}>
+              <circle class="pl-hit" r={p.hitR()} />
+            </Show>
             <g class="pl-door-badge">
               <Show when={hot()}>
                 <circle class="pl-door-hot-ring" r={(DOOR_R + 3.5) * p.k} stroke-width={1.6 * p.k} />
@@ -197,8 +250,56 @@ function DoorBadge(p: {
   );
 }
 
-export function DoormanDoors(p: { art: Art; vp: Viewpoint; frame: TokenFrame; k: number }) {
-  const doors = createMemo(() => shownDoors(p.frame.ms(), p.frame.shown().vision, !p.frame.player()));
+function PreviewDoorGlyph(p: { art: Art; k: number; team: "amber" | "sapphire"; linked: boolean; ghost?: boolean; at: Pt; testid: string }) {
+  const img = () => p.art.images.get("doorman-door");
+  const r = () => DOOR_R * p.k;
+  const glyph = () => DOOR_GLYPH * p.k;
+  return (
+    <g
+      class={cx("pl-door", p.team, p.linked ? "linked" : "unpaired", p.ghost ? "ghost" : "preview")}
+      data-testid={p.testid}
+      data-team={p.team}
+      transform={`translate(${p.at.x} ${p.at.y})`}
+      aria-hidden="true"
+    >
+      <g class="pl-door-badge">
+        <circle class="pl-door-bg" r={r()} />
+        <circle
+          class="pl-door-rim"
+          r={r()}
+          stroke-width={(p.linked ? 2.4 : 2) * p.k}
+          stroke-dasharray={!p.linked ? `${3.5 * p.k} ${2.5 * p.k}` : undefined}
+        />
+        <image class="pl-door-art" href={img() ?? DOOR_FB} x={-glyph() / 2} y={-glyph() / 2} width={glyph()} height={glyph()} />
+      </g>
+    </g>
+  );
+}
+
+export function DoormanDoors(p: {
+  art: Art;
+  vp: Viewpoint;
+  frame: TokenFrame;
+  k: number;
+  editable?: () => boolean;
+  phone?: boolean;
+  unitsPerPx?: () => number;
+  dragDoor?: () => DragDoor | undefined;
+  erasingDoors?: () => ReadonlySet<number>;
+  placingDoor?: () => PlacingDoor | undefined;
+}) {
+  const resolvedDragIndex = createMemo(() => {
+    const drag = p.dragDoor?.();
+    if (!drag) return undefined;
+    return resolveDoorIndex(p.frame.ms().scene().doors(), drag.index, drag.expect);
+  });
+  const doors = createMemo(() => {
+    const drag = p.dragDoor?.();
+    const dragIdx = resolvedDragIndex();
+    const list = shownDoors(p.frame.ms(), p.frame.shown().vision, !p.frame.player());
+    if (!drag || dragIdx === undefined) return list;
+    return list.map((d) => (d.id === dragIdx ? { ...d, at: drag.pos } : d));
+  });
   const byId = createMemo(() => new Map(doors().map((d) => [d.id, d])));
   const doorIds = createMemo(() => doors().map((d) => d.id), undefined, { equals: sameArr });
 
@@ -225,14 +326,80 @@ export function DoormanDoors(p: { art: Art; vp: Viewpoint; frame: TokenFrame; k:
     return Number.isInteger(n) ? n : undefined;
   });
 
+  const editable = () => !!p.editable?.();
+  const hitR = () => {
+    const upp = p.unitsPerPx?.() ?? 0;
+    const coarse = p.phone || (typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches);
+    return Math.max(DOOR_R * p.k, (coarse ? 22 : 6) * upp);
+  };
+
   return (
     <g class="pl-doors" data-testid="doorman-doors">
       <For each={pairKeys()}>
-        {(key) => <DoorLink pairKey={key} pair={() => pairsMap().get(key)} vp={p.vp} k={p.k} frame={p.frame} hovered={hoveredDoorId} />}
+        {(key) => (
+          <DoorLink
+            pairKey={key}
+            pair={() => pairsMap().get(key)}
+            vp={p.vp}
+            k={p.k}
+            frame={p.frame}
+            hovered={hoveredDoorId}
+            erasingDoors={p.erasingDoors}
+          />
+        )}
       </For>
       <For each={doorIds()}>
-        {(id) => <DoorBadge id={id} door={() => byId().get(id)} art={p.art} vp={p.vp} k={p.k} frame={p.frame} hovered={hoveredDoorId} />}
+        {(id) => (
+          <DoorBadge
+            id={id}
+            door={() => byId().get(id)}
+            art={p.art}
+            vp={p.vp}
+            k={p.k}
+            frame={p.frame}
+            hovered={hoveredDoorId}
+            editable={editable}
+            hitR={hitR}
+            dragging={() => resolvedDragIndex() === id}
+            erasingDoors={p.erasingDoors}
+          />
+        )}
       </For>
+      <Show when={p.placingDoor?.()}>
+        {(pl) => {
+          const p1 = () => (pl().door1 ? worldToView(pl().door1!, p.vp) : undefined);
+          const ptr = () => pl().pointer;
+          const pairDist = () => {
+            const a = p1();
+            const b = ptr();
+            return a && b ? Math.hypot(b.x - a.x, b.y - a.y) : 0;
+          };
+          const minDist = () => (pl().touch ? Math.max(DOOR_PAIR_MIN_DIST, DOOR_R * p.k * 1.5) : DOOR_PAIR_MIN_DIST);
+          const showPair = () => !!p1() && !!ptr() && pairDist() >= minDist();
+          const linkD = () => (showPair() ? doorLinkPath(p1()!, ptr()!, p.k) : null);
+          return (
+            <>
+              <Show when={linkD()}>
+                {(path) => (
+                  <g class={cx("pl-door-link", "preview", pl().team)} data-testid="door-preview-link" data-team={pl().team} aria-hidden="true">
+                    <path class="pl-door-link-casing" d={path()} />
+                    <path class="pl-door-link-thread" d={path()} />
+                  </g>
+                )}
+              </Show>
+              <Show when={p1() && pl().linkIndex === undefined}>
+                <PreviewDoorGlyph art={p.art} k={p.k} team={pl().team} linked={showPair()} at={p1()!} testid="door-preview-1" />
+              </Show>
+              <Show when={!p1() && ptr() && !pl().touch}>
+                <PreviewDoorGlyph art={p.art} k={p.k} team={pl().team} linked={false} ghost at={ptr()!} testid="door-preview-1" />
+              </Show>
+              <Show when={showPair() && !pl().touch && ptr()}>
+                <PreviewDoorGlyph art={p.art} k={p.k} team={pl().team} linked ghost at={ptr()!} testid="door-preview-2" />
+              </Show>
+            </>
+          );
+        }}
+      </Show>
     </g>
   );
 }

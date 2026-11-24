@@ -559,7 +559,7 @@ async fn a_client_writes_map_state_that_is_live_and_not_a_row_still_ahead() {
     let more = |key: &str, value| FieldValue::More { key: row(key), value };
     let state = mapcro_schema::RecordId(0x5000);
     let snapshot: More = [
-        (row("rows"), MoreValue::Int(40)),
+        (row("rows"), MoreValue::Int(42)),
         (row("has_builds"), MoreValue::Bool(true)),
         (row("has_sight"), MoreValue::Bool(true)),
         (row("has_camps"), MoreValue::Bool(true)),
@@ -569,6 +569,8 @@ async fn a_client_writes_map_state_that_is_live_and_not_a_row_still_ahead() {
         (row("urn_at"), MoreValue::Pos(WorldPos { x: 100, y: -200 })),
         (row("has_rejuv"), MoreValue::Bool(true)),
         (row("rejuv"), MoreValue::ints(vec![1, 3, 120, 15])),
+        (row("has_doors"), MoreValue::Bool(true)),
+        (row("doors"), MoreValue::ints(vec![1, -1200, 800, 1, 1, 0, 1, 1400, -600, 2, 0, 0])),
     ]
     .into_iter()
     .collect();
@@ -591,7 +593,7 @@ async fn a_client_writes_map_state_that_is_live_and_not_a_row_still_ahead() {
         edits.push(vec![Op::Set { id: player, value: FieldValue::PlayerPos(WorldPos { x: 900, y: 900 }) }, Op::Set { id: target, value: FieldValue::More { key: ahead, value: Some(val) } }]);
         expected.push(Reject::WrongField);
     }
-    assert_eq!(expected.len(), 2, "has_doors and doors are Ahead in Doorman R1");
+    assert_eq!(expected.len(), 0, "all 42 rows are Live in Doorman R2");
     assert_eq!(edits_until_decided(&mut a, edits.len(), |_, i| edits[i].clone()).await, expected);
 
     let (d, port) = server.kill9();
@@ -2020,7 +2022,7 @@ async fn a_real_v4_database_migrates_and_its_board_compacts_and_rebases() {
         let c = rusqlite::Connection::open(&path).expect("open");
         let v: String = c.query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |r| r.get(0)).expect("version");
         let floor: String = c.query_row("SELECT value FROM meta WHERE key = 'compat_floor'", [], |r| r.get(0)).expect("floor");
-        assert_eq!((v.as_str(), floor.as_str()), ("18", "16"), "migrated to v18 (floor 16)");
+        assert_eq!((v.as_str(), floor.as_str()), ("19", "18"), "migrated to v19 (floor 18)");
         let codecs: i64 = c.query_row("SELECT COUNT(*) FROM ops WHERE codec = 'zstd-v1'", [], |r| r.get(0)).expect("ops");
         assert_eq!(codecs as u64, entries, "the v4 rows are untouched");
     }
@@ -2154,7 +2156,7 @@ async fn a_migration_interrupted_by_a_crash_still_boots() {
     assert!(fresh.replica().view().live(mapcro_schema::RecordId(0xa0a0)).is_some());
     let v: String = rusqlite::Connection::open(&path).expect("open").query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |r| r.get(0)).expect("v");
     let floor: String = rusqlite::Connection::open(&path).expect("open").query_row("SELECT value FROM meta WHERE key = 'compat_floor'", [], |r| r.get(0)).expect("f");
-    assert_eq!((v.as_str(), floor.as_str()), ("18", "16"), "migrated to v18 (floor 16)");
+    assert_eq!((v.as_str(), floor.as_str()), ("19", "18"), "migrated to v19 (floor 18)");
 }
 
 #[tokio::test(flavor = "multi_thread")]

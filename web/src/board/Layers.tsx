@@ -26,16 +26,32 @@ import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { Op } from "../gen/Op";
 import type { PeerPresence } from "../gen/PeerPresence";
 import type { RecordId } from "../gen/RecordId";
+import type { SceneState } from "../gen/SceneState";
 import type { Stroke } from "../gen/Stroke";
 import type { WorldPos } from "../gen/WorldPos";
-import { HUD_PX, type Marker, isFurniture, laneStroke } from "../map/model";
+import { HUD_PX, type Marker, isFurniture, laneStroke, teamShort } from "../map/model";
 import { pathOf, pointAt, project, splitAt, splitEdges } from "../map/lanes";
 import { LANE_GAP } from "../map/MapView";
 import { groupToggleOps, marqueePick, toggleOps } from "./objectives";
 import { CARD, SIDES, bubble, cardBox } from "./commentLayout";
 import { ContextMenu, type MenuItem } from "../ui/ContextMenu";
 import type { Art } from "../map/pack";
-import { type Pt, type Viewpoint, clampShift, clampToBoard, clampToMap, mapToView, mapToWorld, viewToMap, viewToWorld, worldToMap, worldToView } from "../map/transform";
+import { type Pt, type Viewpoint, clampShift, clampToBoard, clampToDisc, clampToMap, mapToView, mapToWorld, viewToMap, viewToWorld, worldToMap, worldToView } from "../map/transform";
+import { slotKey } from "../match/save";
+import {
+  type DoorIdentity,
+  type SceneDoorContext,
+  doorIdentity,
+  linkSecondDoorOps,
+  moveDoorOps,
+  placeDoorwayOps,
+  removeDoorwayOps,
+  removeDoorwaysOps,
+  resolveDoorIndex,
+  toggleDoorSightOps,
+  unlinkDoorOps,
+} from "../mapstate/edit";
+import { DOORMAN_HERO_ID, DOOR_PAIR_MIN_DIST, DOOR_R, type DragDoor, type PlacingDoor } from "../player/Doors";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { cx } from "../ui/cx";
 import { LASER_MAX_POINTS, type Timed, addLaser, arrowHead, fitStroke, laserAlpha, laserClip, laserRuns, laserStarts, polyline, pruneLaser, shaftEnd, stampLaser } from "./geometry";
@@ -116,7 +132,16 @@ export function Layers(p: {
   /** Player: a hero token's single click opens its panel (player/HeroCard.tsx). */
   onOpenHero?: (team: string, slot: number, token?: Element) => void;
   /** A scene: a right click (no drag) on a hero's token opens its menu there (feedback #53). */
-  onHeroMenu?: (player: RecordId, at: { x: number; y: number }) => void;
+  onHeroMenu?: (player: RecordId, at: { x: number; y: number }, fromToken?: boolean) => void;
+  /** Manual Doorman doorway placement state (two-step placement & link-second-door preview). */
+  placingDoor?: () => PlacingDoor | undefined;
+  setPlacingDoor?: (next: PlacingDoor | undefined) => void;
+  /** Live local door drag preview (Amendment #2: local preview + atomic commit on drop). */
+  dragDoor?: () => DragDoor | undefined;
+  setDragDoor?: (next: DragDoor | undefined) => void;
+  /** Door indices currently being scrubbed by the Erase tool. */
+  erasingDoors?: () => Set<number>;
+  setErasingDoors?: (next: Set<number>) => void;
 }) {
   const st = p.state;
   const view = (w: WorldPos) => worldToView(w, p.vp);
@@ -229,7 +254,88 @@ export function Layers(p: {
     }
     return undefined;
   };
-  const erasableAt = (ev: PointerEvent) => erasableAtPoint(ev.clientX, ev.clientY);
+  const eraseTargetAtPoint = (x: number, y: number): { kind: "record"; id: RecordId } | { kind: "door"; index: number } | undefined => {
+    for (const el of document.elementsFromPoint(x, y)) {
+      const id = (el as HTMLElement).closest?.("[data-erase]")?.getAttribute("data-erase");
+      if (id) return { kind: "record", id };
+      if (!p.frame.player()) {
+        const doorRaw = (el as HTMLElement).closest?.("[data-erase-door]")?.getAttribute("data-erase-door");
+        if (doorRaw != null) {
+          const index = Number(doorRaw);
+          if (Number.isInteger(index)) return { kind: "door", index };
+        }
+      }
+    }
+    return undefined;
+  };
+
+  // ---- Doorman doorways (Scenes only): direct manipulation, placement & menus ----
+  const sceneDoors = () => (p.frame.player() ? [] : p.frame.ms().scene().doors());
+  const doorCtx = (): SceneDoorContext | undefined => {
+    const scene = p.scene;
+    if (!scene || p.frame.player()) return undefined;
+    const row = st.rowsIn<SceneState>("SceneState", scene)[0];
+    return { scene, state: row ? { id: row.id, more: row.r.more } : undefined, mint: newRecordId };
+  };
+  const inPlayableDisc = (pt: Pt) => Math.hypot(pt.x - 500, pt.y - 500) <= 498;
+  const doorAtEl = (target: Element | null): number | undefined => {
+    const raw = target?.closest?.(".pl-door[data-door-id]")?.getAttribute("data-door-id");
+    if (raw == null) return undefined;
+    const n = Number(raw);
+    return Number.isInteger(n) ? n : undefined;
+  };
+  const doorNearView = (pt: Pt): number | undefined => {
+    if (p.frame.player()) return undefined;
+    let best: { id: number; d: number } | undefined;
+    const r = Math.max(8, DOOR_R * p.k);
+    for (const d of sceneDoors()) {
+      const at = view(d.at);
+      const dist = Math.hypot(at.x - pt.x, at.y - pt.y);
+      if (dist <= r && (!best || dist < best.d)) best = { id: d.id, d: dist };
+    }
+    return best?.id;
+  };
+  const doorNearClient = (svg: SVGSVGElement, x: number, y: number): number | undefined => {
+    if (p.frame.player()) return undefined;
+    for (const q of reachPoints(x, y)) {
+      const el = document.elementFromPoint(q.x, q.y);
+      const idx = el && svg.contains(el) ? doorAtEl(el) : undefined;
+      if (idx !== undefined) return idx;
+    }
+    return undefined;
+  };
+  const moveDoor = (e: PointerEvent, index: number) => {
+    const cur = sceneDoors().find((d) => d.id === index);
+    if (!cur) return;
+    const expect = doorIdentity(cur);
+    e.preventDefault();
+    const start = svgPoint(p.svg()!, e);
+    const grab = view(cur.at);
+    const slop = e.pointerType === "touch" ? 6 : 4;
+    let moved = false;
+    track(
+      e,
+      (pt) => {
+        if (!moved && Math.hypot(pt.x - start.x, pt.y - start.y) < slop) return;
+        if (resolveDoorIndex(sceneDoors(), index, expect) === undefined) {
+          p.setDragDoor?.(undefined);
+          return;
+        }
+        moved = true;
+        const pos = clampToDisc(viewToWorld({ x: grab.x + pt.x - start.x, y: grab.y + pt.y - start.y }, p.vp));
+        p.setDragDoor?.({ index, expect, pos });
+      },
+      (_, ok) => {
+        const d = p.dragDoor?.();
+        p.setDragDoor?.(undefined);
+        if (!ok || !moved || !d) return;
+        const ctx = doorCtx();
+        if (!ctx) return;
+        const ops = moveDoorOps(ctx, d.index, d.pos, d.expect);
+        if (ops.length) st.edit(ops);
+      },
+    );
+  };
 
   /** The objective marker under a point (view units), nearest first. Camps, rifts, mid boss too. */
   const objectiveAt = (pt: Pt) => {
@@ -570,6 +676,102 @@ export function Layers(p: {
     return <ContextMenu at={m.at} label={m.kind === "Callout" ? "Comment" : m.kind === "Arrow" ? "Arrow" : "Drawing"} testid="placed-menu" items={items} onClose={() => setMenu(undefined)} />;
   };
 
+  // ---- Doorman doorway menu (right-click / long-press on `.pl-door`) & empty-map menu ----
+  const [doorMenu, setDoorMenu] = createSignal<{ index: number; expect: DoorIdentity; at: { x: number; y: number } }>();
+  const [mapMenu, setMapMenu] = createSignal<{ at: { x: number; y: number }; pos: WorldPos }>();
+  createEffect(() => {
+    const m = doorMenu();
+    if (m && (!editor() || p.frame.player() || resolveDoorIndex(sceneDoors(), m.index, m.expect) === undefined)) setDoorMenu(undefined);
+  });
+  createEffect(() => {
+    if (mapMenu() && (!editor() || p.frame.player())) setMapMenu(undefined);
+  });
+  const doorMenuView = (m: { index: number; expect: DoorIdentity; at: { x: number; y: number } }) => {
+    const resolved = () => resolveDoorIndex(sceneDoors(), m.index, m.expect);
+    const cur = () => {
+      const i = resolved();
+      return i !== undefined ? sceneDoors()[i] : undefined;
+    };
+    const items: MenuItem[] = [];
+    const initial = cur();
+    if (initial && initial.partner === null) {
+      items.push({
+        label: "Link second door",
+        testid: "door-menu-link",
+        run: () => {
+          const i = resolved();
+          const d = i !== undefined ? sceneDoors()[i] : undefined;
+          if (i !== undefined && d && d.partner === null) p.setPlacingDoor?.({ team: d.team, door1: d.at, linkIndex: i, linkExpect: m.expect });
+        },
+      });
+    } else if (initial) {
+      items.push({
+        label: "Unlink door",
+        testid: "door-menu-unlink",
+        run: () => {
+          const ctx = doorCtx();
+          if (!ctx) return;
+          const ops = unlinkDoorOps(ctx, m.index, m.expect);
+          if (ops.length) st.edit(ops);
+        },
+      });
+    }
+    items.push(
+      {
+        get label() {
+          return (cur()?.inSight ?? true) ? "Mark not seen" : "Mark in vision";
+        },
+        testid: "door-menu-vision",
+        run: () => {
+          const ctx = doorCtx();
+          if (!ctx) return;
+          const ops = toggleDoorSightOps(ctx, m.index, m.expect);
+          if (ops.length) st.edit(ops);
+        },
+      },
+      {
+        label: "Remove doorway",
+        testid: "door-menu-remove",
+        run: () => {
+          const ctx = doorCtx();
+          if (!ctx) return;
+          const ops = removeDoorwayOps(ctx, m.index, m.expect);
+          if (ops.length) st.edit(ops);
+        },
+      },
+    );
+    return <ContextMenu at={m.at} label="Doorway" testid="door-menu" items={items} onClose={() => setDoorMenu(undefined)} />;
+  };
+  const mapMenuView = (m: { at: { x: number; y: number }; pos: WorldPos }) => {
+    let amberHas = false;
+    let sapphireHas = false;
+    for (const s of st.roster()) {
+      const h = p.frame.ms().hero(slotKey(s.slot.team, s.slot.slot)).hero();
+      if (h !== DOORMAN_HERO_ID) continue;
+      if (s.slot.team === "Amber") amberHas = true;
+      else sapphireHas = true;
+    }
+    const items: MenuItem[] = [];
+    if (amberHas !== sapphireHas) {
+      const team = amberHas ? "amber" : "sapphire";
+      items.push({
+        label: "Place doorway",
+        testid: "map-menu-doorway",
+        run: () => p.setPlacingDoor?.({ team, door1: m.pos }),
+      });
+    } else {
+      const order: Array<"amber" | "sapphire"> = p.vp === "sapphire" ? ["sapphire", "amber"] : ["amber", "sapphire"];
+      for (const team of order) {
+        items.push({
+          label: `Place ${teamShort(team)} doorway`,
+          testid: `map-menu-doorway-${team}`,
+          run: () => p.setPlacingDoor?.({ team, door1: m.pos }),
+        });
+      }
+    }
+    return <ContextMenu at={m.at} label="Map" testid="map-menu" items={items} onClose={() => setMapMenu(undefined)} />;
+  };
+
   // A finger held still on or beside a placed thing (Select): the gesture it started (a drag, a
   // tap that opens a comment) ends uncommitted, as a pinch ends it, and the menu opens there. Only
   // what is on top at each point counts, so nothing is found through a hero or a sheet.
@@ -591,12 +793,38 @@ export function Layers(p: {
       const svg = p.svg();
       // Not while a comment is being typed: the menu would take the focus, and the blur commits
       // the text (an empty field deletes the comment).
-      if (!svg || p.tool !== "select" || !editor() || editing()) return;
+      if (!svg || p.tool !== "select" || !editor() || editing() || p.placingDoor?.()) return;
       const placed = placedNear(svg, at.x, at.y);
-      if (!placed) return;
-      svg.dispatchEvent(new PointerEvent("pointercancel", { pointerId: e.pointerId, pointerType: "touch", bubbles: true, clientX: at.x, clientY: at.y }));
-      swallowLiftClick(e.pointerId);
-      setMenu({ ...placed, at });
+      if (placed) {
+        svg.dispatchEvent(new PointerEvent("pointercancel", { pointerId: e.pointerId, pointerType: "touch", bubbles: true, clientX: at.x, clientY: at.y }));
+        swallowLiftClick(e.pointerId);
+        setMenu({ ...placed, at });
+        return;
+      }
+      if (p.frame.player()) return;
+      const doorIdx = doorNearClient(svg, at.x, at.y);
+      if (doorIdx !== undefined) {
+        const d = sceneDoors().find((x) => x.id === doorIdx);
+        if (d) {
+          svg.dispatchEvent(new PointerEvent("pointercancel", { pointerId: e.pointerId, pointerType: "touch", bubbles: true, clientX: at.x, clientY: at.y }));
+          swallowLiftClick(e.pointerId);
+          setDoorMenu({ index: doorIdx, expect: doorIdentity(d), at });
+          return;
+        }
+      }
+      const topEl = document.elementFromPoint(at.x, at.y);
+      const svgPt = svgPoint(svg, { clientX: at.x, clientY: at.y });
+      if (
+        topEl &&
+        svg.contains(topEl) &&
+        !topEl.closest?.(".tok[data-player], .pl-skull, .wave-hit, .co.editing") &&
+        inPlayableDisc(svgPt) &&
+        !objectiveAt(svgPt)
+      ) {
+        svg.dispatchEvent(new PointerEvent("pointercancel", { pointerId: e.pointerId, pointerType: "touch", bubbles: true, clientX: at.x, clientY: at.y }));
+        swallowLiftClick(e.pointerId);
+        setMapMenu({ at, pos: clampToDisc(viewToWorld(svgPt, p.vp)) });
+      }
     });
   };
 
@@ -605,7 +833,7 @@ export function Layers(p: {
     if (!svg) return;
     // A hero, a death skull, a wave's handle and the comment being typed keep their own press,
     // whatever lies beside them.
-    if (e.pointerType === "touch" && e.button === 0 && p.tool === "select" && !(e.target as Element).closest?.(".tok, .pl-skull, .wave-hit, .co.editing")) hold(e);
+    if (e.pointerType === "touch" && e.button === 0 && p.tool === "select" && !p.placingDoor?.() && !(e.target as Element).closest?.(".tok, .pl-skull, .wave-hit, .co.editing")) hold(e);
     // A press anywhere but on a comment closes the open one.
     const onComment = (e.target as Element).closest?.("[data-callout]")?.getAttribute("data-callout");
     if (!onComment) p.setOpenComment(undefined);
@@ -615,16 +843,94 @@ export function Layers(p: {
       return;
     }
     if (e.button === 2 || (e.button === 0 && p.spaceHeld())) {
+      // Right-clicking while placing a doorway cancels the preview with 0 ops.
+      if (e.button === 2 && p.placingDoor?.()) {
+        e.preventDefault();
+        e.stopPropagation();
+        p.setPlacingDoor?.(undefined);
+        return;
+      }
       // A right drag pans; a right click on a hero's token opens its menu, as on its portrait,
-      // and on a placed comment, arrow or stroke, its own.
-      const tok = e.button === 2 && p.onHeroMenu ? (e.target as Element).closest?.(".tok[data-player]")?.getAttribute("data-player") : undefined;
-      const placed = e.button === 2 && !tok ? placedAt(e.target as Element) : undefined;
+      // and on a placed comment, arrow, stroke, door, or empty map in Select, its own.
+      const target = e.target as Element;
+      const tok = e.button === 2 && p.onHeroMenu ? target.closest?.(".tok[data-player]")?.getAttribute("data-player") : undefined;
+      const placed = e.button === 2 && !tok ? placedAt(target) : undefined;
+      const doorIdx = e.button === 2 && !tok && !placed && !p.frame.player() && editor() && p.tool === "select" ? doorAtEl(target) : undefined;
       const at = { x: e.clientX, y: e.clientY };
-      pan(e, tok ? () => p.onHeroMenu?.(tok as RecordId, at) : placed ? () => setMenu({ ...placed, at }) : undefined);
+      const svgPt = svgPoint(svg, e);
+      const canMapMenu =
+        e.button === 2 &&
+        !tok &&
+        !placed &&
+        doorIdx === undefined &&
+        !p.frame.player() &&
+        editor() &&
+        p.tool === "select" &&
+        !target.closest?.(".pl-skull, .wave-hit, .co.editing") &&
+        inPlayableDisc(svgPt) &&
+        !objectiveAt(svgPt);
+      pan(
+        e,
+        tok
+          ? () => p.onHeroMenu?.(tok as RecordId, at, true)
+          : placed
+            ? () => setMenu({ ...placed, at })
+            : doorIdx !== undefined
+              ? () => {
+                  const d = sceneDoors().find((x) => x.id === doorIdx);
+                  if (d) setDoorMenu({ index: doorIdx, expect: doorIdentity(d), at });
+                }
+              : canMapMenu
+                ? () => setMapMenu({ at, pos: clampToDisc(viewToWorld(svgPt, p.vp)) })
+                : undefined,
+      );
       return;
     }
     if (e.button !== 0) return;
     const start = svgPoint(svg, e);
+    // Two-step manual doorway placement (Step 1 armed -> Step 2 Door 1 -> commit pair or unpaired).
+    if (p.placingDoor?.() && !p.frame.player() && editor()) {
+      e.preventDefault();
+      e.stopPropagation();
+      const isTouch = e.pointerType === "touch";
+      if (isTouch) {
+        const cur = p.placingDoor();
+        if (cur?.door1) p.setPlacingDoor?.({ ...cur, pointer: start, touch: true });
+      }
+      track(
+        e,
+        (pt, ev) => {
+          const cur = p.placingDoor?.();
+          if (cur) p.setPlacingDoor?.({ ...cur, pointer: pt, touch: ev.pointerType === "touch" });
+        },
+        (pt, ok) => {
+          if (!ok) return;
+          const pl = p.placingDoor?.();
+          if (!pl) return;
+          if (!pl.door1) {
+            p.setPlacingDoor?.({ team: pl.team, door1: clampToDisc(viewToWorld(pt, p.vp)), pointer: pt, touch: isTouch });
+            return;
+          }
+          const dist = Math.hypot(pt.x - view(pl.door1).x, pt.y - view(pl.door1).y);
+          const minDist = isTouch ? Math.max(DOOR_PAIR_MIN_DIST, DOOR_R * p.k * 1.5) : DOOR_PAIR_MIN_DIST;
+          const ctx = doorCtx();
+          if (ctx) {
+            if (dist < minDist) {
+              if (pl.linkIndex === undefined) {
+                const ops = placeDoorwayOps(ctx, pl.team, pl.door1);
+                if (ops.length) st.edit(ops);
+              }
+            } else {
+              const door2 = clampToDisc(viewToWorld(pt, p.vp));
+              const ops = pl.linkIndex !== undefined ? linkSecondDoorOps(ctx, pl.linkIndex, door2, pl.linkExpect) : placeDoorwayOps(ctx, pl.team, pl.door1, door2);
+              if (ops.length) st.edit(ops);
+            }
+          }
+          p.setPlacingDoor?.(undefined);
+        },
+      );
+      return;
+    }
     const tool = p.tool;
     if (tool === "laser") {
       e.preventDefault();
@@ -656,6 +962,13 @@ export function Layers(p: {
       if (stroke) {
         moveStroke(e, stroke);
         return;
+      }
+      if (!p.frame.player()) {
+        const doorIdx = doorAtEl(target);
+        if (doorIdx !== undefined) {
+          moveDoor(e, doorIdx);
+          return;
+        }
       }
       const m = objectiveAt(start);
       if (m) {
@@ -723,7 +1036,7 @@ export function Layers(p: {
       );
     } else if (tool === "arrow") {
       e.preventDefault();
-      // Starting on a hero: the arrow takes that hero's team and starts at its centre.
+      // Starting on a hero (or a scene doorway): the arrow takes its team and starts at its centre.
       const tok = (e.target as Element).closest?.(".tok[data-player]");
       const pid = tok?.getAttribute("data-player");
       const rec = pid ? st.records[pid] : undefined;
@@ -732,6 +1045,13 @@ export function Layers(p: {
       if (rec && "PlayerState" in rec.record) {
         from = view(rec.record.PlayerState.pos);
         team = teamOfSlot().get(rec.record.PlayerState.slot) ?? null;
+      } else if (!p.frame.player()) {
+        const doorIdx = doorAtEl(e.target as Element);
+        const door = doorIdx !== undefined ? sceneDoors().find((d) => d.id === doorIdx) : undefined;
+        if (door) {
+          from = view(door.at);
+          team = door.team === "amber" ? "Amber" : "Sapphire";
+        }
       }
       setArrowing({ from, to: from, team });
       track(
@@ -752,11 +1072,20 @@ export function Layers(p: {
     } else if (tool === "erase") {
       e.preventDefault();
       const hits = new Set<RecordId>();
+      const doorHits = new Map<number, DoorIdentity>();
       const add = (ev: PointerEvent) => {
-        const id = erasableAt(ev);
-        if (id && !hits.has(id)) {
-          hits.add(id);
-          setErasing(new Set(hits));
+        const hit = eraseTargetAtPoint(ev.clientX, ev.clientY);
+        if (!hit) return;
+        if (hit.kind === "record") {
+          if (!hits.has(hit.id)) {
+            hits.add(hit.id);
+            setErasing(new Set(hits));
+          }
+        } else if (!doorHits.has(hit.index)) {
+          const d = sceneDoors().find((x) => x.id === hit.index);
+          if (!d) return;
+          doorHits.set(hit.index, doorIdentity(d));
+          p.setErasingDoors?.(new Set(doorHits.keys()));
         }
       };
       add(e);
@@ -765,7 +1094,14 @@ export function Layers(p: {
         (_, ev) => add(ev),
         (_, ok) => {
           setErasing(new Set<RecordId>());
-          if (ok && hits.size) st.edit([...hits].map((id): Op => ({ Delete: { id } })));
+          p.setErasingDoors?.(new Set<number>());
+          if (!ok) return;
+          const ops: Op[] = [...hits].map((id): Op => ({ Delete: { id } }));
+          if (doorHits.size) {
+            const ctx = doorCtx();
+            if (ctx) ops.push(...removeDoorwaysOps(ctx, [...doorHits.entries()].map(([index, expect]) => ({ index, expect }))));
+          }
+          if (ops.length) st.edit(ops);
         },
       );
     }
@@ -779,7 +1115,10 @@ export function Layers(p: {
     // a touch user's laser, stroke, drag and ping instead.
     const cursor = (e: PointerEvent) => {
       if (e.pointerType === "touch") return;
-      st.presence({ cursor: world(svgPoint(svg, e)) });
+      const pt = svgPoint(svg, e);
+      st.presence({ cursor: world(pt) });
+      const pl = p.placingDoor?.();
+      if (pl) p.setPlacingDoor?.({ ...pl, pointer: pt, touch: false });
     };
     const leave = () => st.presence({ cursor: null });
     const wheel = (e: WheelEvent) => {
@@ -787,28 +1126,69 @@ export function Layers(p: {
       e.preventDefault();
       p.onZoom(svgPoint(svg, e), Math.exp(Math.max(-1, Math.min(1, e.deltaY / 300))));
     };
-    // Hover + Erase's key (D) deletes the placed thing under the pointer, whatever the tool
-    // (operator, 2026-11-07). Ahead of the toolbar's Erase, which still applies over empty map.
+    // Hover + Erase's key (D) deletes the placed thing (or doorway) under the pointer, whatever
+    // the tool (operator, 2026-11-07). Ahead of the toolbar's Erase, which still applies over empty map.
     const eraseKey = TOOLS.find((x) => x.tool === "erase")!.key.toLowerCase();
     let hover: { x: number; y: number } | undefined;
-    const track = (e: PointerEvent) => (hover = { x: e.clientX, y: e.clientY });
+    const trackHover = (e: PointerEvent) => (hover = { x: e.clientX, y: e.clientY });
     const untrackHover = () => (hover = undefined);
     const del = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() !== eraseKey || e.ctrlKey || e.metaKey || e.altKey || e.repeat || !hover || !editor()) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      // Active doorway placement handles Escape (cancel) and Enter (commit unpaired Door 1).
+      const pl = p.placingDoor?.();
+      if (pl && !p.frame.player() && editor()) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          p.setPlacingDoor?.(undefined);
+          return;
+        }
+        if (e.key === "Enter" && !e.repeat) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          if (pl.door1 && pl.linkIndex === undefined) {
+            const ctx = doorCtx();
+            if (ctx) {
+              const ops = placeDoorwayOps(ctx, pl.team, pl.door1);
+              if (ops.length) st.edit(ops);
+            }
+          }
+          p.setPlacingDoor?.(undefined);
+          return;
+        }
+      }
+      if (e.key.toLowerCase() !== eraseKey || e.ctrlKey || e.metaKey || e.altKey || e.repeat || !hover || !editor()) return;
       const id = erasableAtPoint(hover.x, hover.y);
-      if (!id) return;
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      st.edit([{ Delete: { id } }]);
+      if (id) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        st.edit([{ Delete: { id } }]);
+        return;
+      }
+      if (!p.frame.player()) {
+        const target = eraseTargetAtPoint(hover.x, hover.y);
+        const doorIdx = target?.kind === "door" ? target.index : doorNearView(svgPoint(svg, { clientX: hover.x, clientY: hover.y }));
+        if (doorIdx !== undefined) {
+          const d = sceneDoors().find((x) => x.id === doorIdx);
+          const ctx = d ? doorCtx() : undefined;
+          if (ctx && d) {
+            const ops = removeDoorwayOps(ctx, doorIdx, doorIdentity(d));
+            if (ops.length) {
+              e.preventDefault();
+              e.stopImmediatePropagation();
+              st.edit(ops);
+            }
+          }
+        }
+      }
     };
     window.addEventListener("keydown", del, true);
-    svg.addEventListener("pointermove", track);
+    svg.addEventListener("pointermove", trackHover);
     svg.addEventListener("pointerleave", untrackHover);
     onCleanup(() => {
       window.removeEventListener("keydown", del, true);
-      svg.removeEventListener("pointermove", track);
+      svg.removeEventListener("pointermove", trackHover);
       svg.removeEventListener("pointerleave", untrackHover);
     });
     const untouch = touchGestures(svg, { onPan: (dx, dy) => p.onPan(dx, dy), onZoom: (at, k) => p.onZoom(at, k), isPan: (id) => panning.has(id), toView: (x, y) => svgPoint(svg, { clientX: x, clientY: y }) });
@@ -1229,6 +1609,12 @@ export function Layers(p: {
       <Cursors peers={st.peerList()} scene={p.scene} vp={p.vp} k={p.k} />
       <Show when={menu()} keyed>
         {menuView}
+      </Show>
+      <Show when={doorMenu()} keyed>
+        {doorMenuView}
+      </Show>
+      <Show when={mapMenu()} keyed>
+        {mapMenuView}
       </Show>
     </>
   );

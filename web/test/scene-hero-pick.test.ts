@@ -714,7 +714,7 @@ describe("a pick racing a Retake, in a scene that holds its heroes and has no bu
     expect(a.edit(txs[0]!)).toBe(true);
     expect(await settled(a, b)).toBe(true);
     expect(a.problems.length).toBe(beforeOk);
-    expect(await until(() => stateOf(b)?.has_camps === true && stateOf(b)?.camps === undefined && stateOf(b)?.rows === 40)).toBe(true);
+    expect(await until(() => stateOf(b)?.has_camps === true && stateOf(b)?.camps === undefined && stateOf(b)?.rows === WRITTEN)).toBe(true);
     [a, b].forEach((x) => x.stop());
   });
 

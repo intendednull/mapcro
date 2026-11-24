@@ -664,21 +664,22 @@ mod tests {
         assert_eq!(read(&twice, ids(1000), &Admit::READS).err(), Some(Refusal::Invalid));
     }
 
-    /// TD-108: in R3, `READS` derives from `FILE_VERSIONS` as 6, `written_rows()` is 40, files
-    /// holding Group B export version 6 (`rows == 40`, saying `Newer` on R2 `READS = 5` and
-    /// older), Group A-only files stay version 5 (`rows == 27`, importing cleanly on R2 and saying
-    /// `Newer` on R1 `READS = 4`), v4-only files stay version 4 (`rows == 16`), and `version >= 7`
-    /// or `rows > 40` are refused as `Newer`.
+    /// TD-108 + Doorman R2: `READS` derives from `FILE_VERSIONS` as 7, `written_rows()` is 42,
+    /// files holding Doorman doors (rows 40–41) export version 7 (`rows == 42`, saying `Newer` on
+    /// Doorman R1 `READS = 6, ROWS = 42` and older; forged as v6 they are `Invalid` on R1),
+    /// files holding Group B without doors stay version 6 (`rows == 40`, importing cleanly on R1),
+    /// Group A-only files stay version 5 (`rows == 27`), v4-only files stay version 4 (`rows == 16`),
+    /// and `version >= 8` or `rows > 42` are refused as `Newer`.
     #[test]
-    fn phase5_file_versions_are_derived_from_the_table_and_v6_is_live_in_r3() {
+    fn phase5_file_versions_are_derived_from_the_table_and_v7_is_live_in_doorman_r2() {
         use mapcro_schema::Status;
         use serde_json::json;
-        assert_eq!(READS, 6);
-        assert_eq!(VERSION, 6);
-        assert_eq!(mapcro_schema::written_rows(), 40);
-        // v7+ files and `rows > ROWS.len()` (42 in Doorman R1) are refused as `Newer` (before body parsing).
-        let v7_bytes = file_with(|v| v["version"] = json!(7));
-        assert_eq!(read(&v7_bytes, ids(1000), &Admit::DEPLOYED).err(), Some(Refusal::Newer));
+        assert_eq!(READS, 7);
+        assert_eq!(VERSION, 7);
+        assert_eq!(mapcro_schema::written_rows(), 42);
+        // v8+ files and `rows > ROWS.len()` (42) are refused as `Newer` (before body parsing).
+        let v8_bytes = file_with(|v| v["version"] = json!(8));
+        assert_eq!(read(&v8_bytes, ids(1000), &Admit::DEPLOYED).err(), Some(Refusal::Newer));
         let rows_over_bytes = file_with(|v| v["rows"] = json!(mapcro_schema::ROWS.len() + 1));
         assert_eq!(read(&rows_over_bytes, ids(1000), &Admit::DEPLOYED).err(), Some(Refusal::Newer));
 
@@ -687,6 +688,8 @@ mod tests {
         const V14_ROWS: u64 = 16;
         const R2_READS: u64 = 5;
         const R2_ROWS: u64 = 40;
+        const DOORS_R1_READS: u64 = 6;
+        const DOORS_R1_ROWS: u64 = 42;
         let r1_gate = Admit {
             row: |r| if mapcro_schema::ROWS.iter().position(|x| x.key == r.key()).unwrap_or(0) >= 16 { Status::Ahead } else { r.row().status },
             ..Admit::DEPLOYED
@@ -695,10 +698,14 @@ mod tests {
             row: |r| if mapcro_schema::ROWS.iter().position(|x| x.key == r.key()).unwrap_or(0) >= 27 { Status::Ahead } else { r.row().status },
             ..Admit::DEPLOYED
         };
+        let doors_r1_gate = Admit {
+            row: |r| if mapcro_schema::ROWS.iter().position(|x| x.key == r.key()).unwrap_or(0) >= 40 { Status::Ahead } else { r.row().status },
+            ..Admit::DEPLOYED
+        };
 
-        // A v5 file carrying Group A (and no Group B) imports under `Admit::DEPLOYED`, exports as
-        // version 5 with `rows == 27`, imports cleanly on R2 (`READS == 5, ROWS == 40`), and is
-        // refused as `Newer` on R1 (`READS == 4`) and v14.
+        // A v5 file carrying Group A (and no Group B/doors) imports under `Admit::DEPLOYED`, exports as
+        // version 5 with `rows == 27`, imports cleanly on R2 (`READS == 5, ROWS == 40`) and Doorman R1,
+        // and is refused as `Newer` on R1 (`READS == 4`) and v14.
         let v5_group_a = file_with(|v| {
             let scene = first(v, "Scene").0;
             first(v, "PlayerState").1["more"] = json!({ "unseen": true, "cc": 1, "height": 2, "zipline": true });
@@ -707,20 +714,21 @@ mod tests {
             v["version"] = json!(5);
             v["rows"] = json!(27);
         });
-        let (doc_a, _) = read(&v5_group_a, ids(1000), &Admit::DEPLOYED).expect("R3 admits Group A");
+        let (doc_a, _) = read(&v5_group_a, ids(1000), &Admit::DEPLOYED).expect("Doorman R2 admits Group A");
         let out_a_bytes = write(&doc_a, Vec::new(), 0, 0);
         let out_a: serde_json::Value = serde_json::from_slice(&out_a_bytes).expect("json");
         assert_eq!(out_a["version"], 5);
         assert_eq!(out_a["rows"], json!(27));
-        read_as_older(&out_a_bytes, R2_READS, R2_ROWS, &r2_gate).expect("R2 imports R3's v5 Group A export");
+        read_as_older(&out_a_bytes, R2_READS, R2_ROWS, &r2_gate).expect("R2 imports v5 Group A export");
+        read_as_older(&out_a_bytes, DOORS_R1_READS, DOORS_R1_ROWS, &doors_r1_gate).expect("Doorman R1 imports v5 Group A export");
         assert_eq!(read_as_older(&out_a_bytes, R1_READS, R1_ROWS, &r1_gate).err(), Some(Refusal::Newer), "R1 answers Newer for a Group A file");
         assert_eq!(read_as_older(&out_a_bytes, R1_READS, V14_ROWS, &r1_gate).err(), Some(Refusal::Newer), "v14 answers Newer for a Group A file");
         let mut forged_v4 = out_a.clone();
         forged_v4["version"] = json!(4);
         assert_eq!(read_as_older(&serde_json::to_vec(&forged_v4).expect("json"), R1_READS, R1_ROWS, &r1_gate).err(), Some(Refusal::Invalid));
 
-        // Legacy/v4 boards (holding no Group A or Group B rows) still export version 4 with
-        // `rows == 16`, so v14 (`ROWS == 16`), R1 (`ROWS == 40`), and R2 (`ROWS == 40`) import them cleanly!
+        // Legacy/v4 boards (holding no Group A/B/doors rows) still export version 4 with
+        // `rows == 16`, so v14 (`ROWS == 16`), R1, R2, and Doorman R1 import them cleanly!
         let v4_only = file_with(|v| {
             let scene = first(v, "Scene").0;
             records(v).push(json!([STATE_ID, { "SceneState": { "scene": scene, "more": { "rows": 16, "has_heroes": true } } }]));
@@ -732,13 +740,14 @@ mod tests {
         let out_v4: serde_json::Value = serde_json::from_slice(&out_v4_bytes).expect("json");
         assert_eq!(out_v4["version"], 4);
         assert_eq!(out_v4["rows"], json!(16));
-        read_as_older(&out_v4_bytes, R1_READS, V14_ROWS, &r1_gate).expect("v14 imports R3's v4-only export");
-        read_as_older(&out_v4_bytes, R1_READS, R1_ROWS, &r1_gate).expect("R1 imports R3's v4-only export");
-        read_as_older(&out_v4_bytes, R2_READS, R2_ROWS, &r2_gate).expect("R2 imports R3's v4-only export");
+        read_as_older(&out_v4_bytes, R1_READS, V14_ROWS, &r1_gate).expect("v14 imports v4-only export");
+        read_as_older(&out_v4_bytes, R1_READS, R1_ROWS, &r1_gate).expect("R1 imports v4-only export");
+        read_as_older(&out_v4_bytes, R2_READS, R2_ROWS, &r2_gate).expect("R2 imports v4-only export");
+        read_as_older(&out_v4_bytes, DOORS_R1_READS, DOORS_R1_ROWS, &doors_r1_gate).expect("Doorman R1 imports v4-only export");
 
-        // A v6 file carrying Group B (rows 27–39) imports under `Admit::DEPLOYED`, exports as
-        // version 6 with `rows == 40`, and is refused as `Newer` on R2 (`READS == 5`) and R1
-        // (`READS == 4`); forged as v5 it is refused as `Invalid` on R2.
+        // A v6 file carrying Group B (rows 27–39, no doors) imports under `Admit::DEPLOYED`, exports as
+        // version 6 with `rows == 40`, imports cleanly on Doorman R1 (`READS == 6`), and is refused as
+        // `Newer` on R2 (`READS == 5`) and R1 (`READS == 4`); forged as v5 it is refused as `Invalid` on R2.
         let v6_group_b = file_with(|v| {
             let scene = first(v, "Scene").0;
             records(v).push(json!([STATE_ID, {
@@ -767,19 +776,52 @@ mod tests {
             v["version"] = json!(6);
             v["rows"] = json!(40);
         });
-        let (doc_b, _) = read(&v6_group_b, ids(1000), &Admit::DEPLOYED).expect("R3 admits Group B v6");
+        let (doc_b, _) = read(&v6_group_b, ids(1000), &Admit::DEPLOYED).expect("Doorman R2 admits Group B v6");
         let out_b_bytes = write(&doc_b, Vec::new(), 0, 0);
         let out_b: serde_json::Value = serde_json::from_slice(&out_b_bytes).expect("json");
         assert_eq!(out_b["version"], 6);
         assert_eq!(out_b["rows"], json!(40));
-        // Round-trips cleanly on R3.
-        read(&out_b_bytes, ids(1000), &Admit::DEPLOYED).expect("R3 re-imports its own v6 export");
-        // R2 (`READS == 5, ROWS == 40`, rows 27..40 Ahead) and R1 refuse v6 as `Newer`; forged as
-        // v5 it is `Invalid` on R2.
+        read(&out_b_bytes, ids(1000), &Admit::DEPLOYED).expect("Doorman R2 re-imports its own v6 export");
+        read_as_older(&out_b_bytes, DOORS_R1_READS, DOORS_R1_ROWS, &doors_r1_gate).expect("Doorman R1 imports v6 board without doors");
         assert_eq!(read_as_older(&out_b_bytes, R2_READS, R2_ROWS, &r2_gate).err(), Some(Refusal::Newer), "R2 answers Newer for a Group B file");
         assert_eq!(read_as_older(&out_b_bytes, R1_READS, R1_ROWS, &r1_gate).err(), Some(Refusal::Newer), "R1 answers Newer for a Group B file");
         let mut forged_v5 = out_b.clone();
         forged_v5["version"] = json!(5);
         assert_eq!(read_as_older(&serde_json::to_vec(&forged_v5).expect("json"), R2_READS, R2_ROWS, &r2_gate).err(), Some(Refusal::Invalid), "forged v5 carrying Group B is Invalid on R2");
+
+        // A v7 file carrying Doorman doorways (rows 40–41) imports under `Admit::DEPLOYED`, exports as
+        // version 7 with `rows == 42`, re-imports cleanly on R2 (`READS == 7`), is refused as `Newer`
+        // on Doorman R1 (`READS == 6, ROWS == 42`), and forged as v6 is refused as `Invalid` on R1
+        // (rows 40–41 are `Ahead` on R1).
+        let v7_doors = file_with(|v| {
+            let scene = first(v, "Scene").0;
+            records(v).push(json!([STATE_ID, {
+                "SceneState": {
+                    "scene": scene,
+                    "more": {
+                        "rows": 42,
+                        "has_doors": true,
+                        "doors": [1, -1200, 800, 1, 1, 0, 1, 1400, -600, 2, 0, 0]
+                    }
+                }
+            }]));
+            v["version"] = json!(7);
+            v["rows"] = json!(42);
+        });
+        let (doc_d, _) = read(&v7_doors, ids(1000), &Admit::DEPLOYED).expect("Doorman R2 admits v7 doors");
+        let out_d_bytes = write(&doc_d, Vec::new(), 0, 0);
+        let out_d: serde_json::Value = serde_json::from_slice(&out_d_bytes).expect("json");
+        assert_eq!(out_d["version"], 7);
+        assert_eq!(out_d["rows"], json!(42));
+        read(&out_d_bytes, ids(1000), &Admit::DEPLOYED).expect("Doorman R2 re-imports its own v7 export");
+        assert_eq!(read_as_older(&out_d_bytes, DOORS_R1_READS, DOORS_R1_ROWS, &doors_r1_gate).err(), Some(Refusal::Newer), "Doorman R1 answers Newer for a v7 doors file");
+        assert_eq!(read_as_older(&out_d_bytes, R2_READS, R2_ROWS, &r2_gate).err(), Some(Refusal::Newer), "R2 answers Newer for a v7 doors file");
+        let mut forged_v6 = out_d.clone();
+        forged_v6["version"] = json!(6);
+        assert_eq!(
+            read_as_older(&serde_json::to_vec(&forged_v6).expect("json"), DOORS_R1_READS, DOORS_R1_ROWS, &doors_r1_gate).err(),
+            Some(Refusal::Invalid),
+            "forged v6 carrying rows 40–41 is Invalid on Doorman R1",
+        );
     }
 }
