@@ -596,3 +596,24 @@ fn match_129738985_has_nurse_harrows_leeches_collected() {
     let holders = t.players.iter().filter(|p| !p.stacks.is_empty()).count();
     assert!(holders >= 8, "{holders} heroes hold stacks of their own");
 }
+
+/// Doorman doorways (format 11, docs/research/doorman-doors.md): on 142815246 (build 6865),
+/// Sapphire's Doorman places 24 doors = 10 linked pairs + 4 unpaired, with symmetric link/end
+/// parity and dynamic enemy FOW `seen` intervals.
+#[test]
+#[ignore = "needs 142815246: MAPCRO_REPLAY_142815246"]
+fn match_142815246_has_doorman_doorways() {
+    let Some(dem) = env_path("MAPCRO_REPLAY_142815246") else { panic!("set MAPCRO_REPLAY_142815246 to 142815246.dem") };
+    let dir = tempfile::tempdir().expect("dir");
+    let out = dir.path().join("t.json");
+    worker::job(&dem, &out, 142_815_246, 2 << 30).expect("parses");
+    let t = timeline::validate(&std::fs::read(&out).expect("output")).expect("the server's checks pass");
+    assert_eq!(t.format, timeline::FORMAT);
+    assert_eq!(t.doors.len(), 24, "24 doorway spawns on 142815246");
+    let linked = t.doors.iter().filter(|d| d.partner.is_some()).count();
+    let unpaired = t.doors.iter().filter(|d| d.partner.is_none()).count();
+    assert_eq!((linked, unpaired), (20, 4), "10 linked pairs + 4 unpaired");
+    assert!(t.doors.iter().all(|d| d.team == "sapphire"), "Sapphire Doorman owns all 24 doors");
+    assert!(t.doors.iter().any(|d| !d.seen.is_empty()), "enemy FOW sees doors");
+    assert!(t.doors.iter().any(|d| d.seen.is_empty()), "at least one pair is never seen by enemy");
+}

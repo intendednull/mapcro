@@ -324,7 +324,7 @@ describe("Player's frame", () => {
 
   it("MapState: says which features the match holds", () => {
     const full = stateOf(replay());
-    expect(Object.fromEntries(FEATURES.map((f) => [f, full.state.has(f)]))).toEqual({ health: true, sight: true, cc: true, movement: true, lanes: true, skulls: true, camps: true, powerups: true, obj_health: true, rifts: true, urn: true, rejuv: true });
+    expect(Object.fromEntries(FEATURES.map((f) => [f, full.state.has(f)]))).toEqual({ health: true, sight: true, cc: true, movement: true, lanes: true, skulls: true, camps: true, powerups: true, obj_health: true, rifts: true, urn: true, rejuv: true, doors: false });
     full.dispose();
     const bare = stateOf(metadata);
     expect(FEATURES.filter((f) => bare.state.has(f))).toEqual(["skulls"]);

@@ -12,7 +12,8 @@
 
 import { type Accessor, createMemo, getOwner, runWithOwner } from "solid-js";
 import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
-import { type CampAt, type PowerupAt, type RejuvNow, type RiftAt, type Timeline, type UrnNow, markerKey, positionAt, respawnAt, riftAt, slotKey, urnAt } from "../match/timeline";
+import { type CampAt, type DoorNow, type PowerupAt, type RejuvNow, type RiftAt, type Timeline, type UrnNow, markerKey, positionAt, respawnAt, riftAt, slotKey, urnAt } from "../match/timeline";
+export type { DoorNow };
 import type { CrowdControl } from "../player/cc";
 import { type Skull, deathSeen, skullsAt } from "../player/skulls";
 import { hasVision, seenFrom } from "../player/vision";
@@ -89,11 +90,13 @@ export interface SceneFacts {
   bossCamp: Accessor<CampAt | undefined>;
   /** Deaths in the last seconds, every team's. */
   deaths: Accessor<Death[]>;
+  /** Active Doorman doorways in the frame (Player or Scene). */
+  doors: Accessor<DoorNow[]>;
 }
 
 /** What a frame can hold beyond the heroes' places: computed by Player when its timeline has
  * the data, captured (or not) in a scene. */
-export const FEATURES = ["health", "sight", "cc", "movement", "lanes", "skulls", "camps", "powerups", "obj_health", "rifts", "urn", "rejuv"] as const;
+export const FEATURES = ["health", "sight", "cc", "movement", "lanes", "skulls", "camps", "powerups", "obj_health", "rifts", "urn", "rejuv", "doors"] as const;
 export type Feature = (typeof FEATURES)[number];
 
 export interface MapState {
@@ -147,6 +150,7 @@ export function featuresOf(m: Timeline): Record<Feature, boolean> {
     rifts: !!m.rifts,
     urn: !!m.urn,
     rejuv: !!m.rejuv,
+    doors: !!m.doors?.length,
   };
 }
 
@@ -266,6 +270,7 @@ export function fromTimeline(src: StateSource): PlayerState {
       const by = index();
       return skullsAt(m.players, src.t(), null).map((s) => ({ ...s, seen: deathSeen(m.players[by.get(s.slot)!]!, s.t) }));
     }, sameValue),
+    doors: field(() => ten()?.doors ?? [], sameValue),
   };
 
   return { hero, marker, lane, scene: () => facts, has: (f) => features()?.[f] ?? false, second: sec, tenth: ten };

@@ -73,6 +73,9 @@ export function visionFade<T>(o: { value: Accessor<T | undefined>; hidden: Acces
     (p) => {
       const value = o.value();
       const smooth = o.smooth();
+      // Read unconditionally so `s` stays subscribed to `finished` when a stationary item (e.g. a
+      // Doorman doorway) holds a constant `value`/`hidden` while fading out.
+      const done = finished();
       const hidden = value === undefined && o.hidden();
       const base = { value, held: undefined, id: p.id, hidden };
       if (value !== undefined) {
@@ -81,7 +84,7 @@ export function visionFade<T>(o: { value: Accessor<T | undefined>; hidden: Acces
       }
       if (p.held !== undefined)
         // Still going, unless it's done or broken off (a seek, a death mid-fade): gone at once.
-        return finished() === p.id || !smooth || !hidden ? { ...base, fade: "stop" } : { ...base, held: p.held };
+        return done === p.id || !smooth || !hidden ? { ...base, fade: "stop" } : { ...base, held: p.held };
       if (p.value !== undefined && hidden && smooth && fadeTiming().ms > 0) return { ...base, held: p.value, id: p.id + 1, fade: "out" };
       return base;
     },

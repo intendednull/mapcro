@@ -2,7 +2,7 @@
 //! on current demos (docs/research/replay-parsing-exploration.md §2–§7). Steam ids are never
 //! read.
 
-use crate::derive::{AbilityObs, BuffObs, CampSlot, CrateObs, HealObs, HeroObs, KothObs, ObjObs, Obs, PowerupObs, RejuvCount, RejuvObs, RejuvWhat, Sample, TrooperObs, UrnObs, VisionObs, ZipNode};
+use crate::derive::{AbilityObs, BuffObs, CampSlot, CrateObs, DoorObs, DoorVisionObs, HealObs, HeroObs, KothObs, ObjObs, Obs, PowerupObs, RejuvCount, RejuvObs, RejuvWhat, Sample, TrooperObs, UrnObs, VisionObs, ZipNode};
 use prost::Message;
 use crate::{FIRST_CURRENT_BUILD, content_build, reason};
 use boon::world_position;
@@ -26,6 +26,10 @@ const ZIP_NODE: &str = "CCitadelZipLineNode";
 /// The Soul Urn on the ground, and its two delivery points (exploration round 6).
 const IDOL: &str = "CCitadelItemPickupIdol";
 const IDOL_RETURN: &str = "CCitadelIdolReturnTrigger";
+/// The Doorman's placed doorways (docs/research/doorman-doors.md).
+const DOORWAY: &str = "CCitadel_DoorwayPortal";
+/// Sentinel `CHandle` value when `m_hLinkedDoorway` is unpaired.
+const INVALID_HANDLE: u32 = 0x00FF_FFFF;
 /// A health pickup: the map's floating ones (one entity each, all match, `m_bActive` false
 /// while taken) and the drops, from one pool (docs/research/map-objectives-audit.md).
 const HEAL: &str = "CCitadel_Pickup_Health";
@@ -151,6 +155,9 @@ struct Keys {
     idol: Body,
     idol_return: Body,
     idol_return_off: K,
+    doorway: Body,
+    doorway_link: K,
+    doorway_create: K,
     heal: Body,
     heal_active: K,
     breakable: Body,
@@ -211,6 +218,9 @@ impl Keys {
             idol: Body::of(ctx, IDOL),
             idol_return: Body::of(ctx, IDOL_RETURN),
             idol_return_off: field(IDOL_RETURN, "m_bDisabled"),
+            doorway: Body::of(ctx, DOORWAY),
+            doorway_link: field(DOORWAY, "m_hLinkedDoorway"),
+            doorway_create: field(DOORWAY, "m_flCreateTime"),
             heal: Body::of(ctx, HEAL),
             heal_active: field(HEAL, "m_bActive"),
             breakable: Body::of(ctx, BREAKABLE),
@@ -330,7 +340,7 @@ pub fn observe_with(
     ability_classes: &[String],
     run: impl FnOnce(&HashSet<&str>, &[(&str, &[&str])], &HashSet<u32>, &mut Run<'_>) -> Result<(), Failure>,
 ) -> Result<Obs, Failure> {
-    let mut classes: HashSet<&str> = [CONTROLLER, PAWN, RULES, KOTH, PICKUP, PICKUP_MODIFIER, TROOPER, ZIP_NODE, IDOL, IDOL_RETURN, TEAM, HEAL, BREAKABLE].into_iter().collect();
+    let mut classes: HashSet<&str> = [CONTROLLER, PAWN, RULES, KOTH, PICKUP, PICKUP_MODIFIER, TROOPER, ZIP_NODE, IDOL, IDOL_RETURN, DOORWAY, TEAM, HEAL, BREAKABLE].into_iter().collect();
     classes.extend(OBJECTIVES.iter().map(|(c, _)| *c));
     // Format 7: the ability and item entities, for cooldowns and charges.
     classes.extend(ability_classes.iter().map(String::as_str));
@@ -360,6 +370,7 @@ pub fn observe_with(
     let mut fow_keys: Vec<[K; 4]> = Vec::new();
     let mut seen_now: HashMap<i32, bool> = HashMap::new();
     let mut vision: Vec<VisionObs> = Vec::new();
+    let mut doors = DoorTracker::default();
     // Only the fields read are kept for the classes with many entities (docs/research/
     // parser-memory.md: 709 breakable props, ~200 troopers and 334 zipline nodes held 11 of the
     // 13 MB of entity state), and only the messages read are collected.
@@ -411,7 +422,8 @@ pub fn observe_with(
             }
             rejuv_tick(k, rules, game as f32, &mut rejuv_counts);
             koth_tick(k, rules, start, game, &mut koth);
-            vision_tick(ctx, k, game as f32, &mut fow_keys, &mut seen_now, &mut vision, &mut |player, level| crate::parse_hero::height(&mut hero.data, &mut heights, game as f32, player, level));
+            door_tick(ctx, k, game as f32, &mut doors);
+            vision_tick(ctx, k, game as f32, &mut fow_keys, &mut seen_now, &mut vision, &mut doors, &mut |player, level| crate::parse_hero::height(&mut hero.data, &mut heights, game as f32, player, level));
             hero.tick(ctx, events, game, start);
         }
         if start <= 0.0 || game < seconds.len() as f64 || game > f64::from(crate::timeline::MAX_DURATION_S) {
@@ -425,8 +437,11 @@ pub fn observe_with(
             seconds.push(s.clone());
         }
     })?;
+    // Close any doorways still live at match end.
+    let end_s = seconds.len().saturating_sub(1) as f32;
+    doors.close_open(end_s);
     // Nodes first seen after a sample was taken make earlier samples short: those hold.
-    Ok(Obs { match_id, build, game_mode, winner, seconds, zip_nodes, camp_slots, urn, buffs, heals, crates, rejuv, rejuv_counts, koth, vision, hero_data: hero.finish() })
+    Ok(Obs { match_id, build, game_mode, winner, seconds, zip_nodes, camp_slots, urn, buffs, heals, crates, rejuv, rejuv_counts, koth, vision, doors: doors.raw, door_vision: doors.vision, hero_data: hero.finish() })
 }
 
 /// `fields` and a body's origin (either layout: [`Body::of`]), for boon's property filter.
@@ -695,11 +710,132 @@ fn int(v: Option<&boon::FieldValue>) -> Option<i64> {
     }
 }
 
-/// Each team's minimap feed for the other team's heroes, on every tick (docs/research/
-/// replay-vision.md): a [`VisionObs`] wherever a hero's `m_bVisibleOnMap` for the enemy team
-/// changes. Entries name the pawn's entity index; the controller whose `m_hPawn` it is gives the
-/// player ([`HeroObs::id`]). A hero not in this tick's feed keeps its last state.
-fn vision_tick(ctx: &boon::Context, k: &Keys, game: f32, keys: &mut Vec<[K; 4]>, now: &mut HashMap<i32, bool>, out: &mut Vec<VisionObs>, height: &mut dyn FnMut(i32, i64)) {
+/// One live `CCitadel_DoorwayPortal` entity tracked across ticks.
+#[derive(Clone, Copy, Debug)]
+struct ActiveDoor {
+    seq: usize,
+    serial: u32,
+    create_time: f32,
+    team: i64,
+}
+
+/// Live doorway state and accumulated observations for one demo parse.
+#[derive(Default)]
+struct DoorTracker {
+    active: HashMap<i32, ActiveDoor>,
+    raw: Vec<DoorObs>,
+    seen_now: HashMap<usize, bool>,
+    vision: Vec<DoorVisionObs>,
+}
+
+impl DoorTracker {
+    fn close_open(&mut self, end_s: f32) {
+        for a in self.active.drain().map(|(_, a)| a) {
+            if self.raw[a.seq].end_s.is_none() {
+                self.raw[a.seq].end_s = Some(end_s);
+            }
+        }
+        self.seen_now.clear();
+    }
+}
+
+/// One live `CCitadel_DoorwayPortal` observed on a single tick.
+#[derive(Clone, Copy, Debug)]
+struct DoorTick {
+    index: i32,
+    serial: u32,
+    create_time: f32,
+    team: i64,
+    pos: [f32; 2],
+    linked_ent: Option<i32>,
+}
+
+/// Read all active `CCitadel_DoorwayPortal` entities on this tick and advance [`DoorTracker`].
+fn door_tick(ctx: &boon::Context, k: &Keys, game: f32, doors: &mut DoorTracker) {
+    let mut now: Vec<DoorTick> = ctx
+        .entities()
+        .iter()
+        .filter(|(_, e)| e.active && e.class_name.as_ref() == DOORWAY)
+        .map(|(_, e)| {
+            let linked_ent = e.get_handle(k.doorway_link).filter(|&h| h != INVALID_HANDLE).map(|h| (h & boon::ENTITY_HANDLE_INDEX_MASK) as i32);
+            DoorTick {
+                index: e.index,
+                serial: e.serial,
+                create_time: e.get_f32(k.doorway_create),
+                team: e.get_i64(k.doorway.team),
+                pos: k.doorway.pos(e),
+                linked_ent,
+            }
+        })
+        .collect();
+    now.sort_unstable_by_key(|d| d.index);
+    door_changes(&now, game, doors);
+}
+
+/// Pure tick transition for `CCitadel_DoorwayPortal` entities: detects deletions, spawns (and
+/// entity slot reuse via `serial` or `m_flCreateTime`), and links partners in a second pass so
+/// same-tick spawn+link is completely independent of entity iteration order.
+fn door_changes(now: &[DoorTick], game: f32, doors: &mut DoorTracker) {
+    let live_ids: HashSet<i32> = now.iter().map(|d| d.index).collect();
+    // 1. Deletions: entities that disappeared since the last tick.
+    let mut gone: Vec<i32> = doors.active.keys().copied().filter(|idx| !live_ids.contains(idx)).collect();
+    gone.sort_unstable();
+    for idx in gone {
+        if let Some(a) = doors.active.remove(&idx) {
+            doors.raw[a.seq].end_s = Some(game);
+            doors.seen_now.remove(&a.seq);
+        }
+    }
+    // 2. Spawns and same-tick entity slot reuse.
+    for d in now {
+        let reused = doors.active.get(&d.index).is_some_and(|a| {
+            a.serial != d.serial
+                || (d.create_time > 0.0 && a.create_time > 0.0 && (a.create_time - d.create_time).abs() > 0.001)
+        });
+        if reused && let Some(old) = doors.active.remove(&d.index) {
+            doors.raw[old.seq].end_s = Some(game);
+            doors.seen_now.remove(&old.seq);
+        }
+        doors.active.entry(d.index).or_insert_with(|| {
+            let seq = doors.raw.len();
+            doors.raw.push(DoorObs { team: d.team, pos: d.pos, start_s: game, link_s: None, end_s: None, partner: None });
+            ActiveDoor { seq, serial: d.serial, create_time: d.create_time, team: d.team }
+        });
+    }
+    // 3. Linking pass (runs after all spawns on this tick are registered in `doors.active`).
+    for d in now {
+        let Some(partner_ent) = d.linked_ent else { continue };
+        let (Some(a), Some(b)) = (doors.active.get(&d.index).map(|x| x.seq), doors.active.get(&partner_ent).map(|x| x.seq)) else { continue };
+        if a == b {
+            continue;
+        }
+        if doors.raw[a].partner.is_none() {
+            doors.raw[a].partner = Some(b);
+            doors.raw[a].link_s = Some(game);
+        }
+        if doors.raw[b].partner.is_none() {
+            doors.raw[b].partner = Some(a);
+            doors.raw[b].link_s = Some(game);
+        }
+    }
+}
+
+/// Each team's minimap feed for the other team's heroes and doorways, on every tick (docs/research/
+/// replay-vision.md, docs/research/doorman-doors.md): a [`VisionObs`] wherever a hero's
+/// `m_bVisibleOnMap` for the enemy team changes, and a [`DoorVisionObs`] wherever a live
+/// `CCitadel_DoorwayPortal`'s enemy `m_bVisibleOnMap` changes (matched strictly by live entity
+/// index, never by `m_eClass == 88` alone).
+#[allow(clippy::too_many_arguments)]
+fn vision_tick(
+    ctx: &boon::Context,
+    k: &Keys,
+    game: f32,
+    keys: &mut Vec<[K; 4]>,
+    now: &mut HashMap<i32, bool>,
+    out: &mut Vec<VisionObs>,
+    doors: &mut DoorTracker,
+    height: &mut dyn FnMut(i32, i64),
+) {
     let ents = ctx.entities();
     // Pawn entity index → (controller index, team).
     let mut by_pawn: HashMap<i32, (i32, i64)> = HashMap::new();
@@ -718,18 +854,26 @@ fn vision_tick(ctx: &boon::Context, k: &Keys, game: f32, keys: &mut Vec<[K; 4]>,
             keys.push([f("m_eClass"), f("m_nEntIndex"), f("m_bVisibleOnMap"), f("m_eHeight")]);
         }
         for [class, ent, visible, level] in &keys[..n] {
-            if int(t.field_value(*class)) != Some(FOW_HERO) {
-                continue;
-            }
-            let Some(&(player, team)) = int(t.field_value(*ent)).and_then(|i| i32::try_from(i).ok()).and_then(|i| by_pawn.get(&i)) else { continue };
-            if team == observer {
-                // The hero's own team's feed always sees it: its height (elevation.md).
-                height(player, int(t.field_value(*level)).unwrap_or(0));
-                continue;
-            }
-            let v = int(t.field_value(*visible)) == Some(1);
-            if now.insert(player, v) != Some(v) {
-                out.push(VisionObs { game, player, visible: v });
+            let eclass = int(t.field_value(*class));
+            if eclass == Some(FOW_HERO) {
+                let Some(&(player, team)) = int(t.field_value(*ent)).and_then(|i| i32::try_from(i).ok()).and_then(|i| by_pawn.get(&i)) else { continue };
+                if team == observer {
+                    // The hero's own team's feed always sees it: its height (elevation.md).
+                    height(player, int(t.field_value(*level)).unwrap_or(0));
+                    continue;
+                }
+                let v = int(t.field_value(*visible)) == Some(1);
+                if now.insert(player, v) != Some(v) {
+                    out.push(VisionObs { game, player, visible: v });
+                }
+            } else if !doors.active.is_empty()
+                && let Some(&door) = int(t.field_value(*ent)).and_then(|i| i32::try_from(i).ok()).and_then(|i| doors.active.get(&i))
+                && door.team != observer
+            {
+                let v = int(t.field_value(*visible)) == Some(1);
+                if doors.seen_now.insert(door.seq, v) != Some(v) {
+                    doors.vision.push(DoorVisionObs { game, door: door.seq, visible: v });
+                }
             }
         }
     }
@@ -910,5 +1054,38 @@ mod tests {
                 (610.0, west, false, "movement"),
             ]
         );
+    }
+
+    #[test]
+    fn door_changes_tracks_same_tick_link_in_either_order_and_slot_reuse() {
+        let dt = |index: i32, serial: u32, create_time: f32, team: i64, pos: [f32; 2], linked_ent: Option<i32>| DoorTick { index, serial, create_time, team, pos, linked_ent };
+        // Order A: door1 already live, then door2 spawns linked (listed after door1).
+        let mut a = DoorTracker::default();
+        door_changes(&[dt(100, 1, 10.0, 3, [1.0, 2.0], None)], 10.0, &mut a);
+        door_changes(&[dt(100, 1, 10.0, 3, [1.0, 2.0], Some(200)), dt(200, 1, 20.0, 3, [3.0, 4.0], Some(100))], 20.0, &mut a);
+        door_changes(&[], 35.0, &mut a);
+        assert_eq!(a.raw.len(), 2);
+        assert_eq!((a.raw[0].partner, a.raw[0].link_s, a.raw[0].end_s), (Some(1), Some(20.0), Some(35.0)));
+        assert_eq!((a.raw[1].partner, a.raw[1].link_s, a.raw[1].end_s), (Some(0), Some(20.0), Some(35.0)));
+
+        // Order B: door2 has a smaller entity index and appears BEFORE door1 on the link tick,
+        // and both spawn on the exact same tick.
+        let mut b = DoorTracker::default();
+        door_changes(&[dt(50, 1, 15.0, 2, [5.0, 6.0], Some(300)), dt(300, 1, 15.0, 2, [7.0, 8.0], Some(50))], 15.0, &mut b);
+        assert_eq!(b.raw.len(), 2);
+        assert_eq!((b.raw[0].partner, b.raw[0].link_s), (Some(1), Some(15.0)));
+        assert_eq!((b.raw[1].partner, b.raw[1].link_s), (Some(0), Some(15.0)));
+
+        // Entity index 50 reused on the exact same tick (new create_time / serial) starts a fresh seq_id.
+        door_changes(&[dt(50, 2, 40.0, 2, [9.0, 10.0], None)], 40.0, &mut b);
+        assert_eq!(b.raw.len(), 3);
+        assert_eq!(b.raw[0].end_s, Some(40.0));
+        assert_eq!(b.raw[1].end_s, Some(40.0));
+        assert_eq!((b.raw[2].start_s, b.raw[2].partner, b.raw[2].end_s), (40.0, None, None));
+
+        // Match-end closing closes any still-active door.
+        b.close_open(120.0);
+        assert_eq!(b.raw[2].end_s, Some(120.0));
+        assert!(b.active.is_empty());
     }
 }

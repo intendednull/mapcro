@@ -147,6 +147,9 @@ pub const ROWS: &[Row] = &[
     row("urn_at", Entity::Scene, Kind::Pos),
     row("has_rejuv", Entity::Scene, Kind::Bool),
     row("rejuv", Entity::Scene, Kind::Ints { len: 8, min: -1, max: ID }),
+    // Doorman doorways (docs/specs/doorman-doors.md): reader in store v18; writer in store v19.
+    ahead("has_doors", Entity::Scene, Kind::Bool),
+    ahead("doors", Entity::Scene, Kind::Ints { len: 24, min: -16384, max: 16384 }),
 ];
 
 /// `SceneState`'s own status: the record kind is gated as a row is. Its reader ships a release
@@ -325,16 +328,22 @@ fn holds_v6(record: &Record) -> bool {
     holds_row_range(record, 27, 39)
 }
 
+fn holds_v7(record: &Record) -> bool {
+    holds_row_range(record, 40, 41)
+}
+
 /// Every gated board-file version past version 2, in version order (TD-108):
 /// - v3: gated typed fields (`LONG_SCENE_NAME`, `CALLOUT_SIDE`) -> rows 15
 /// - v4: `has_heroes` (row 15) -> rows 16
 /// - v5: phase 5 Group A (rows 16–26) -> rows 27
 /// - v6: phase 5 Group B (rows 27–39) -> rows 40
+/// - v7: Doorman doorways (rows 40–41) -> rows 42
 pub const FILE_VERSIONS: &[FileVersion] = &[
     FileVersion { version: 3, live: !matches!(LONG_SCENE_NAME, Status::Ahead) && !matches!(CALLOUT_SIDE, Status::Ahead), rows: 15, holds: holds_v3 },
     FileVersion { version: 4, live: rows_live(15, 15), rows: 16, holds: holds_v4 },
     FileVersion { version: 5, live: rows_live(16, 26), rows: 27, holds: holds_v5 },
     FileVersion { version: 6, live: rows_live(27, 39), rows: 40, holds: holds_v6 },
+    FileVersion { version: 7, live: rows_live(40, 41), rows: 42, holds: holds_v7 },
 ];
 
 /// The newest board-file version this build reads (and writes): the highest `live` version in
@@ -1248,18 +1257,20 @@ mod tests {
     #[test]
     fn the_file_version_table_covers_every_gated_version_and_derives_reads() {
         use crate::records::{Scene, Stroke};
-        assert_eq!(ROWS.len(), 40);
+        assert_eq!(ROWS.len(), 42);
         assert_eq!(written_rows(), 40);
         assert_eq!(ROWS[15].key, "has_heroes");
         assert_eq!(ROWS[16].key, "has_sight");
         assert_eq!(ROWS[26].key, "skulls");
         assert_eq!(ROWS[27].key, "has_camps");
         assert_eq!(ROWS[39].key, "rejuv");
-        // In R3, all 40 rows (including Groups A and B) are Live, so `reads_file_version()` is 6.
+        assert_eq!(ROWS[40].key, "has_doors");
+        assert_eq!(ROWS[41].key, "doors");
+        // In Doorman R1 (store v18), rows 0–39 are Live and rows 40–41 are Ahead, so `reads_file_version()` stays 6.
         assert_eq!(reads_file_version(), 6);
         assert_eq!(
             FILE_VERSIONS.iter().map(|v| (v.version, v.live, v.rows)).collect::<Vec<_>>(),
-            [(3, true, 15), (4, true, 16), (5, true, 27), (6, true, 40)]
+            [(3, true, 15), (4, true, 16), (5, true, 27), (6, true, 40), (7, false, 42)]
         );
         assert!(FILE_VERSIONS.iter().all(|v| v.rows <= ROWS.len()));
 
@@ -1271,7 +1282,7 @@ mod tests {
                 .sum()
         };
         assert_eq!(ints_of(Entity::Hero), 792);
-        assert_eq!(ints_of(Entity::Scene), 800);
+        assert_eq!(ints_of(Entity::Scene), 824);
         assert_eq!(ints_of(Entity::Lane), 2);
         assert_eq!(ints_of(Entity::Marker), 0);
 
@@ -1321,14 +1332,22 @@ mod tests {
             assert_eq!(one(scene_state(holding(&[r.key()]))), 6, "row {i} ({})", r.key());
         }
 
+        // Version 7: Doorman doorways rows (40–41) on SceneState.
+        for i in 40..=41 {
+            let r = RowId(i);
+            assert_eq!(one(scene_state(holding(&[r.key()]))), 7, "row {i} ({})", r.key());
+        }
+
         // Highest version and matching compatible `rows` header win across records.
         assert_eq!(file_header(&[]), (2, 15));
         assert_eq!(file_header(&[(RecordId(1), scene(LIMITS.max_scene_name))]), (3, 15));
         assert_eq!(file_header(&[(RecordId(1), scene(LIMITS.max_scene_name)), (RecordId(2), scene_state(holding(&["has_heroes"])))]), (4, 16));
         assert_eq!(file_header(&[(RecordId(1), scene_state(holding(&["has_heroes"]))), (RecordId(2), lane(holding(&["edges"])))]), (5, 27));
         assert_eq!(file_header(&[(RecordId(1), lane(holding(&["edges"]))), (RecordId(2), scene_state(holding(&["has_camps"])))]), (6, 40));
+        assert_eq!(file_header(&[(RecordId(1), scene_state(holding(&["has_camps"]))), (RecordId(2), scene_state(holding(&["has_doors"])))]), (7, 42));
         assert_eq!(file_rows(&[(RecordId(1), scene_state(holding(&["has_sight"])))]), 27);
         assert_eq!(file_rows(&[(RecordId(1), scene_state(holding(&["has_camps"])))]), 40);
+        assert_eq!(file_rows(&[(RecordId(1), scene_state(holding(&["doors"])))]), 42);
     }
 
     #[test]
@@ -1344,7 +1363,7 @@ mod tests {
         };
         let pos = FieldValue::PlayerPos(WorldPos::default());
         let rows_ahead = Admit { row: |_| Status::Ahead, ..Admit::READS };
-        for i in 16..ROWS.len() {
+        for i in 16..40 {
             let r = RowId(i as u16);
             assert_eq!(r.row().status, Status::Live, "{} status in R3", r.key());
             let v = valid_value(r.row().kind);
@@ -1372,6 +1391,27 @@ mod tests {
             assert_eq!(Admit::DEPLOYED.record(&rec), Ok(()), "{} record deployed", r.key());
             assert_eq!(Admit::READS.record(&rec), Ok(()), "{} record admitted by READS", r.key());
             assert_eq!(rows_ahead.record(&rec), Err(Reject::WrongField), "{} record refused while Ahead", r.key());
+        }
+        // Doorman doorways (rows 40..=41): Status::Ahead in Release 1 — READS admits, DEPLOYED refuses.
+        for i in 40..=41 {
+            let r = RowId(i as u16);
+            assert_eq!(r.row().status, Status::Ahead, "{} status in Doorman R1", r.key());
+            let v = valid_value(r.row().kind);
+            assert_eq!(v.check(r.row()), Ok(()), "valid value for {}", r.key());
+            for op in [
+                set(FieldValue::More { key: r, value: Some(v.clone()) }),
+                set(FieldValue::More { key: r, value: None }),
+                Op::SetIf { id: RecordId(5), expect: FieldValue::More { key: r, value: None }, value: pos.clone() },
+                Op::SetIf { id: RecordId(5), expect: pos.clone(), value: FieldValue::More { key: r, value: Some(v.clone()) } },
+            ] {
+                assert_eq!(Admit::READS.tx(&tx(vec![op.clone()])), Ok(()), "{} admitted by READS", r.key());
+                assert_eq!(Admit::DEPLOYED.tx(&tx(vec![op])), Err(Reject::WrongField), "{} refused by DEPLOYED while Ahead", r.key());
+            }
+            let m: More = [(r, v)].into_iter().collect();
+            assert_eq!(m.check(Entity::Scene), Ok(()), "{} map valid", r.key());
+            let rec = scene_state(m);
+            assert_eq!(Admit::READS.record(&rec), Ok(()), "{} record admitted by READS", r.key());
+            assert_eq!(Admit::DEPLOYED.record(&rec), Err(Reject::WrongField), "{} record refused by DEPLOYED while Ahead", r.key());
         }
     }
 

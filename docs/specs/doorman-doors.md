@@ -18,13 +18,13 @@ Three lead engineering amendments to [doorman-doors-design.md](doorman-doors-des
 
 ---
 
-## 2. Open Operator Confirmation (Locked Before Stage 2 Code)
+## 2. Operator Confirmation (Approved 2026-11-24: `"go with lean"`)
 
-1. **`timeline::FORMAT` bump (`10 → 11`) vs optional field in `10`:**
-   - **Recommended lean: bump `timeline::FORMAT` to `11`.** Matches formats `1..=10`; cached server timelines inside Valve's 3-week window auto-refetch once on open so recent Doorman matches immediately display doors. Because `crates/server/src/replays.rs` `check_client_timeline` rejects `format < FORMAT` with `"Update the mapcro app"`, pair Release 1 with cutting `desktop-v0.2.5` (CI `desktop.yml`) so desktop app users get the update cleanly.
-   - **Alternative:** keep `FORMAT = 10` (`doors` optional). `desktop-v0.2.4` keeps uploading without an update and newly fetched/server-parsed matches get doors, but already-cached matches do not auto-refetch.
-2. **Little-door tinting:**
-   - **Recommended lean (Argon §1.3):** team-tinted rim + link arc (`--amber` / `--sapphire`) with crisp off-white little door glyph (`#FFEFD7` / pack white) on `#0b1714` disc, avoiding the Amber/Sapphire color collision of Valve's 3D `m_ColorStart` gold / `m_ColorEnd` blue.
+1. **`timeline::FORMAT` bump (`10 → 11`) — APPROVED:**
+   - **Adopted (`FORMAT = 11`):** Matches formats `1..=10`; cached server timelines inside Valve's 3-week window auto-refetch once on open so recent Doorman matches immediately display doors. Because `crates/server/src/replays.rs` `check_client_timeline` rejects `format < FORMAT` with `"Update the mapcro app"`, pair Release 1 with cutting `desktop-v0.2.5` (CI `desktop.yml`) so desktop app users get the update cleanly.
+   - *(Rejected alternative: keeping `FORMAT = 10` with optional `doors`.)*
+2. **Little-door tinting — APPROVED:**
+   - **Adopted (Argon §1.3):** team-tinted rim + link arc (`--amber` / `--sapphire`) with crisp off-white little door glyph (`#FFEFD7` / pack white) on `#0b1714` disc, avoiding the Amber/Sapphire color collision of Valve's 3D `m_ColorStart` gold / `m_ColorEnd` blue.
 
 ---
 

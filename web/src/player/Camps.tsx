@@ -14,9 +14,10 @@ import { svgPoint } from "../board/Tokens";
 import { type CampAt, type PowerupAt, type RejuvNow, type RiftAt, type UrnNow, clockLabel } from "../match/timeline";
 import type { TokenFrame } from "../board/Tokens";
 import type { MapState } from "../mapstate/state";
-import { shownUrn } from "../mapstate/shown";
+import { shownDoors, shownUrn } from "../mapstate/shown";
 import { buffInfo } from "../match/buffs";
 import { hoverMarker, localHover, registerHover } from "../map/HoverLabel";
+import { DOOR_HOVER_PREFIX, DOOR_R } from "./Doors";
 import { urnTip } from "./Urn";
 
 /** "in 0:25": the seconds left to `at`, rounded up. Labels stay short (operator 2026-11-08), so
@@ -201,10 +202,22 @@ export function MarkerTips(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; 
     const u = shownNow();
     return u?.state === "ground" && u.at ? { u, at: worldToView(u.at, p.vp) } : undefined;
   };
+  const visibleDoors = () =>
+    shownDoors(p.frame.ms(), p.frame.shown().vision, !p.frame.player())
+      .filter((d) => d.draw !== "hidden")
+      .map((d) => ({ d, at: worldToView(d.at, p.vp) }));
   const near = (at: Pt) => {
     // The urn on the ground is drawn over the markers: it wins within its own size.
     const g = urn();
     if (g && Math.hypot(g.at.x - at.x, g.at.y - at.y) <= Math.max(8, (32 / HUD_MAP_PX) * 1000 * 0.3 * p.k)) return URN_HOVER;
+    // Visible Doorman doorways sit above static markers: check them right after the urn.
+    let bestDoor: { id: number; d: number } | undefined;
+    const doorR = Math.max(8, DOOR_R * p.k);
+    for (const item of visibleDoors()) {
+      const dist = Math.hypot(item.at.x - at.x, item.at.y - at.y);
+      if (dist <= doorR && (!bestDoor || dist < bestDoor.d)) bestDoor = { id: item.d.id, d: dist };
+    }
+    if (bestDoor) return `${DOOR_HOVER_PREFIX}${bestDoor.id}`;
     let best: { key: string; d: number } | undefined;
     for (const m of markers()) {
       if (p.hidden(m.key)) continue;
@@ -240,6 +253,23 @@ export function MarkerTips(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; 
       return g ? { x: g.at.x, y: g.at.y, gap: Math.max(10, (32 / HUD_MAP_PX) * 1000 * 0.22 * p.k) + 6 * p.k, text: urnItemTip(g.u, p.t()) } : undefined;
     }),
   );
+  const doorIds = createMemo(
+    () => visibleDoors().map((x) => x.d.id),
+    undefined,
+    { equals: (a, b) => a.length === b.length && a.every((v, i) => v === b[i]) },
+  );
+  const doorRegs = createMemo(() =>
+    doorIds().map((id) =>
+      registerHover("marker", `${DOOR_HOVER_PREFIX}${id}`, () => {
+        const item = visibleDoors().find((x) => x.d.id === id);
+        return item ? { x: item.at.x, y: item.at.y, gap: DOOR_R * p.k + 6 * p.k, text: "Doorway" } : undefined;
+      }),
+    ),
+  );
+  createMemo(() => {
+    const off = doorRegs();
+    onCleanup(() => off.forEach((f) => f()));
+  });
   onMount(() => {
     // Listened to on the overlay itself, never intercepting: drawing, the laser and the tools
     // work over a marker as anywhere else.

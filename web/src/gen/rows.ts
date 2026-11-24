@@ -45,6 +45,8 @@ export const ROWS = {
   urn_at: { index: 37, entity: "scene", kind: "pos", status: "live" as RowStatus },
   has_rejuv: { index: 38, entity: "scene", kind: "bool", status: "live" as RowStatus },
   rejuv: { index: 39, entity: "scene", kind: "ints", len: 8, min: -1, max: 4294967295, status: "live" as RowStatus },
+  has_doors: { index: 40, entity: "scene", kind: "bool", status: "ahead" as RowStatus },
+  doors: { index: 41, entity: "scene", kind: "ints", len: 24, min: -16384, max: 16384, status: "ahead" as RowStatus },
 } as const;
 
 export type RowKey = keyof typeof ROWS;

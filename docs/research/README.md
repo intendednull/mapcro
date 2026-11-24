@@ -43,15 +43,16 @@ Ids are `CUtlStringToken`s: MurmurHash2 of the lower-cased name, seed `0x3141592
 | `heals`, `crates` | `CCitadel_Pickup_Health`; `CCitadel_BreakableProp` with the tough-crate token | derive.rs `up_down_sites` | [map-objectives-audit](map-objectives-audit.md) |
 | `zips` | `CCitadelZipLineNode.m_iTeamNum` | derive.rs `zips` | exploration round 4 |
 | `troopers` | `CNPC_Trooper`, alive, max health above 1 (the one-health units waiting at the bases are left out). Bit 15 of the id (`RIFT_TROOPER`, within format 9) marks a rift's trooper: the unit carries `citadel_koth_cashin/kothtrooper` in `ActiveModifiers` | parse.rs `sample`, parse_hero.rs `rift_troopers`, derive.rs `troopers_at` | exploration §5, round 8 |
+| `doors` (format 11) | `CCitadel_DoorwayPortal` (`m_iTeamNum`, `m_hLinkedDoorway`, `m_flCreateTime`, body origin) + enemy `CCitadelTeam.m_vecFOWEntities[].m_bVisibleOnMap` matched strictly by live doorway entity index (not `m_eClass == 88`, which is shared) | parse.rs `door_tick`/`vision_tick`, derive.rs `doors` | [doorman-doors](doorman-doors.md); `examples/doorman_door_probe.rs` |
 | clock, mode, build | rules `m_flGameStartTime`, `m_bGamePaused`, `m_nTotalPausedTicks`, `m_iWinningTeam`, `m_eGameMode`; build from `game_directory` | parse.rs, lib.rs | exploration "Clock correction"; timers audit "Clocks" |
 
 **Event starts** ([event-starts](event-starts.md)): each event's `t` is the instant for deaths, ults, powerups, urn and Rejuvenator events, and the **end** for objectives, the Mid-Boss, rift captures and souls swings. The client derives those starts from `objective_health` (the last push: the last ≥ 20 s quiet gap), the Mid-Boss's last full health, `rifts[].capture` (the first progress) and `players[].souls` (the lead's turn); no format change. A death keeps `t`: its recap has no per-hit times.
 
-**Format history** (`timeline::FORMAT`, now 10): 0 unstamped; 1 respawns, urn; 2 buff types,
+**Format history** (`timeline::FORMAT`, now 11): 0 unstamped; 1 respawns, urn; 2 buff types,
 rift opening; 3 Rejuvenator, rift capture; 4 vision; 5 healing pickups; 6 clock holds through a
 pause; 7 builds, abilities, casts, charges, CC, effects, recaps, height, zipline, tough crates;
 8 level, max HP, kills, assists; 9 statue pickups (`pickups`); 10 own stacks (`stacks`; its
-re-fetch also brings TD-22's recap kinds). Format 7 runs about 41 KB per match minute.
+re-fetch also brings TD-22's recap kinds); 11 Doorman doorways (`doors`). Format 7 runs about 41 KB per match minute.
 Within 9, without a bump: `troopers` ids carry bit 15 for a rift's trooper, and the base units
 are left out. Older format-9 timelines just lack both; a client that ignores the bit draws the
 unit as any other (the id stays stable for following it), so no app update is needed.

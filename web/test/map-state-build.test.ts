@@ -139,7 +139,7 @@ describe("a hero's build through a scene", () => {
     expect(readBuild({ ...more, abilities: "x", level: [1], pickups: [1, 2] }, WRITTEN, p.hero_id)).toMatchObject({ abilities: null, level: null, pickups: null });
     expect(captured(undefined)).toEqual({
       builds: false, heroes: false, sight: false, cc: false, movement: false, lanes: false, skulls: false,
-      camps: false, powerups: false, obj_health: false, rifts: false, urn: false, rejuv: false, rows: 0, patch: undefined,
+      camps: false, powerups: false, obj_health: false, rifts: false, urn: false, rejuv: false, doors: false, rows: 0, patch: undefined,
     });
     expect(captured({ has_builds: true })).toMatchObject({ builds: false });
     expect(readBuild(undefined, WRITTEN, 5)).toMatchObject({ hero: 5, items: null, order: null });

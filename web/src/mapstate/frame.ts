@@ -5,8 +5,8 @@
 
 import type { Marker } from "../map/model";
 import {
-  type CampAt, type PlayerAt, type PowerupAt, type RejuvNow, type Timeline,
-  campAt, campsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, powerupAt, rejuvAt, shopsClosed, sitesAt,
+  type CampAt, type DoorNow, type PlayerAt, type PowerupAt, type RejuvNow, type Timeline,
+  campAt, campsAt, doorsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, powerupAt, rejuvAt, shopsClosed, sitesAt,
 } from "../match/timeline";
 import { type CrowdControl, crowdControlAt } from "../player/cc";
 import { movementAt } from "../player/movement";
@@ -47,6 +47,7 @@ export interface TenthPart {
   /** Each hero's `sightAt`. */
   sight: Array<true | number | null>;
   cc: Array<CrowdControl | undefined>;
+  doors: DoorNow[];
 }
 
 /** Everything by the board's marker keys: a pack can key a site differently from the timeline
@@ -96,5 +97,9 @@ export function secondPart(m: Timeline, t: number, markers: FrameMarkers): Secon
 export function tenthPart(m: Timeline, t: number): TenthPart {
   const ds = Math.floor(t * 10);
   const mid = (ds + 0.5) / 10;
-  return { sight: m.players.map((p) => sightAt(p, ds + 0.5)), cc: m.players.map((p) => crowdControlAt(p, mid)) };
+  return {
+    sight: m.players.map((p) => sightAt(p, ds + 0.5)),
+    cc: m.players.map((p) => crowdControlAt(p, mid)),
+    doors: doorsAt(m, ds + 0.5),
+  };
 }

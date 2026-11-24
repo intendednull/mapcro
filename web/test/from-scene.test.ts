@@ -152,7 +152,7 @@ describe("a scene's MapState", () => {
     expect(values(s.ms.marker("shop:x"))).toEqual(none);
     expect(values(s.ms.lane("lane1"))).toEqual({ split: 420, edges: undefined });
     expect(values(s.ms.lane("lane4"))).toEqual({ split: undefined, edges: undefined });
-    expect(values(s.ms.scene())).toEqual({ urn: undefined, rejuv: undefined, bossCamp: undefined, deaths: [] });
+    expect(values(s.ms.scene())).toEqual({ urn: undefined, rejuv: undefined, bossCamp: undefined, deaths: [], doors: [] });
     expect(FEATURES.filter((f) => s.ms.has(f))).toEqual(["health"]);
     s.setObjectives(new Map([["a", { status: "Active" as ObjectiveStatus }]]));
     s.setWaves(new Map([["lane4", { t: 7 }]]));
@@ -338,8 +338,9 @@ describe("Save as scene, read back", () => {
     createRoot((dispose) => {
       const player = fromTimeline({ tl: () => tl, t: () => 4, markers: () => markers });
       const scene = fromScene(saved(tl, 4));
-      expect(FEATURES.filter((f) => player.has(f))).toEqual([...FEATURES]);
-      expect(FEATURES.filter((f) => scene.has(f))).toEqual([...FEATURES]);
+      const livePhase5 = FEATURES.filter((f) => f !== "doors");
+      expect(FEATURES.filter((f) => player.has(f))).toEqual(livePhase5);
+      expect(FEATURES.filter((f) => scene.has(f))).toEqual(livePhase5);
       // R3 stores both Group A (sight, cc, movement, lanes, skulls) and Group B (camps, powerups, obj_health, rifts, urn, rejuv).
       expect(SLOTS.some((k) => !player.hero(k).inSight())).toBe(true);
       expect(SLOTS.every((k) => scene.hero(k).inSight() === player.hero(k).inSight())).toBe(true);

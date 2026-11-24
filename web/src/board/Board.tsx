@@ -34,6 +34,7 @@ import { MarkerTips, TeleporterLink } from "../player/Camps";
 import { markerStates } from "../player/markerStates";
 import { HoverLabels, hoverFromWire, hoverWire, localHover, setRemoteHover } from "../map/HoverLabel";
 import { UrnMark } from "../player/Urn";
+import { DoormanDoors } from "../player/Doors";
 import { DeathSkulls } from "../player/Skulls";
 import { SkullRecap } from "../player/SkullRecap";
 import { HeroCard, type HeroCardSlot } from "../player/HeroCard";
@@ -1430,6 +1431,9 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
             >
               <Show when={inPlayer()}>
                 <TrooperDots host={player} vp={viewpoint()} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
+              </Show>
+              <Show when={inPlayer() || mapState().has("doors")}>
+                <DoormanDoors art={p.art} vp={viewpoint()} frame={tokenFrame} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
               </Show>
               <Layers
                 state={state}

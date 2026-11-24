@@ -5,7 +5,7 @@
 // Pure; no circular imports.
 
 import { clampToMap } from "../map/transform";
-import { type CampAt, type PowerupAt, type RejuvNow, type RiftAt, type UrnNow, slotKey } from "../match/timeline";
+import { type CampAt, type DoorNow, type PowerupAt, type RejuvNow, type RiftAt, type UrnNow, slotKey } from "../match/timeline";
 import type { CrowdControl } from "../player/cc";
 import { SKULL_S } from "../player/skulls";
 import type { FrameMarkers } from "./frame";
@@ -470,6 +470,76 @@ export function decodeRejuv(v: unknown, frame: number): RejuvNow[] {
     const team = decodeTeam(teamCode!);
     if (!team || left! < 0 || endsIn! < 0 || sinceTaken! < 0) continue;
     out.push({ team, left: left!, ends: frame + endsIn!, taken: frame - sinceTaken! });
+  }
+  return out;
+}
+
+// ---- Doorman doorways codec (rows 40–41; docs/specs/doorman-doors-design.md §3.3) ----
+
+export const MAX_DOORS = 4;
+export const DOOR_STRIDE = 6;
+
+export function encodeDoors(doors: readonly DoorNow[]): number[] {
+  const kept = doors.slice(0, MAX_DOORS);
+  const byId = new Map<number, number>();
+  kept.forEach((d, i) => byId.set(d.id, i));
+  const out: number[] = [];
+  for (let i = 0; i < kept.length; i++) {
+    const d = kept[i]!;
+    const tc = encodeTeam(d.team);
+    if (tc < 0) continue;
+    const at = clampToMap(d.at);
+    const pj = d.role !== "unpaired" && d.partner != null ? byId.get(d.partner) : undefined;
+    const p = pj !== undefined && pj !== i ? kept[pj] : undefined;
+    const linked = p !== undefined && p.team === d.team && p.role !== "unpaired" && p.partner === d.id;
+    const roleCode = !linked ? 0 : d.role === "door1" ? 1 : 2;
+    const partnerIdx = linked ? pj! : -1;
+    out.push(tc, at.x, at.y, roleCode, partnerIdx, d.inSight ? 0 : 1);
+  }
+  return out;
+}
+
+export function decodeDoors(v: unknown): DoorNow[] {
+  const rows = strides(v, DOOR_STRIDE);
+  if (!rows || rows.length > MAX_DOORS) return [];
+  interface Parsed {
+    orig: number;
+    team: "amber" | "sapphire";
+    at: { x: number; y: number };
+    roleCode: 0 | 1 | 2;
+    partnerIdx: number;
+    inSight: boolean;
+  }
+  const parsed: Array<Parsed | null> = rows.map(([teamCode, x, y, roleCode, partnerIdx, unseenInt], orig) => {
+    const team = decodeTeam(teamCode!);
+    if (!team || (roleCode !== 0 && roleCode !== 1 && roleCode !== 2)) return null;
+    return {
+      orig,
+      team,
+      at: clampToMap({ x: x!, y: y! }),
+      roleCode,
+      partnerIdx: partnerIdx!,
+      inSight: unseenInt !== 1,
+    };
+  });
+  const origToOut = new Map<number, number>();
+  for (const row of parsed) {
+    if (row) origToOut.set(row.orig, origToOut.size);
+  }
+  const out: DoorNow[] = [];
+  for (const row of parsed) {
+    if (!row) continue;
+    const id = origToOut.get(row.orig)!;
+    const p = row.roleCode !== 0 && row.partnerIdx !== row.orig ? parsed[row.partnerIdx] : null;
+    const linked = p != null && p.team === row.team && p.roleCode !== 0 && p.partnerIdx === row.orig && origToOut.has(p.orig);
+    out.push({
+      id,
+      team: row.team,
+      at: row.at,
+      role: !linked ? "unpaired" : row.roleCode === 1 ? "door1" : "door2",
+      partner: linked ? origToOut.get(p.orig)! : null,
+      inSight: row.inSight,
+    });
   }
   return out;
 }

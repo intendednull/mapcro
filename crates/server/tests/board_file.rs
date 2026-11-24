@@ -150,12 +150,13 @@ fn an_export_imports_as_the_same_board_under_fresh_ids() {
     // A legacy board (no `has_heroes` or Phase 5 rows) exports `BASE_FILE_ROWS` (15) so v11..v14
     // and R1 all accept it alongside version 2.
     assert_eq!(first["rows"], json!(mapcro_schema::BASE_FILE_ROWS));
-    // In R3, all 40 rows (`hero`..`rejuv`, including Groups A & B) are `Live`; none remain `Ahead`.
+    // In Doorman R1 (store v18), rows 0..40 (`hero`..`rejuv`) are `Live`; rows 40..42 (`has_doors`, `doors`) are `Ahead`.
     let last_live = mapcro_schema::ROWS.iter().position(|r| r.key == "rejuv").expect("the row");
     assert_eq!(mapcro_schema::written_rows(), last_live + 1);
     assert_eq!(mapcro_schema::written_rows(), 40);
-    assert_eq!(mapcro_schema::ROWS.len(), 40);
-    assert!(mapcro_schema::ROWS.iter().all(|r| r.status != mapcro_schema::Status::Ahead));
+    assert_eq!(mapcro_schema::ROWS.len(), 42);
+    assert!(mapcro_schema::ROWS[..40].iter().all(|r| r.status != mapcro_schema::Status::Ahead));
+    assert!(mapcro_schema::ROWS[40..].iter().all(|r| r.status == mapcro_schema::Status::Ahead));
     assert!(first["build"].as_str().is_some_and(|b| b.len() == 16), "the server's build");
     assert!(first["exported_at"].as_i64().is_some_and(|t| t > 1_700_000_000));
     assert_eq!(first["matches"], json!([130816395]), "the match comes back by its id");
@@ -343,8 +344,9 @@ fn a_file_with_map_state_imports_and_a_row_still_ahead_makes_no_board() {
         let out = server.export_json(&board, &owner);
         assert_eq!((&out["version"], &out["rows"]), (&json!(6), &json!(40)), "Group B exports v6 at version {version}");
         server.import_ok(&out);
-        // No rows remain Ahead in R3; if any future row is Ahead, this loop checks it is refused.
-        assert!(ROWS.iter().all(|r| r.status != Status::Ahead), "no row is still ahead in R3");
+        // Doorman doorways rows (`has_doors`, `doors`) are Ahead in R1; this loop checks each is refused.
+        let ahead_keys: Vec<&str> = ROWS.iter().filter(|r| r.status == Status::Ahead).map(|r| r.key).collect();
+        assert_eq!(ahead_keys, ["has_doors", "doors"], "Doorman R1 Ahead rows");
         let valid_json = |kind: mapcro_schema::Kind| -> Value {
             match kind {
                 mapcro_schema::Kind::Bool => json!(true),

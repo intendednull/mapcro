@@ -126,6 +126,34 @@ export interface Timeline {
   urn?: { spawns: Array<{ t: number; key: string }>; at: UrnAt[] };
   /** Replay tier, format 3: each Rejuvenator a team held (crates/replay/src/timeline.rs `Rejuv`). */
   rejuv?: TimelineRejuv[];
+  /** Replay tier, format 11: The Doorman's placed doorways (crates/replay/src/timeline.rs `Doorway`). */
+  doors?: TimelineDoor[];
+}
+
+/** One Doorman doorway (`CCitadel_DoorwayPortal`, format 11; docs/specs/doorman-doors.md). */
+export interface TimelineDoor {
+  id: number;
+  team: "amber" | "sapphire";
+  x: number;
+  y: number;
+  start_ds: number;
+  link_ds?: number | null;
+  end_ds: number;
+  partner?: number | null;
+  seen?: Array<[number, number]>;
+}
+
+/** A Doorman doorway active in the frame (Player or Scene; docs/specs/doorman-doors-design.md §3.2). */
+export interface DoorNow {
+  /** Door index (0..3 in a scene) or sequential spawn id (in Player). */
+  id: number;
+  team: "amber" | "sapphire";
+  at: { x: number; y: number };
+  role: "unpaired" | "door1" | "door2";
+  /** Partner door's `id` when currently linked; `null` when unpaired. */
+  partner: number | null;
+  /** Whether the enemy team has this door in sight (`true` when seen). */
+  inSight: boolean;
 }
 
 export interface TimelineRift {
@@ -601,6 +629,46 @@ export function rejuvAt(tl: Pick<Timeline, "rejuv">, t: number): RejuvNow[] {
     out.push({ team: r.team, left: stepAt(r.left, t) ?? 0, ends: r.ends_s, taken: r.taken_s });
   }
   return out.sort((a, b) => (a.team === b.team ? 0 : a.team === "amber" ? -1 : 1));
+}
+
+/** Active Doorman doorways at `ds` (tenths of a second, e.g. `Math.floor(t * 10) + 0.5`). Pure. */
+export function doorsAt(tl: Pick<Timeline, "doors" | "players">, ds: number): DoorNow[] {
+  const list = tl.doors;
+  if (!list?.length) return [];
+  const sighted = tl.players.some((p) => (p.seen?.length ?? 0) > 0) || list.some((d) => (d.seen?.length ?? 0) > 0);
+  const live = new Map<number, TimelineDoor>();
+  for (const d of list) {
+    if (d.start_ds <= ds && ds < d.end_ds) live.set(d.id, d);
+  }
+  if (!live.size) return [];
+  const out: DoorNow[] = [];
+  for (const d of live.values()) {
+    const pid = d.partner;
+    const p = pid != null && pid !== d.id ? live.get(pid) : undefined;
+    const linked =
+      d.link_ds != null &&
+      ds >= d.link_ds &&
+      p !== undefined &&
+      p.partner === d.id &&
+      p.team === d.team &&
+      p.link_ds != null &&
+      ds >= p.link_ds;
+    const role: DoorNow["role"] = !linked
+      ? "unpaired"
+      : d.start_ds < p.start_ds || (d.start_ds === p.start_ds && d.id < p.id)
+        ? "door1"
+        : "door2";
+    const inSight = !sighted || (d.seen?.some(([a, b]) => ds >= a && ds < b) ?? false);
+    out.push({
+      id: d.id,
+      team: d.team,
+      at: { x: d.x, y: d.y },
+      role,
+      partner: linked ? p.id : null,
+      inSight,
+    });
+  }
+  return out;
 }
 
 export const clockLabel = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
