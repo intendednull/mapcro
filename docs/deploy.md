@@ -421,6 +421,38 @@ It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` 
     `web/test/replay-timeline.test.ts`, `web/e2e/scene-builds.spec.ts`, and
     `web/e2e/scene-phase5-r2.spec.ts` (exported replay scenes
     now hold `version: 6, rows: 40`; pre-`SceneState` DOM/marker pins are untouched).
+- **Doorman doorways, R1 (Player + Scene Reader, store v18, `d1db21f`):** appends rows 40–41
+  (`has_doors`, `doors`) as `Ahead` (42 rows total; `written_rows() == 40`,
+  `boardfile::READS == 6`) and bumps `timeline::FORMAT` `10 → 11` (`desktop-v0.2.5`). Store step
+  17 → 18 is `Step::Additive` with no SQL, keeping the floor at **16**.
+  - **Rollback target from v18 (R1):** v17 (`c94cdac`) and v16 (`9d1f206`). Because rows 40–41 are
+    `Ahead`, `Admit::DEPLOYED` refuses them in transactions and board files, and the client writes
+    nothing new (`WRITTEN = 40`). After R1 went live (`d1db21f`), `crates/schema/rows.lock` was
+    locked at 42 rows and `justfile` `reader` was set to `d1db21f`.
+- **Doorman doorways, R2 (Scene Writer + manual Scene placement, store v19, `539bbcd`):** flips
+  rows 40–41 (`has_doors`, `doors`) from `Ahead` to `Live` (all 42 rows live;
+  `written_rows() == 42`, `boardfile::READS == 7`). Store step 18 → 19 is
+  `Step::NeedsReader { reader: 18 }` with no SQL, moving the floor to **18**.
+  - **Rollback target from v19 (R2):** **R1 (v18, `d1db21f`) only**, nothing older. v17 and earlier
+    refuse to start (floor 18). Online SQLite backup verified before deploy at
+    `/var/lib/mapcro/mapcro.sqlite.pre-v19` (`32M`, `0600`, `PRAGMA integrity_check: ok`).
+  - **On rollback to R1 (v18, `d1db21f`):**
+    - Verified live against the deployed R1 binary & web bundle on a v19 SQLite database: R1 boots
+      cleanly, preserves `schema_version=19` / `compat_floor=18` untouched, and renders saved &
+      manually-placed paired/unpaired doors and link arcs pixel-identically.
+    - **Cosmetic D5 nuance on rollback:** R2 fades `!inSight` doors on scenes without `has_sight`
+      (e.g., blank boards where a coach used `door-menu` → "Mark not seen", `shown.ts` Amendment
+      #4), whereas R1 renders no-sight doors as seen (data, positions, links, and replay `has_sight`
+      doors are unaffected).
+    - Board files holding `has_doors` (including a Doorman-match Save at a 0-door timestamp, which
+      writes `has_doors: true` with no `doors` payload) export **version 7** (`rows == 42`); R1
+      (`READS == 6`) refuses them cleanly as `Newer` (`422 {"error":"newer"}`), while boards without
+      doors still export v6 or lower and import on R1.
+    - Pending client writes naming `has_doors`/`doors` are refused as `WrongField` on R1, and
+      `Duplicate`/`New scene` on R1 drops rows `>= 40` and lowers `rows` to `40`.
+  - **Deploy note:** flipping rows 40–41 changes the schema sources, so the build id changes and
+    open R1 tabs close as `Outdated` and reload. After R2 is live, verify `just rows-lock` stays
+    unchanged at 42 rows and set `reader` in `justfile` to the deployed R2 commit (`539bbcd`).
 - **`just reader-check`** (in `just test`) loads what this build's server stores on the reader
   release's own code. Its reader is `reader` in the justfile: **set it to the deployed commit
   at each deploy that changes what is stored**, with `just rows-lock`.
