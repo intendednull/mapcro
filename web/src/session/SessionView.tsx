@@ -23,6 +23,7 @@ import { openSessionInAppHref } from "../core/applink";
 import { authHeader } from "../core/cred";
 import { type Me, colorOf, hasJoined, knownBoards, loadMe, rememberBoard } from "../core/device";
 import { href, replace } from "../core/nav";
+import { IdbPersist } from "../core/persist";
 import { LIMITS } from "../gen/limits";
 import type { RecordId } from "../gen/RecordId";
 import type { Art } from "../map/pack";
@@ -39,7 +40,7 @@ import { createSessionFollow, dropAllowed, onTabs, stripHeard } from "./follow";
 import { UndoHistory } from "./history";
 import { SESSION_SIDE, createSessionState } from "./state";
 import { type TabRow, commitGrantedTab, credentialFor, linkDead, moveOps, neighbourOf, pickTab, removeOps, renameOps } from "./tabs";
-import { loadUnsent, saveUnsent, withUnsent } from "./unsent";
+import { loadUnsent, reconcileUnsent, saveUnsent, withUnsent } from "./unsent";
 
 const editable = (t: EventTarget | null) => t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || (t instanceof HTMLElement && t.isContentEditable);
 
@@ -166,10 +167,13 @@ export function SessionView(p: { session: string; token: string; tab: string | u
     const m = me();
     s.presence({ name: m?.name ?? "", color: m?.color ?? 0, ...follow.wire(), following: follow.presenter()?.peer ?? null });
   });
-  // ---- tabs left with changes not sent (TD-101): marked on the strip until that board is
-  // opened here again and they go. Kept for this browser tab, as what a tab showed is. ----
+  // ---- tabs left with changes not sent (TD-101, TD-111): marked on the strip until that board is
+  // opened here again and they go, or another tab of this browser empties its stored pending queue.
+  // Kept for this browser tab, as what a tab showed is. ----
   const [unsent, setUnsent] = createSignal<ReadonlySet<string>>(loadUnsent(sessionStorage, p.session));
+  let unsentRev = 0;
   const left = (board: string, n: number | undefined) => {
+    unsentRev++;
     const next = withUnsent(unsent(), board, n);
     if (next === unsent()) return;
     setUnsent(next);
@@ -177,6 +181,43 @@ export function SessionView(p: { session: string; token: string; tab: string | u
   };
   /** The open tab's board: its own save status says what it hasn't sent, on any tab of it. */
   const openBoard = () => s.tabs().find((t) => t.id === active())?.board;
+  onMount(() => {
+    let gone = false;
+    let checking = false;
+    const recheck = async () => {
+      if (gone || checking || document.hidden) return;
+      const open = untrack(openBoard);
+      const targets = new Set([...untrack(unsent)].filter((b) => b !== open));
+      if (targets.size === 0 || typeof indexedDB === "undefined") return;
+      const rev = unsentRev;
+      checking = true;
+      let store: IdbPersist | undefined;
+      try {
+        store = new IdbPersist(indexedDB);
+        const kept = await reconcileUnsent(targets, (b) => store!.pendingCount(b));
+        if (gone || rev !== unsentRev) return;
+        let next = untrack(unsent);
+        for (const b of targets) if (!kept.has(b)) next = withUnsent(next, b, 0);
+        if (next === untrack(unsent)) return;
+        setUnsent(next);
+        saveUnsent(sessionStorage, p.session, next);
+      } catch {
+        // storage refused or blocked: keep the current marks
+      } finally {
+        store?.close();
+        checking = false;
+      }
+    };
+    const onFocus = () => void recheck();
+    const onVis = () => !document.hidden && void recheck();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVis);
+    onCleanup(() => {
+      gone = true;
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVis);
+    });
+  });
   const [adding, setAdding] = createSignal(takeAddOnOpen(p.session));
   const [sharing, setSharing] = createSignal(false);
   const [menu, setMenu] = createSignal<{ at: { x: number; y: number }; tab: TabRow }>();

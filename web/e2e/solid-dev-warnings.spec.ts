@@ -34,10 +34,10 @@ test.beforeAll(async () => {
       env: { ...process.env, MAPCRO_PORT: String(server.port) },
       stdio: "ignore",
     });
-    for (let i = 0; i < 300; i++) {
+    for (let i = 0; i < 100; i++) {
       if (vite.exitCode !== null) break;
       try {
-        if ((await fetch(`${base}/healthz`)).ok && vite.exitCode === null) return;
+        if ((await fetch(`${base}/@vite/client`)).ok && vite.exitCode === null) return;
       } catch {}
       await new Promise((r) => setTimeout(r, 100));
     }

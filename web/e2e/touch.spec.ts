@@ -4,7 +4,6 @@
 
 import { type Browser, type CDPSession, type Page, expect, test } from "./fixtures";
 import { mapPoint } from "./helpers";
-import { checkPhoneLayout } from "./phone-layout";
 import { Server, newBoardUrl } from "./server";
 
 let server: Server;

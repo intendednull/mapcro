@@ -1,8 +1,9 @@
 // When what an event marks began (docs/research/event-starts.md): a souls swing's turning point,
 // an objective's last push, a Mid-Boss attempt, a rift's cash-in; a click jumps there.
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { MatchEvent, Timeline, TimelineRift } from "../src/match/timeline";
-import { eventStart, jumpAt, jumpTarget, midBossStart, objectiveStart, riftCaptureStart, soulsLead, swingStart } from "../src/player/events";
+import { SWING_WINDOW_S, eventStart, jumpAt, jumpTarget, midBossStart, objectiveStart, riftCaptureStart, soulsLead, swingStart } from "../src/player/events";
 
 /** Two players' souls: Amber's lead is the samples' difference. */
 const timeline = (amber: Array<[number, number]>, sapphire: Array<[number, number]> = [[0, 0]]) =>
@@ -115,5 +116,12 @@ describe("event starts", () => {
     expect(jumpTarget(tl, e, 200)).toBe(0);
     expect(jumpAt(3, 5)).toBe(0);
     expect(jumpAt(120, 0)).toBe(120);
+  });
+
+  it("matches the replay parser's SWING_WINDOW constant (TD-75)", () => {
+    const src = readFileSync(new URL("../../crates/replay/src/timeline.rs", import.meta.url), "utf8");
+    const m = /^pub const SWING_WINDOW: u32 = (\d+);/m.exec(src);
+    expect(m, "SWING_WINDOW declaration in crates/replay/src/timeline.rs").not.toBeNull();
+    expect(SWING_WINDOW_S).toBe(Number(m![1]));
   });
 });

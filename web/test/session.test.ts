@@ -9,13 +9,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { startServer } from "./support/server";
 import "fake-indexeddb/auto";
-import { initSync } from "../src/wasm/mapcro_wasm.js";
+import { initSync, newRecordId } from "../src/wasm/mapcro_wasm.js";
 import { Api } from "../src/core/api";
 import { IdbPersist, MemoryPersist, type Persist } from "../src/core/persist";
 import { BoardSession, type SocketLike } from "../src/core/session";
 import type { Op } from "../src/gen/Op";
 import type { RosterSlot } from "../src/gen/RosterSlot";
-import { ensureLiveOps, liveIds } from "../src/player/live";
+import { ensureLiveOps, isLiveLayerCreate, liveIds, playFromTxs } from "../src/player/live";
 import { layerFrom } from "../src/player/layer";
 import { pageSeat } from "../src/core/seat";
 import type { RecordId } from "../src/gen/RecordId";
@@ -337,6 +337,129 @@ describe("board sessions against the real server", () => {
     expect(fresh.records.get(liveIds(board, 129000101, []).scene)).toBeDefined();
     a.stop();
     fresh.stop();
+  });
+
+  it("an offline live-layer ensure still pending across a reload loses an IdTaken race quietly (TD-35)", async () => {
+    const { board, owner_token } = await api.createBoard("live-layer-reload-ensure");
+    const persist = new IdbPersist(indexedDB, `mapcro-td35-${board}`);
+    const a = session(server, board, owner_token, persist);
+    await a.start();
+    await until(() => a.connection.kind === "live" && a.current(), "a live and current");
+    // Go offline and make the live layer while offline, then "reload" (new BoardSession, empty in-memory ensures).
+    a.stop();
+    const ops = ensureLiveOps(entries(a), board, 129000202, roster(a));
+    expect(isLiveLayerCreate(board, { kind: "Edit", ops })).toBe(true);
+    expect(a.ensure(ops)).toBe(true);
+    await new Promise((r) => setTimeout(r, 100)); // let IndexedDB save commit
+
+    // Meanwhile another editor creates the same live layer on the server.
+    const other = session(server, board, owner_token);
+    await other.start();
+    await until(() => other.connection.kind === "live" && other.current(), "other live");
+    expect(other.ensure(ensureLiveOps(entries(other), board, 129000202, roster(other)))).toBe(true);
+    await until(() => other.status.kind === "saved", "other created live layer");
+
+    // Reloaded session over the same IndexedDB: pending live-layer Create is rejected IdTaken by server,
+    // recognised from its deterministic ids, and never surfaces a false Conflict.
+    const reloaded = session(server, board, owner_token, persist);
+    await reloaded.start();
+    await until(() => reloaded.connection.kind === "live" && reloaded.status.kind === "saved", "reloaded saved");
+    expect(reloaded.problems).toEqual([]);
+    expect(view(reloaded)).toBe(view(other));
+    other.stop();
+    reloaded.stop();
+    persist.close();
+  });
+
+  it("playFrom keeps live-layer ensure in its own tx so an IdTaken race never refuses copied drawings (TD-35)", async () => {
+    const { board, owner_token } = await api.createBoard("play-from-split-ensure");
+    const a = session(server, board, owner_token);
+    await a.start();
+    await until(() => a.connection.kind === "live" && a.current(), "a live");
+    const firstScene = [...a.records].find(([, e]) => !e.deleted && "Scene" in e.record)![0];
+
+    // Editor `a` creates the live layer for match 129000303 first.
+    expect(a.ensure(ensureLiveOps(entries(a), board, 129000303, roster(a)))).toBe(true);
+    await until(() => a.status.kind === "saved", "a made live layer");
+
+    // Fresh joiner `b` draws on `firstScene` and runs Play from here BEFORE its catch-up lands
+    // (its view lacks the live layer `a` already created).
+    let ensureCount = 0;
+    let copyCount = 0;
+    const b = await joinAndAct(board, owner_token, (b) => {
+      const calloutId = newRecordId();
+      b.edit([{ Create: { id: calloutId, record: { Callout: { scene: firstScene, pos: { x: 100, y: 200 }, text: "Play here", color: 1, side: "Above" } } } }]);
+      const rows = (kind: string, sc: RecordId) =>
+        [...b.records]
+          .filter(([, e]) => !e.deleted && kind in e.record && (e.record as Record<string, { scene?: RecordId }>)[kind]?.scene === sc)
+          .map(([id, e]) => [id, e.record as unknown as Record<string, unknown>] as const);
+      const { ensure, copies } = playFromTxs(entries(b), rows, board, 129000303, roster(b), firstScene, undefined, newRecordId);
+      ensureCount = ensure.length;
+      copyCount = copies.length;
+      if (ensure.length) b.ensure(ensure);
+      for (const tx of copies) b.editSilent(tx);
+    });
+    expect(ensureCount).toBeGreaterThan(0);
+    expect(copyCount).toBe(1);
+    expect(b.problems).toEqual([]);
+    const liveId = liveIds(board, 129000303, roster(b)).scene;
+    await until(
+      () => [...a.records.values()].some((e) => !e.deleted && "Callout" in e.record && e.record.Callout.scene === liveId && e.record.Callout.text === "Play here"),
+      "copied drawing landed on server despite ensure IdTaken",
+    );
+    a.stop();
+    b.stop();
+  });
+
+  it("reopening a board bounds the wait on a hung previous session save and clears its timer on end (TD-64)", async () => {
+    const { board, owner_token } = await api.createBoard("ending-wait-bound");
+    const base = new MemoryPersist();
+    let hangSave = false;
+    const hungPersist: Persist = {
+      load: (k) => base.load(k),
+      save: (k, v) => (hangSave ? new Promise<void>(() => {}) : base.save(k, v)),
+    };
+    const first = session(server, board, owner_token, hungPersist);
+    await first.start();
+    await until(() => first.connection.kind === "live" && first.status.kind === "saved", "first live");
+    expect(first.edit(move(players(first)[0]!, 19))).toBe(true);
+    await until(() => first.status.kind === "saved", "edit acked");
+    // Now hang the final save made by `end()`, leaving a never-resolving promise in `ending`.
+    hangSave = true;
+    first.end();
+
+    // Ending a reopening session mid-wait cancels the wait immediately instead of waiting for endingWaitMs.
+    const tCancel = Date.now();
+    const cancelled = new BoardSession({
+      wsUrl: server.ws,
+      board,
+      token: owner_token,
+      persist: new MemoryPersist(),
+      openSocket,
+      endingWaitMs: 60_000,
+    });
+    const cancelling = cancelled.start();
+    await new Promise((r) => setTimeout(r, 20));
+    cancelled.end();
+    await cancelling;
+    expect(Date.now() - tCancel).toBeLessThan(1000);
+    expect(cancelled.problems).toEqual([]);
+
+    // Reopening with a bounded wait proceeds after the timeout and reaches live cleanly.
+    const t0 = Date.now();
+    const next = new BoardSession({
+      wsUrl: server.ws,
+      board,
+      token: owner_token,
+      persist: new MemoryPersist(),
+      openSocket,
+      endingWaitMs: 60,
+    });
+    await next.start();
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(50);
+    await until(() => next.connection.kind === "live", "next live after ending timeout");
+    expect(next.problems).toContain("previous session's local save timed out");
+    next.end();
   });
 
   it("presence flows both ways and only editors are followable", async () => {

@@ -9,8 +9,6 @@ import { LIMITS } from "../gen/limits";
 import { ModalScrim } from "../ui/ModalScrim";
 import { dialogKeys } from "../ui/modal";
 
-const Ico = (p: { d: string }) => <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" innerHTML={p.d} />;
-
 export const JUST_CLONED = "mapcro.justCloned";
 
 export function CloneDialog(p: { board: string; token: string; via?: Via; title: string; onClose: () => void }) {

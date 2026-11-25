@@ -1,6 +1,7 @@
 // The feedback form's server side (crates/server/src/feedback.rs): whether it's on, and sending.
 
 import { createSignal } from "solid-js";
+import type { SceneSource } from "../gen/SceneSource";
 import type { Timeline } from "../match/timeline";
 
 /** The server's limits, in characters; it checks them itself. */
@@ -27,11 +28,22 @@ export function feedbackEnabled() {
  * each field and writes the issue's line itself. */
 export type FeedbackMatch = { id: string; t_s: number; tier: "replay" | "summary" };
 
-/** The match to offer: the one open in Player, once its timeline is the one shown (none in the
- * sandbox, or while another match loads), at the playback time in whole seconds. */
-export function feedbackMatchOf(player: boolean, id: string | undefined, tl: Timeline | undefined, t: number): FeedbackMatch | undefined {
-  if (!player || !id || !tl || String(tl.match_id) !== id) return undefined;
-  return { id, t_s: Math.max(0, Math.floor(t)), tier: tl.tier === "replay" ? "replay" : "summary" };
+/** The match to offer: in Player, the open match once its timeline is shown (none while another
+ * match loads); in Scenes, the saved scene's `source` when it came from a match (none on blank
+ * sandbox scenes), at the time in whole seconds. */
+export function feedbackMatchOf(
+  player: boolean,
+  id: string | undefined,
+  tl: Timeline | undefined,
+  t: number,
+  source?: SceneSource | null,
+): FeedbackMatch | undefined {
+  if (player) {
+    if (!id || !tl || String(tl.match_id) !== id) return undefined;
+    return { id, t_s: Math.max(0, Math.floor(t)), tier: tl.tier === "replay" ? "replay" : "summary" };
+  }
+  if (!source || !Number.isSafeInteger(source.match_id) || source.match_id <= 0) return undefined;
+  return { id: String(source.match_id), t_s: Math.max(0, Math.floor(source.t)), tier: source.tier === "replay" ? "replay" : "summary" };
 }
 
 /** The line the form shows, e.g. "match 134570618 at 9:02 (Full replay)". */

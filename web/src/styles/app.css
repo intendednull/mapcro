@@ -233,8 +233,8 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 /* Lighter than a scene's ghost: a real map's terrain is busy, and these are where to look. */
 .mm-overlay.map .tok[data-seen="false"] > .body, .mm-overlay.map .tok[data-seen="false"] > image, .mm-overlay.map .tok[data-seen="false"] > text { opacity: 0.6; }
 /* Selection */
-/* What I select is highlighted in my presence colour (--me, set on the map box: my avatar and
-   cursor's colour), a solid ring with a glow; others' picks take theirs (operator, 2026-11-09). */
+/* What I select is highlighted in my presence colour (--me, set on .app.board-app and .phone: my
+   avatar and cursor's colour), a solid ring with a glow; others' picks take theirs (operator, 2026-11-09). */
 .mm-overlay.map .tok .sel { fill: none; stroke: var(--me, var(--accent)); stroke-width: 3; filter: drop-shadow(0 0 3px var(--me, var(--accent))) drop-shadow(0 0 7px color-mix(in srgb, var(--me, var(--accent)) 70%, transparent)); }
 .mm-overlay.map .marquee { fill: color-mix(in srgb, var(--accent) 10%, transparent); stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 6 4; pointer-events: none; }
 .mm-overlay.map[data-pan="on"], .mm-overlay.map[data-pan="on"] * { cursor: grab !important; }

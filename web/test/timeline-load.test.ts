@@ -11,7 +11,6 @@ import { createRoot } from "solid-js";
 import { Api, notAnAnswer } from "../src/player/api";
 import { createPlayerHost } from "../src/player/host";
 import { timelines } from "../src/player/timelineCache";
-import type { Timeline } from "../src/match/timeline";
 
 const BOARD = "AAAAAAAAAAAAAAAAAAAAAA";
 const OTHER = "BBBBBBBBBBBBBBBBBBBBBB";
@@ -530,11 +529,23 @@ describe("a tab as its board opens (sessions.md §4.2)", () => {
     b.end();
   });
 
-  it("no-match presenter always sends mode in presence so followers mirror Sandbox/Player and scene build open/close consistently (F4)", () => {
+  it("no-match presenter withholds Sandbox presence until init settles (unless a build panel is open), then mirrors Sandbox/Player and scene builds consistently (F4)", async () => {
+    matches = [];
     const presenter = host(BOARD);
     const follower = host(BOARD);
     try {
-      // Follower starts in Player (no match) with its own Vision choice; presenter is in Sandbox (no match).
+      // Before `init()` settles (initial `api.matches()` in flight): returns undefined so followers
+      // already in Player do not see a brief Sandbox flicker.
+      expect(presenter.h.presence()).toBeUndefined();
+      // An explicitly opened scene build panel is still sent even before `settled`.
+      presenter.h.setOpenBuild("amber-1");
+      expect(presenter.h.presence()).toMatchObject({ player: false, match_id: 0, inspect: { team: "Amber", slot: 1 } });
+      presenter.h.setOpenBuild(undefined);
+      expect(presenter.h.presence()).toBeUndefined();
+
+      await presenter.h.init();
+
+      // Follower starts in Player (no match) with its own Vision choice; settled no-match presenter is in Sandbox.
       follower.h.setMode("player");
       follower.h.setVision("sapphire");
       const closed = presenter.h.presence();

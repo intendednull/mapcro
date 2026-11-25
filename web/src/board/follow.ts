@@ -36,7 +36,7 @@ export interface FollowTarget {
   seat?: number | undefined;
   /** `joined().n` when `peer` was last seen: an id from an earlier join names nobody now. */
   joins: number;
-  /** When the presenter was first missed on this join, while waiting. */
+  /** When the presenter was first missed (or when a post-restart "Follow again" began), while waiting. */
   lostAt?: number;
 }
 
@@ -63,7 +63,10 @@ export function locate(t: FollowTarget, peers: PeerPresence[], me: number | unde
   let best: PeerPresence | undefined;
   for (const p of peers) if (p.peer !== me && followable(p) && p.state?.seat === t.seat && (!best || p.peer > best.peer)) best = p;
   if (best) return { kind: "here", peer: best };
-  const until = t.joins !== joined.n ? joined.at + REJOIN_MS : (t.lostAt ?? now) + RECONNECT_MS;
+  const until =
+    t.joins !== joined.n
+      ? Math.max(joined.at + REJOIN_MS, t.lostAt !== undefined ? t.lostAt + RECONNECT_MS : 0)
+      : (t.lostAt ?? now) + RECONNECT_MS;
   return now < until ? { kind: "wait", until } : { kind: "gone" };
 }
 
@@ -72,8 +75,9 @@ export function locate(t: FollowTarget, peers: PeerPresence[], me: number | unde
  * the seat it was on). That seat wins over whoever holds `peer` now: after a reconnect the id
  * may be someone else's. When `wasJoin` is from an earlier join than `joins` ("Follow again"
  * after a restart), `peer` is never matched on the new join — only `seat` is — and if the
- * presenter isn't back yet `target.joins` stays `wasJoin` so `locate` gives the full `REJOIN_MS`
- * wait. `seen`: the presenter's current presence, when found (`locate` waits by seat otherwise).
+ * presenter isn't back yet `target.joins` stays `wasJoin` (with `lostAt: now` when given) so
+ * `locate` waits the rest of `REJOIN_MS` from the join and at least `RECONNECT_MS` from the
+ * click. `seen`: the presenter's current presence, when found (`locate` waits by seat otherwise).
  */
 export function startFollow(
   peer: number,
@@ -82,6 +86,7 @@ export function startFollow(
   joins: number,
   wasJoin = joins,
   me?: number,
+  now?: number,
 ): { target: FollowTarget; seen: PeerPresence | undefined } {
   if (wasJoin !== joins) {
     let best: PeerPresence | undefined;
@@ -90,7 +95,7 @@ export function startFollow(
     }
     return best
       ? { target: { peer: best.peer, seat, joins }, seen: best }
-      : { target: { peer, seat, joins: wasJoin }, seen: undefined };
+      : { target: { peer, seat, joins: wasJoin, ...(now !== undefined ? { lostAt: now } : {}) }, seen: undefined };
   }
   const x = peers.find((p) => p.peer === peer && p.state);
   const s = seat ?? x?.state?.seat;

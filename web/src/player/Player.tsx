@@ -14,8 +14,8 @@ import type { RecordId } from "../gen/RecordId";
 import type { Op } from "../gen/Op";
 import { type MatchEvent, type Timeline, clockLabel, playersAt, tierOf } from "../match/timeline";
 import type { MapState } from "../mapstate/state";
-import { matchSceneOps, matchScenesOps, slotKey, sourceOf } from "../match/save";
-import { MAX_OPS_PER_TX, chunks, clearAnnotationsOps, copyAnnotationsOps, ensureLiveOps, liveIds, takeAnnotationsOps } from "./live";
+import { matchSceneOps, matchScenesOps, sourceOf } from "../match/save";
+import { MAX_OPS_PER_TX, chunks, playFromTxs, takeAnnotationsOps } from "./live";
 import { FETCH_WHY, busy, jobLabel, queueLabel, staleUpload } from "./api";
 import { PROMPT, noticeFor, sizeLabel } from "./notice";
 import { DropOverlay, ReplayHelp, createDemDrop } from "./ReplayHelp";
@@ -179,13 +179,18 @@ export function Player(p: {
     const s = p.scene;
     if (!src || !s) return;
     if (canEdit() && p.state.roster().length === 12) {
-      const roster = p.state.roster();
-      const live = liveIds(p.board, src.match_id, roster).scene;
-      const groups: Op[][] = [ensureLiveOps(p.state.records as never, p.board, src.match_id, roster)];
-      const there = p.state.liveScene(src.match_id);
-      if (there) groups.push(...clearAnnotationsOps(rows, there).map((o) => [o]));
-      groups.push(...copyAnnotationsOps(rows, s.id, live, p.mint).map((o) => [o]));
-      for (const tx of chunks(groups.filter((g) => g.length), MAX_OPS_PER_TX)) p.state.editSilent(tx);
+      const { ensure, copies } = playFromTxs(
+        p.state.records as never,
+        rows,
+        p.board,
+        src.match_id,
+        p.state.roster(),
+        s.id,
+        p.state.liveScene(src.match_id),
+        p.mint,
+      );
+      if (ensure.length) p.state.ensure(ensure);
+      for (const tx of copies) p.state.editSilent(tx);
     }
     user(() => {
       h.setMode("player");

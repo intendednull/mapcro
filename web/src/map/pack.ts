@@ -3,7 +3,7 @@
 
 import { FALLBACK } from "./fallback-data";
 import { type MapModel, type PackEntity, modelFromEntities, modelFromFallback, withBuiltInFurniture } from "./model";
-import type { TooltipIndex } from "../match/tooltips";
+import { type TooltipIndex, decodeEntities } from "../match/tooltips";
 
 export interface PackBlob {
   sha256: string;
@@ -91,7 +91,7 @@ export function buildCatalogFromData(base: string, packId: string, m: PackManife
     const id = Number(token);
     if (!Number.isSafeInteger(id) || id < 0) continue;
     const blob = record.icon ? m.blobs[record.icon] : undefined;
-    records.set(id, { ...record, id, icon: blob ? `${base}/packs/${packId}/${blob.file}` : undefined });
+    records.set(id, { ...record, id, label: decodeEntities(record.label), icon: blob ? `${base}/packs/${packId}/${blob.file}` : undefined });
   }
   return { records };
 }

@@ -24,11 +24,19 @@ describe("the match it attaches", () => {
     expect(feedbackMatchOf(true, "134570618", tl("replay"), 542.9)).toEqual({ id: "134570618", t_s: 542, tier: "replay" });
     expect(feedbackMatchOf(true, "134570618", tl("metadata"), 0)).toEqual({ id: "134570618", t_s: 0, tier: "summary" });
   });
-  it("is none in the sandbox, with nothing open, or while another match loads", () => {
+  it("is none in the sandbox without a source, with nothing open, or while another match loads", () => {
     expect(feedbackMatchOf(false, "134570618", tl("replay"), 10)).toBeUndefined();
+    expect(feedbackMatchOf(false, "134570618", tl("replay"), 10, null)).toBeUndefined();
     expect(feedbackMatchOf(true, undefined, tl("replay"), 10)).toBeUndefined();
     expect(feedbackMatchOf(true, "134570618", undefined, 10)).toBeUndefined();
     expect(feedbackMatchOf(true, "999", tl("replay"), 10)).toBeUndefined();
+    // While another match loads in Player, never fall back to a scene's source.
+    expect(feedbackMatchOf(true, "999", tl("replay"), 10, { match_id: 134570618, t: 542, tier: "replay" })).toBeUndefined();
+  });
+  it("uses the scene's source when viewing a saved match scene in Scenes (Argon #8)", () => {
+    expect(feedbackMatchOf(false, undefined, undefined, 0, { match_id: 134570618, t: 542.9, tier: "replay" })).toEqual({ id: "134570618", t_s: 542, tier: "replay" });
+    expect(feedbackMatchOf(false, "999", tl("replay"), 10, { match_id: 130816395, t: 12.4, tier: "metadata" })).toEqual({ id: "130816395", t_s: 12, tier: "summary" });
+    expect(feedbackMatchOf(false, undefined, undefined, 0, { match_id: 130816395, t: -3, tier: "summary" })).toEqual({ id: "130816395", t_s: 0, tier: "summary" });
   });
   it("reads in m:ss and the tier's user-facing words", () => {
     expect(matchLine({ id: "134570618", t_s: 542, tier: "replay" })).toBe("match 134570618 at 9:02 (Full replay)");
