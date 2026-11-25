@@ -137,17 +137,11 @@ Resolved by `player-alt-blend` (`web/src/styles/transport.css`): the desktop tra
 ## Map-state phase 2 leftovers from its review (2026-11-14, lead)
 
 From the adversarial review of e878c30 (scene builds, #49); none blocked the deploy.
-- **Follow with a no-match presenter (F4).** `host.ts` `presence()` sends `{player:false,
-  match_id:0}` only while a build is open, so a follower in Player is set to sandbox on open and
-  left there on close; `mirror` applies an empty panel group once on start. Either always send
-  the mode for a no-match presenter, or don't `setMode` on that playback.
+- ~~**Follow with a no-match presenter (F4).**~~ **Resolved (`09b9c79`, 2026-11-25):** `host.ts` `presence()` always sends `{ player: false, match_id: 0, ... }` for a no-match presenter (pinned in `timeline-load.test.ts`). Minor follow-up: gate on `settled` to avoid a brief Sandbox flicker while a presenter's match is still loading.
 - **Stats for an alive hero with no stored health (F5).** `statOf` (`web/src/mapstate/build.ts`
   ~179) gives 100 where Player's `statBuild` gives `null` (skipping life-threshold items); stored
   health is rounded and clamped. Not expected in replay data.
-- **Fuzz the wasm `changed` diff.** The simulation never touches the wasm `Held` diff; the
-  reviewer's 3,000-seed fuzz (module `rv_fuzz`) found nothing and is worth adopting as a test.
-  The lead keeps a copy at `~/.local/share/mapcro-lead/scratch/map-state-p2c-rv-fuzz.rs` (append
-  it to `crates/wasm/src/lib.rs`).
+- ~~**Fuzz the wasm `changed` diff.**~~ **Resolved (`09b9c79`, 2026-11-25):** adopted `mod rv_fuzz` (500 seeds = 60,000 steps) and `mod rv_chunk` in `crates/wasm/src/lib.rs`.
 - **Scene builds on the phone** and the follow matrix's scene column (from the implementer).
 
 ## Map state phase 2, left over (2026-11-13, fourth implementer)
@@ -165,8 +159,7 @@ needed for #49 on the desktop.
   has two tests of it (with the match open, and on a board with no match, from a file), each
   checked by mutating `host.ts`. Still to add: the matrix's column for the panel group (the
   follower's own change, Stop following, a late joiner, a server restart, on a scene).
-- **A scene's build after its slot's hero changes shows nothing, in a browser.** `holdsBuild` is
-  unit-tested; no e2e changes a hero on a scene with a snapshot and checks the column goes.
+- ~~**A scene's build after its slot's hero changes shows nothing, in a browser.**~~ **Resolved (`09b9c79`, 2026-11-25):** browser e2e added in `web/e2e/scene-builds.spec.ts` pinning that changing a slot's hero removes its open build column.
 - **A board with a match reopens in Player after a reload**, not on the scene that was shown
   (seen in phase 2's QA; as before this work). A coach who saved a scene and reloads has to pick
   it again. Decide whether the last view should be kept per device.
@@ -1057,11 +1050,9 @@ Their breaks are as observable as the tough crates' (the entity goes inactive; t
 token tells them apart). 591 more icons and about 8 times the Heavy boxes' timeline bytes, so a
 toggle of their own at least. Not asked for; the audit's candidates list has the row.
 
-## heal_probe is slow on the breakable props (2026-11-09, from heavy-crates)
+## heal_probe is slow on the breakable props (2026-11-09, from heavy-crates): resolved
 
-`crates/replay/examples/heal_probe.rs` formats every field of every entity on every tick, so on
-`CCitadel_BreakableProp` (709 entities) it runs at about real time (30 min for 129738985).
-Comparing raw field values and formatting only the changes would make it a seconds-long probe.
+Resolved (`09b9c79`, 2026-11-25; TD-15): `crates/replay/examples/heal_probe.rs` stores raw `FieldValue`s and compares in place via `same_value` (`f32::to_bits`), formatting and resolving world position only on NEW/active/diff, with rules and per-class field keys hoisted out of the tick/entity loops.
 
 ## Clippy: collapsible_if in derive.rs's buffs (2026-11-09, from heavy-crates): resolved
 

@@ -196,7 +196,8 @@ grant.**
    that grant is live, writes nothing and returns the existing grant (200, not 201). Any link
    may add its board, a view link too, so this and the per-link cap (§3.8) bound the rows a
    session can write on someone else's board.
-5. It returns `{ grant_id, board, role: G }`. The board token is dropped from memory. It is
+5. It returns `{ grant_id, board, role: G, title }`, where `title` is the board's current title
+   cleaned and capped to `max_name` (TD-59). The board token is dropped from memory. It is
    never logged, stored, echoed back, or put in the session document.
 6. The client creates the `Tab { board, grant, name, order }` record with an ordinary engine
    transaction. The add is then in the adder's own undo stack.
@@ -1027,7 +1028,7 @@ Each phase is small, merges on its own, and leaves boards unchanged.
      extractor, so each route keeps its own error bodies (the characterisation pins them).
    - **Endpoints** (`crates/server/src/sessions.rs`): `POST /api/sessions`
      `{ title, board?, board_token?, role? }` → `{ session, owner_token, tab?, grant? }`, and
-     `POST /api/sessions/{s}/grants` `{ board, board_token, role? }` → `{ grant_id, board, role }`
+     `POST /api/sessions/{s}/grants` `{ board, board_token, role? }` → `{ grant_id, board, role, title }`
      (201, or 200 with the existing grant), and `DELETE /api/sessions/{s}/grants/{g}` (204).
      Session links are the board handlers with `RoomKind::Session`:
      `/api/sessions/{s}/links` (mint, list), `/links/{link}` (revoke), `/owner/rotate`.
