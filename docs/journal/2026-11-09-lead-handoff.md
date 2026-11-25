@@ -3,6 +3,21 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Deployed 50c3041: Straightforward Backlog & Tech-Debt Batch 3 (8 items, web-only, schema/wire/format-neutral) — COMPLETE (2026-11-25, lead 2a42cd74)
+
+- **Prod `web` runs `50c3041`** (`infra` `21a0730`, JS `/assets/index-BPtA_SVm.js`, CSS `/assets/index-VJmreSPo.css`, `/healthz ok rooms=0`, store **`v19`** floor **`18`** unchanged, newest pack **`6864-upgrades`**).
+  - **Batch 3 (`ccc7c21`, merged `50c3041`, Neon worker `d5afd13d`, Claude Opus 5.5 review `APPROVE` 0 Blockers / 0 Majors; 0 Rust files changed):**
+    - `TD-12`: removed dead TypeScript (`ICON_HEALS`, `ICON_CRATES`, unused locals/imports) and permanently gated `"noUnusedLocals": true` in `web/tsconfig.json`.
+    - Argon #8: Feedback dialog now offers saved scene match details (`source.match_id`, `t`, `tier`) on match-derived scenes while omitting match info on blank scenes (`feedback.ts`, `Board.tsx`, `feedback.spec.ts`).
+    - Opus Batch 1 & 2 polish: `TD-14` overlapping hidden/visible timed marker hit-test pin (`Camps.tsx` / `objective-tips.test.ts`), `TD-7` `/@vite/client` ready probe + shorter per-attempt timeout (`solid-dev-warnings.spec.ts`), `"Follow again"` 5 s wait floor (`max(joined.at + REJOIN_MS, now + RECONNECT_MS)` in `follow.ts`), `FM-091` catalog-level entity decoding in `pack.ts` covering events/builds/tooltips, stale `--me` comment in `app.css`, and `F4` `!settled` presence guard in `host.ts`.
+    - `TD-35`: `Player.tsx` `playFrom` sends live-layer `ensure` as its own transaction before copied drawings, and `core/session.ts` recognises refused `IdTaken` on deterministic live-layer creates across reloads.
+    - `TD-64`: bounded wait on previous session's `ending` in `core/session.ts` with cleanup on all exit paths (passing `board-unmount.spec.ts` leaked-timer checks).
+    - `TD-75`: cross-check test pinning `SWING_WINDOW` (`crates/replay/src/timeline.rs`) against `SWING_WINDOW_S` (`web/src/player/events.ts`).
+    - `TD-111`: focus/visibility check clears stale `"Not sent"` strip dots once IndexedDB pending queues empty.
+  - **Gate & deploy:** `just web-test` (`90/90` files, `1,071` passed, `tsc --noEmit` with `"noUnusedLocals": true` 0 errors), `just clippy` (0 warnings), `just test` (workspace + failpoints 2/2 + 2× 1,000 sim seeds + `reader-check` 40/40 boards), Chromium Playwright E2E (`66/66` across 11 specs). Strictly `mapcro-web`-only NixOS closure diff (`0` Rust crate rebuilds).
+  - **Live prod verification (`https://mapcro.dmgdeadlock.com`):** `/healthz ok rooms=0`, blank scene Feedback had `0` match checkboxes, saved scene from `129738985` offered `Includes: match 129738985 at 10:00 (Full replay)`, `0` console/page errors.
+- **Status:** All straightforward backlog & tech-debt items shipped across Batches 1–3 (`38b0099`, `09b9c79`, `ccc7c21`) — remaining items in `docs/backlog.md` / `docs/tech-debt.md` and open GitHub `feedback` issues (`#61`, `#55`, `#16`) are design, feature, policy, or hardware/Windows-verification work awaiting operator prioritization. All temporary worktrees, branches, workspaces, and subagents cleaned up (`player-transport` `6ed0179` remains untouched).
+
 ## Deployed 251f9d1: Straightforward Backlog & Tech-Debt Batches 1 + 2 (18 items, schema/wire/format-neutral) — COMPLETE (2026-11-25, lead 2a42cd74)
 
 - **Prod `web` runs `251f9d1`** (`infra` `7955018`, JS `/assets/index-CzNrFP83.js`, CSS `/assets/index-VJmreSPo.css`, `/healthz ok rooms=0`, store **`v19`** floor **`18`** unchanged, newest pack **`6864-upgrades`**).
