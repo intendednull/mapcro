@@ -298,3 +298,39 @@ test("a scene saved from a match holds its own heroes: the roster and the board'
   await expect(p.getByTestId("topbar")).not.toHaveAttribute("data-mode", "player");
   await expect(img(p, "Amber-3")).toHaveAttribute("style", heroArt(4));
 });
+
+test("hero picker heading and taken labels use the match's player names", async ({ browser }) => {
+  const namedId = "129000153";
+  const tl = timeline();
+  tl.match_id = Number(namedId);
+  tl.players[0]!.name = "Coach" as unknown as null;
+  tl.players[1]!.name = "Marrow" as unknown as null;
+
+  const url = await newBoardUrl(server, "picker match names");
+  const p = await joinNew(browser, url, "Lead");
+  await p.getByTestId("mode-player").click();
+  await revealControls(p, "match-id");
+  await p.getByTestId("match-id").fill(namedId);
+  await p.getByTestId("match-load").click();
+  await p.getByTestId("match-file").setInputFiles({
+    name: `${namedId}.dem`,
+    mimeType: "application/octet-stream",
+    buffer: Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]),
+  });
+  let job = "";
+  await expect.poll(() => (job = readdirSync(join(queue, "inbox")).find((f) => f.startsWith(`${namedId}-`) && f.endsWith(".dem")) ?? "")).not.toBe("");
+  writeFileSync(join(queue, "outbox", job.replace(/\.dem$/, ".json")), JSON.stringify(tl));
+  await expect(p.getByTestId("match-tier")).toHaveText("Full replay");
+  await p.getByTestId("match-save").click();
+  await expect(p.getByTestId("topbar")).not.toHaveAttribute("data-mode", "player");
+  await expect(p.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
+
+  // HeroPicker for Amber-0 shows "Coach" in its heading and "Hidden King Marrow" on Testhero B's taken label.
+  await portrait(p, "Amber-0").click({ button: "right", position: { x: 20, y: 30 } });
+  await p.getByTestId("hero-menu-hero").click();
+  const picker = p.getByTestId("hero-picker");
+  await expect(picker.locator("#hp-h")).toHaveText("Coach");
+  await expect(picker.locator('.hero-cell[data-hero="Testhero B"] .hero-taken')).toHaveText("Hidden King Marrow");
+  await p.keyboard.press("Escape");
+  await expect(picker).toHaveCount(0);
+});

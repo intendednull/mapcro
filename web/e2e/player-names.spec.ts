@@ -255,6 +255,17 @@ test("Scenes show the match's names; a typed name wins; no side roster", async (
   await expect(col(a, "Amber-0").getByTestId("tb-name")).toHaveText("Coach");
   await expect(tok(a, "Sapphire-5")).toHaveAttribute("aria-label", /^Moss(, |$)/);
 
+  // HeroPicker heading (and "taken" labels when pack heroes are loaded) use the match's names.
+  await col(a, "Amber-0").click({ button: "right" });
+  await a.getByTestId("hero-menu-hero").click();
+  const picker = a.getByTestId("hero-picker");
+  await expect(picker.locator("#hp-h")).toHaveText("Coach");
+  if ((await picker.locator(".hero-cell").count()) > 0) {
+    await expect(picker.locator(".hero-taken").filter({ hasText: "Marrow" })).toHaveCount(1);
+  }
+  await a.keyboard.press("Escape");
+  await expect(picker).toHaveCount(0);
+
   // Names off (this browser): none in Scenes either.
   await a.getByTestId("mode-player").click();
   await revealControls(a, "names-toggle");

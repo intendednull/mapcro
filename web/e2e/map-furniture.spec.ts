@@ -112,19 +112,28 @@ test("shops and teleporters are on the map; heals only with the toggle, which a 
   await expect(marks(a, "heal")).toHaveCount(0);
 });
 
-test("a teleporter's pair shows on hover only", async ({ browser }) => {
-  const a = await joinNew(browser, await newBoardUrl(server, "Teleporters"), "Coach");
-  const link = a.getByTestId("teleporter-link");
-  await expect(link).toHaveCount(0);
+test("a teleporter's pair shows on hover only, and followers see the presenter's pair", async ({ browser }) => {
+  const url = await newBoardUrl(server, "Teleporters");
+  const a = await joinNew(browser, url, "Coach");
+  const b = await joinNew(browser, url, "Juno");
+  await b.getByTestId("follow-Coach").click();
+  await expect(b.getByTestId("follow-chip")).toContainText("Following Coach");
+  const linkA = a.getByTestId("teleporter-link");
+  const linkB = b.getByTestId("teleporter-link");
+  await expect(linkA).toHaveCount(0);
+  await expect(linkB).toHaveCount(0);
   // The King's side's west end lets out beside its east end, and back.
   await hover(a, "teleporter:neutral:lane4:1");
-  await expect(link).toHaveAttribute("data-to", "teleporter:neutral:lane6:1");
+  await expect(linkA).toHaveAttribute("data-to", "teleporter:neutral:lane6:1");
+  await expect(linkB).toHaveAttribute("data-to", "teleporter:neutral:lane6:1");
   await expect(a.getByTestId("hover-label")).toHaveCount(0);
   await a.screenshot({ path: "shots/furniture-teleporter-link.png" });
   await hover(a, "teleporter:neutral:lane6:1");
-  await expect(link).toHaveAttribute("data-to", "teleporter:neutral:lane4:1");
+  await expect(linkA).toHaveAttribute("data-to", "teleporter:neutral:lane4:1");
+  await expect(linkB).toHaveAttribute("data-to", "teleporter:neutral:lane4:1");
   await a.mouse.move(5, 5);
-  await expect(link).toHaveCount(0);
+  await expect(linkA).toHaveCount(0);
+  await expect(linkB).toHaveCount(0);
 });
 
 test("Player: a healing pickup is down while taken and says when it's back", async ({ browser }) => {

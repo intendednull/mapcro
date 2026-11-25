@@ -126,8 +126,32 @@ export function withOverlay(data: TooltipData, overlay: { client_version: number
       merged.set(id, out);
       return out;
     },
-    str: (key, fallback) => data.strings[key] ?? fallback,
+    str: (key, fallback) => decodeEntities(data.strings[key] ?? fallback),
   };
+}
+
+const HTML_ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: "\u00a0",
+};
+
+/**
+ * Decode standard HTML character references (`&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;`, `&nbsp;`,
+ * decimal `&#NNN;`, hex `&#xHHH;`) in a single pass. Called on plain text nodes after `parseMarkup`
+ * tokenizes tags so escaped tags like `&lt;b&gt;` stay text and never parse as markup.
+ */
+export function decodeEntities(s: string): string {
+  if (!s.includes("&")) return s;
+  return s.replace(/&(?:#[xX]([0-9a-fA-F]+)|#([0-9]+)|([A-Za-z]+));/g, (raw, hex?: string, dec?: string, name?: string) => {
+    if (name !== undefined) return HTML_ENTITIES[name.toLowerCase()] ?? raw;
+    const code = hex !== undefined ? Number.parseInt(hex, 16) : Number.parseInt(dec!, 10);
+    if (!Number.isFinite(code) || code <= 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) return raw;
+    return String.fromCodePoint(code);
+  });
 }
 
 /**
@@ -204,7 +228,7 @@ export function shown(p: TipProp, values: TipValues, spirit?: number | null, sca
     calc = true;
   }
   const sign = (p.prefix ?? "").includes("{s:sign}") ? (n != null && n > 0 ? "+" : "") : "";
-  return { prefix: (p.prefix ?? "").replace("{s:sign}", sign), value, postfix: p.postfix ?? "", calc };
+  return { prefix: decodeEntities((p.prefix ?? "").replace("{s:sign}", sign)), value, postfix: decodeEntities(p.postfix ?? ""), calc };
 }
 
 /** `{s:Prop}` replaced from `values` (an alias reads its property; unknown ones read ""), as
@@ -232,10 +256,11 @@ export function parseMarkup(src: string): MarkupNode[] {
   const stack: Array<{ tag: string; kids: MarkupNode[] }> = [{ tag: "", kids: root }];
   const top = () => stack[stack.length - 1]!.kids;
   const text = (s: string) => {
-    if (!s) return;
+    const decoded = decodeEntities(s);
+    if (!decoded) return;
     const last = top().at(-1);
-    if (last?.t === "text") last.s += s;
-    else top().push({ t: "text", s });
+    if (last?.t === "text") last.s += decoded;
+    else top().push({ t: "text", s: decoded });
   };
   const re = /<\s*(\/?)\s*([A-Za-z]+)([^>]*?)(\/?)\s*>|\{g:citadel_(inline_attribute|binding):'([^']*)'\}/g;
   let at = 0;
@@ -315,8 +340,8 @@ function formatUpgradeValue(prop: TipProp, raw: string, kind: string): string {
   if (kind === "EMultiplyScale" || kind === "EMultiplyBase") {
     return `×${raw}`;
   }
-  const postfix = prop.postfix ?? "";
-  const prefix = prop.prefix ?? "";
+  const postfix = decodeEntities(prop.postfix ?? "");
+  const prefix = decodeEntities(prop.prefix ?? "");
   if (prefix.includes("{s:sign}")) {
     const sign = n != null && n > 0 ? "+" : "";
     return `${prefix.replace("{s:sign}", sign)}${raw}${postfix}`;
@@ -350,7 +375,7 @@ export function upgradeLines(tip: Tip, values: TipValues, tierIndex: number): Up
     const prop = findProp(tip, key);
     if (!prop) continue;
     const kind = u.kinds?.[key] ?? "EAddToBase";
-    out.push({ key, value: formatUpgradeValue(prop, raw, kind), label: prop.label });
+    out.push({ key, value: formatUpgradeValue(prop, raw, kind), label: decodeEntities(prop.label) });
   }
   return out;
 }

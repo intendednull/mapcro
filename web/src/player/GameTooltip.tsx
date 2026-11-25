@@ -9,7 +9,7 @@
 import { For, type JSX, Show, createEffect, createResource, createRoot, createSelector, createSignal, onCleanup, onMount, untrack } from "solid-js";
 import { Portal } from "solid-js/web";
 import type { Art, BuildRecord } from "../map/pack";
-import { TIER_COSTS, type MarkupNode, type TipIcon, type TipProp, type TipValues, type Tooltips, blockShown, loadTooltips, parseMarkup, shown, substitute, upgradeLines, upgraded, upgradesTo } from "../match/tooltips";
+import { TIER_COSTS, type MarkupNode, type TipIcon, type TipProp, type TipValues, type Tooltips, blockShown, decodeEntities, loadTooltips, parseMarkup, shown, substitute, upgradeLines, upgraded, upgradesTo } from "../match/tooltips";
 import { cx } from "../ui/cx";
 
 /** The pack's tooltips for a replay build (its patch's values); undefined until loaded or
@@ -114,7 +114,7 @@ function Card(p: { prop: TipProp; values: TipValues; tips: Tooltips; spirit?: nu
           <Icon icon={p.prop.css ? p.tips.data.icons[p.prop.css] : undefined} tips={p.tips} />
           <Value prop={p.prop} values={p.values} spirit={p.spirit} scale={p.scale} />
         </div>
-        <div class="gt-card-label">{p.prop.label}</div>
+        <div class="gt-card-label">{decodeEntities(p.prop.label)}</div>
         <Show when={factor()}>{(f) => <span class="gt-scale" title="Spirit Power">×{String(Math.round(f() * 100) / 100)}</span>}</Show>
       </div>
     </Show>
@@ -125,7 +125,7 @@ function Row(p: { prop: TipProp; values: TipValues; spirit?: number | null | und
   return (
     <Show when={shown(p.prop, p.values)}>
       <div class={cx("gt-row", p.prop.negative && "negative")} data-prop={p.prop.key}>
-        <b><Value prop={p.prop} values={p.values} spirit={p.spirit} scale={p.scale} /></b> <span>{p.prop.label}</span>
+        <b><Value prop={p.prop} values={p.values} spirit={p.spirit} scale={p.scale} /></b> <span>{decodeEntities(p.prop.label)}</span>
       </div>
     </Show>
   );
@@ -145,7 +145,7 @@ function ItemTip(p: { record: BuildRecord; art: Art; tips: Tooltips; ctx?: TipCo
     <div class={cx("gt gt-item", slot())} data-testid="game-tooltip" data-tip-id={p.record.id} data-kind="item"
       style={{ ...(backer() ? { "background-image": `url(${JSON.stringify(backer())})` } : {}), ...(mask() ? { "-webkit-mask-image": `url(${JSON.stringify(mask())})`, "mask-image": `url(${JSON.stringify(mask())})` } : {}) }}>
       <div class="gt-head" style={header() ? { "background-image": `url(${JSON.stringify(header())})` } : {}}>
-        <div class="gt-name" data-testid="game-tooltip-name">{p.record.label}</div>
+        <div class="gt-name" data-testid="game-tooltip-name">{decodeEntities(p.record.label)}</div>
         <Show when={p.ctx?.owned} fallback={
           <Show when={p.record.cost != null}>
             <div class="gt-cost" data-testid="game-tooltip-cost"><Icon icon={{ img: p.tips.data.art["icon_soul"], wash: "#99FFD6" }} tips={p.tips} />{p.record.cost!.toLocaleString("en-US")}</div>
@@ -155,7 +155,7 @@ function ItemTip(p: { record: BuildRecord; art: Art; tips: Tooltips; ctx?: TipCo
         </Show>
       </div>
       <Show when={p.ctx?.stacks && e().tip.stack_label}>
-        <div class="gt-stacks" data-testid="game-tooltip-stacks"><span>{e().tip.stack_label}</span><b>{p.ctx!.stacks}</b></div>
+        <div class="gt-stacks" data-testid="game-tooltip-stacks"><span>{decodeEntities(e().tip.stack_label!)}</span><b>{p.ctx!.stacks}</b></div>
       </Show>
       <For each={e().tip.sections}>
         {(s) => (
@@ -213,7 +213,7 @@ function ComponentList(p: { label: string; ids: number[]; name: (id: number) => 
           {(id) => (
             <span class="gt-component" data-item-id={id}>
               <span class="gt-component-icon"><Show when={p.name(id)?.icon}>{(src) => <img src={src()} alt="" />}</Show></span>
-              <span>{p.name(id)?.label ?? "—"}</span>
+              <span>{p.name(id)?.label != null ? decodeEntities(p.name(id)!.label) : "—"}</span>
             </span>
           )}
         </For>
@@ -230,7 +230,7 @@ function AbilityTip(p: { record: BuildRecord; art: Art; tips: Tooltips; ctx?: Ti
     <div class="gt gt-ability" data-testid="game-tooltip" data-tip-id={p.record.id} data-kind="ability">
       <div class="gt-ability-body" style={bg() ? { "background-image": `url(${JSON.stringify(bg())})` } : {}}>
         <div class="gt-head">
-          <div class="gt-name" data-testid="game-tooltip-name">{p.record.label}</div>
+          <div class="gt-name" data-testid="game-tooltip-name">{decodeEntities(p.record.label)}</div>
           <div class="gt-head-props">
             <For each={e().tip.header ?? []}>
               {(prop) => (
@@ -264,7 +264,7 @@ function AbilityTip(p: { record: BuildRecord; art: Art; tips: Tooltips; ctx?: Ti
           )}
         </For>
         <Show when={p.ctx?.stacks && e().tip.stack_label}>
-          <div class="gt-bonus" data-testid="game-tooltip-stacks"><span>{e().tip.stack_label}</span><b>{p.ctx!.stacks}</b></div>
+          <div class="gt-bonus" data-testid="game-tooltip-stacks"><span>{decodeEntities(e().tip.stack_label!)}</span><b>{p.ctx!.stacks}</b></div>
         </Show>
       </div>
       <Show when={e().tip.upgrades?.length && e().tip.upgrades!.some((u, i) => u.text || upgradeLines(e().tip, e().values, i).length > 0)}>

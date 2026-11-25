@@ -22,6 +22,8 @@ const COLS = 6;
 export function HeroPicker(p: {
   heroes: Hero[];
   slot: Slot | undefined;
+  /** The slot's display name (scene name, board typed name, or open match player name under Names). */
+  name?: string | undefined;
   /** The hero the slot holds in the scene (its own, or the roster's: mapstate/build.ts
    * `sceneHero`). */
   current: HeroId | null;
@@ -58,7 +60,7 @@ export function HeroPicker(p: {
       move(d);
     }
   };
-  const who = () => (p.slot ? p.slot.slot.name || slotPlaceholder(p.slot.slot.team, p.slot.slot.slot) : "");
+  const who = () => (p.slot ? p.name || p.slot.slot.name || slotPlaceholder(p.slot.slot.team, p.slot.slot.slot) : "");
   const initials = (name: string) =>
     name
       .split(/[\s&]+/)

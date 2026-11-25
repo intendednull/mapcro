@@ -31,6 +31,9 @@ export class Server {
       DATA_DIR: this.dataDir,
       // A build of its own (MAPCRO_WEB_DIR) keeps a run off the dist another run is serving.
       WEB_DIR: process.env.MAPCRO_WEB_DIR ?? join(ROOT, "web/dist"),
+      // High enough that a multi-test Player spec doesn't trip the default 6/h cap silently (TD-7);
+      // specs testing rate limits override this via `extraEnv`.
+      REPLAY_PER_CLIENT_PER_HOUR: "100",
       RUST_LOG: "warn",
     };
     if (this.packsDir) env.PACKS_DIR = this.packsDir;

@@ -10,12 +10,10 @@
 import { Show, createMemo, createSignal } from "solid-js";
 import { cx } from "../ui/cx";
 
-/** A hovered thing: a marker by key, or a token by roster slot ("Amber-2"), with an optional
- * part of it (a token's vision eye, `vis`, or its kill toggle, `life`). */
+/** A hovered thing: a marker by key, or a token by roster slot ("Amber-2"). */
 export interface HoverRef {
   kind: "marker" | "token";
   id: string;
-  part?: string | undefined;
 }
 
 /** Where a label goes (view units, the overlay's) and what it says. `gap`: from the thing's
@@ -27,7 +25,7 @@ export interface HoverSpot {
   text: string;
 }
 
-type Resolver = (part: string | undefined) => HoverSpot | undefined;
+type Resolver = () => HoverSpot | undefined;
 
 const resolvers = new Map<string, Resolver>();
 const [version, setVersion] = createSignal(0);
@@ -47,11 +45,12 @@ export function registerHover(kind: HoverRef["kind"], id: string, r: Resolver): 
 
 function resolve(r: HoverRef): HoverSpot | undefined {
   version();
-  return resolvers.get(refKey(r.kind, r.id))?.(r.part);
+  return resolvers.get(refKey(r.kind, r.id))?.();
 }
 
-const same = (a: HoverRef | undefined, b: HoverRef | undefined) => a?.kind === b?.kind && a?.id === b?.id && a?.part === b?.part;
-// A token is drawn over the markers, so its hover wins.
+const same = (a: HoverRef | undefined, b: HoverRef | undefined) => a?.kind === b?.kind && a?.id === b?.id;
+// A token is drawn over the markers, so its hover wins; a moving unit (rift trooper) sits on top
+// of static markers like the rift spawner so its hover beats them while tokens still win.
 const [token, setToken] = createSignal<HoverRef | undefined>(undefined, { equals: same });
 const [marker, setMarker] = createSignal<HoverRef | undefined>(undefined, { equals: same });
 // A unit moving on the map (a rift trooper): its own channel, so the markers' hit test, which
@@ -70,7 +69,7 @@ export const hoveredToken = token;
 export const hoveredHandle = handle;
 /** What this browser hovers now, if anything: the first hovered thing that's on the map, so one
  * that's gone (a dead hero's token) never hides the marker under the pointer. */
-export const localHover = () => [token(), marker(), unit(), handle()].find((r) => r && resolve(r));
+export const localHover = () => [token(), unit(), marker(), handle()].find((r) => r && resolve(r));
 
 /** The presenter's hover a follower mirrors, tagged with who it is. */
 export interface RemoteHover {
@@ -93,9 +92,9 @@ export function resetHover() {
   setRemote(undefined);
 }
 
-/** For presence: `marker:<key>` or `token:<slot>[:part]`. */
+/** For presence: `marker:<key>` or `token:<slot>`. */
 export function hoverWire(r: HoverRef | undefined): string | null {
-  return r ? [r.kind, r.id, ...(r.part ? [r.part] : [])].join(":").slice(0, 96) : null;
+  return r ? `${r.kind}:${r.id}`.slice(0, 96) : null;
 }
 
 export function hoverFromWire(s: string | null | undefined): HoverRef | undefined {
@@ -105,8 +104,8 @@ export function hoverFromWire(s: string | null | undefined): HoverRef | undefine
   const rest = s.slice(i + 1);
   if (kind === "marker" && rest) return { kind, id: rest };
   if (kind !== "token" || !rest) return undefined;
-  const [id = "", part] = rest.split(":");
-  return id ? { kind, id, part: part === "vis" || part === "life" ? part : undefined } : undefined;
+  const id = rest.split(":")[0] ?? "";
+  return id ? { kind, id } : undefined;
 }
 
 /** The label itself, drawn over everything on the map. `k`: the markers' scale for zoom. */
@@ -137,7 +136,6 @@ export function HoverLabels(p: { k: number }) {
               data-testid="hover-label"
               data-kind={x().ref.kind}
               data-key={x().ref.id}
-              data-part={x().ref.part}
               data-by={x().by?.name}
               role="tooltip"
               style={x().by ? { "--by": x().by!.color } : undefined}

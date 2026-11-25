@@ -70,10 +70,28 @@ export function locate(t: FollowTarget, peers: PeerPresence[], me: number | unde
 /**
  * A follow begun by a click: on `peer`, with `seat` if the click knows it ("Follow again" knows
  * the seat it was on). That seat wins over whoever holds `peer` now: after a reconnect the id
- * may be someone else's. `seen`: `peer`'s presence, when it is that person (`locate` re-finds
- * them by seat otherwise).
+ * may be someone else's. When `wasJoin` is from an earlier join than `joins` ("Follow again"
+ * after a restart), `peer` is never matched on the new join — only `seat` is — and if the
+ * presenter isn't back yet `target.joins` stays `wasJoin` so `locate` gives the full `REJOIN_MS`
+ * wait. `seen`: the presenter's current presence, when found (`locate` waits by seat otherwise).
  */
-export function startFollow(peer: number, seat: number | undefined, peers: PeerPresence[], joins: number): { target: FollowTarget; seen: PeerPresence | undefined } {
+export function startFollow(
+  peer: number,
+  seat: number | undefined,
+  peers: PeerPresence[],
+  joins: number,
+  wasJoin = joins,
+  me?: number,
+): { target: FollowTarget; seen: PeerPresence | undefined } {
+  if (wasJoin !== joins) {
+    let best: PeerPresence | undefined;
+    if (seat != null) {
+      for (const p of peers) if (p.peer !== me && followable(p) && p.state?.seat === seat && (!best || p.peer > best.peer)) best = p;
+    }
+    return best
+      ? { target: { peer: best.peer, seat, joins }, seen: best }
+      : { target: { peer, seat, joins: wasJoin }, seen: undefined };
+  }
   const x = peers.find((p) => p.peer === peer && p.state);
   const s = seat ?? x?.state?.seat;
   const has = x?.state?.seat;
