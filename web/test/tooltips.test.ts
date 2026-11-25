@@ -4,7 +4,7 @@
 import { expect, it } from "vitest";
 import { type PackManifest, tooltipIndex } from "../src/map/pack";
 import { soulsLabel, tierReached } from "../src/match/ladder";
-import { type Tip, type TipProp, type TooltipData, blockShown, fmt, parseMarkup, shown, substitute, upgradeLines, upgraded, upgradesTo, withOverlay } from "../src/match/tooltips";
+import { type Tip, type TipProp, type TooltipData, blockShown, decodeEntities, fmt, parseMarkup, shown, substitute, upgradeLines, upgraded, upgradesTo, withOverlay } from "../src/match/tooltips";
 
 it("parses the game's markup into a tree, never HTML", () => {
   const nodes = parseMarkup(`Gain <span class="highlight">Spirit</span> {g:citadel_inline_attribute:'SpiritDamage'}<br><span class="diminish">x <b>y</b></span><img src=x onerror=alert(1)> {g:citadel_binding:'Attack'}<Panel class="AbilityPropertyIcon prop_slow"></Panel>`);
@@ -217,5 +217,35 @@ it("formats property-only upgrade tiers with signs, units, scale kinds, overlays
     { key: "SlowPercent", value: "-24%", label: "Move Speed" },
     { key: "BonusClipSizePercent", value: "+120%", label: "Max Ammo" },
     { key: "FlyingRange", value: "+30%", label: "Item Range" },
+  ]);
+});
+
+it("decodes HTML entities in tooltip text, labels, and strings without turning escaped tags into markup (FM-091)", () => {
+  // Exact Apollo Riposte Tier 3 wording from pack 6864-upgrades.
+  const nodes = parseMarkup('Gain <span class="highlight">75%</span> Bullet, Spirit &amp; Melee Lifesteal against the Riposte target for 13s');
+  expect(nodes).toEqual([
+    { t: "text", s: "Gain " },
+    { t: "span", cls: ["highlight"], kids: [{ t: "text", s: "75%" }] },
+    { t: "text", s: " Bullet, Spirit & Melee Lifesteal against the Riposte target for 13s" },
+  ]);
+
+  // Escaped tags decode to literal text AFTER tag tokenization, never becoming markup nodes.
+  expect(parseMarkup("&lt;b&gt;bold&lt;/b&gt; &quot;hi&quot; &apos;ok&#39; &#x26; &#X26; A&nbsp;B")).toEqual([
+    { t: "text", s: '<b>bold</b> "hi" \'ok\' & & A\u00a0B' },
+  ]);
+
+  // Single-pass only (never double-decodes); unknown or invalid numeric refs stay untouched.
+  expect(decodeEntities("&amp;amp; &amp;lt; &unknown; &#0; &#99999999; &#xD800;")).toBe("&amp; &lt; &unknown; &#0; &#99999999; &#xD800;");
+
+  // `str()` and `upgradeLines()` also decode any entities in strings or property labels.
+  const data: TooltipData = { format: 1, client_version: 6864, strings: { S: "Bullet &amp; Spirit" }, icons: {}, inline: {}, art: {}, records: {} };
+  expect(withOverlay(data, undefined).str("S", "")).toBe("Bullet & Spirit");
+  const entTip: Tip = {
+    sections: [],
+    upgrades: [{ props: ["Lifesteal"] }],
+    upgrade_props: { Lifesteal: { key: "Lifesteal", label: "Bullet &amp; Spirit Lifesteal", prefix: "+", postfix: "%" } },
+  };
+  expect(upgradeLines(entTip, { props: {}, upgrades: [{ Lifesteal: "15" }] }, 0)).toEqual([
+    { key: "Lifesteal", value: "+15%", label: "Bullet & Spirit Lifesteal" },
   ]);
 });

@@ -24,20 +24,25 @@ function freePort(): Promise<number> {
 }
 
 test.beforeAll(async () => {
-  const port = await freePort();
-  base = `http://127.0.0.1:${port}`;
-  server = new Server(undefined, { PUBLIC_ORIGIN: base });
-  await server.start();
-  vite = spawn(join(ROOT, "web/node_modules/.bin/vite"), ["--port", String(port), "--host", "127.0.0.1"], {
-    cwd: join(ROOT, "web"),
-    env: { ...process.env, MAPCRO_PORT: String(server.port) },
-    stdio: "ignore",
-  });
-  for (let i = 0; i < 300; i++) {
-    try {
-      if ((await fetch(`${base}/healthz`)).ok) return;
-    } catch {}
-    await new Promise((r) => setTimeout(r, 100));
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const port = await freePort();
+    base = `http://127.0.0.1:${port}`;
+    server = new Server(undefined, { PUBLIC_ORIGIN: base });
+    await server.start();
+    vite = spawn(join(ROOT, "web/node_modules/.bin/vite"), ["--port", String(port), "--strictPort", "--host", "127.0.0.1"], {
+      cwd: join(ROOT, "web"),
+      env: { ...process.env, MAPCRO_PORT: String(server.port) },
+      stdio: "ignore",
+    });
+    for (let i = 0; i < 300; i++) {
+      if (vite.exitCode !== null) break;
+      try {
+        if ((await fetch(`${base}/healthz`)).ok && vite.exitCode === null) return;
+      } catch {}
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    vite.kill("SIGKILL");
+    server.stop();
   }
   throw new Error("vite never came up");
 });

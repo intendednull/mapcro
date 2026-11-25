@@ -124,22 +124,25 @@ web-test: wasm ts
 # Browser tests: real Chromium (from nix) against the real server serving the built client.
 # `just e2e --headed`, or MAPCRO_SHOT_PACKS=~/.local/share/mapcro/packs just e2e to also
 # screenshot the board with a real asset pack.
+[positional-arguments]
 e2e *args: wasm
     cargo build -q -p mapcro-server
-    cd web && npx vite build --logLevel warn && npx playwright test {{args}}
+    cd web && npx vite build --logLevel warn && npx playwright test "$@"
 
 # The same specs in WebKit (from nix), the stand-in for the Linux app's WebKitGTK webview
 # (desktop/README.md, Linux). Opt-in; specs on a Chromium-only API skip with the reason.
+[positional-arguments]
 e2e-webkit *args: wasm
     cargo build -q -p mapcro-server
-    cd web && npx vite build --logLevel warn && MAPCRO_E2E_WEBKIT=1 npx playwright test --project webkit {{args}}
+    cd web && npx vite build --logLevel warn && MAPCRO_E2E_WEBKIT=1 npx playwright test --project webkit "$@"
 
 # The phone specs in Firefox (from nix), for Firefox for Android (the operator's browser): the
 # phone and tablet layouts at a phone's pixel ratio. Opt-in: the lead runs it before a deploy that
 # touches the phone layout. `just e2e-firefox --workers 2`.
+[positional-arguments]
 e2e-firefox *args: wasm
     cargo build -q -p mapcro-server
-    cd web && npx vite build --logLevel warn && MAPCRO_E2E_FIREFOX=1 npx playwright test --project firefox {{args}}
+    cd web && npx vite build --logLevel warn && MAPCRO_E2E_FIREFOX=1 npx playwright test --project firefox "$@"
 
 # Many-peer soak on the real stack: the real server binary (release), real WebSockets, the
 # TypeScript session over the WASM replica, IndexedDB via fake-indexeddb; drops, reloads, offline

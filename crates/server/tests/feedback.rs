@@ -415,6 +415,7 @@ fn the_match_the_sender_had_open_is_rendered_by_the_server() {
     ] {
         let (status, _, body) = send(bad.clone());
         assert_eq!(status, 400, "{bad}: {body}");
+        assert!(body.contains("the match details aren't valid"), "{bad}: {body}");
     }
     assert!(gh.seen().is_empty());
 

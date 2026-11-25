@@ -50,3 +50,35 @@ test("two people typing in the note: tagged, no lost words while typing, last wr
   await revealControls(b, "scene-note-edit");
   await expect(b.getByTestId("scene-note-edit")).toHaveValue("Hold the west stairs");
 });
+
+test("typing in a scene note when the scene switches saves the draft to the scene it was typed on", async ({ browser }) => {
+  const url = await newBoardUrl(server, "notes on flip");
+  const presenter = await joinNew(browser, url, "Coach");
+  const follower = await joinNew(browser, url, "Juno");
+
+  // Add Scene 2, switch back to Scene 1, and have Juno follow Coach.
+  await presenter.getByTestId("scene-add").click();
+  await presenter.getByTestId("scene-card").nth(0).click();
+  await expect(presenter.getByTestId("scene-card").nth(0)).toHaveAttribute("aria-current", "true");
+  await follower.getByTestId("follow-Coach").click();
+  await expect(follower.getByTestId("follow-chip")).toContainText("Following Coach");
+
+  // Juno starts typing in Scene 1's note without blurring; Coach flips to Scene 2.
+  const noteF = follower.getByTestId("scene-note-edit");
+  await revealControls(follower, "scene-note-edit");
+  await noteF.focus();
+  await noteF.fill("Contest urn at 10:00");
+  await presenter.getByTestId("scene-card").nth(1).click();
+
+  // Juno lands on Scene 2 cleanly (Scene 2's note stays empty, never receiving Scene 1's text).
+  await expect(follower.getByTestId("scene-card").nth(1)).toHaveAttribute("aria-current", "true");
+  await expect(noteF).toHaveValue("");
+  // Juno stayed in the note field, so Coach sees her editing Scene 2's note now.
+  await expect(presenter.getByTestId("note-editing")).toHaveText("Juno · editing");
+
+  // Switching back to Scene 1 shows Juno's draft was saved on Scene 1 (for both peers).
+  await presenter.getByTestId("scene-card").nth(0).click();
+  await revealControls(presenter, "scene-note-edit");
+  await expect(presenter.getByTestId("scene-note-edit")).toHaveValue("Contest urn at 10:00");
+  await expect(noteF).toHaveValue("Contest urn at 10:00");
+});

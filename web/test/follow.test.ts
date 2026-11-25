@@ -68,6 +68,13 @@ describe("re-finding a presenter (spec §8: a seat survives a reconnect)", () =>
     expect(startFollow(3, 77, [seated(3, 77)], 2).seen).toEqual(seated(3, 77));
     expect(startFollow(3, 77, [seated(3, undefined)], 2).seen).toEqual(seated(3, undefined));
     expect(startFollow(4, 77, [q], 2)).toEqual({ target: { peer: 4, seat: 77, joins: 2 }, seen: undefined });
+    // Follow again after a restart (wasJoin 1 !== current join 2): never mistakes a reused peer id
+    // (even without a seat) for the presenter, keeps wasJoin so `locate` waits the full REJOIN_MS,
+    // and locks immediately onto the presenter's new peer id if already back.
+    const postRestart = startFollow(3, 77, [seated(3, undefined)], 2, 1, 9);
+    expect(postRestart).toEqual({ target: { peer: 3, seat: 77, joins: 1 }, seen: undefined });
+    expect(locate(postRestart.target, [seated(3, undefined)], 9, { n: 2, at: 5000 }, 5010)).toEqual({ kind: "wait", until: 5000 + REJOIN_MS });
+    expect(startFollow(3, 77, [q, seated(6, 77)], 2, 1, 9)).toEqual({ target: { peer: 6, seat: 77, joins: 2 }, seen: seated(6, 77) });
   });
   it("a seat is random, a JavaScript integer, and one per page", () => {
     const seats = new Set(Array.from({ length: 1000 }, newSeat));

@@ -357,15 +357,15 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   };
   const nameOfPeer = (x: PeerPresence | undefined) => x?.state?.name || "them";
   /** `was`: their presence when last seen ("Follow again"), shown while they're looked for. */
-  const follow = (peer: number, seat?: number, was?: PeerPresence) => {
+  const follow = (peer: number, seat?: number, was?: PeerPresence, wasJoin?: number) => {
     const joins = state.joined().n;
-    const begun = startFollow(peer, seat, state.peerList(), joins);
+    const begun = startFollow(peer, seat, state.peerList(), joins, wasJoin ?? joins, state.myPeer());
     target = begun.target;
-    setFollowJoin(joins);
+    setFollowJoin(begun.seen ? joins : 0);
     setFollowedNow(begun.seen ?? was);
-    setFollowing(peer);
+    setFollowing(begun.seen ? begun.seen.peer : peer);
     // Not `peer` if that id is someone else now: the effect below says whom, once found.
-    tell(begun.seen ? peer : null);
+    tell(begun.seen ? begun.seen.peer : null);
     setToast(undefined);
     // In a session the follow crosses tabs, by seat (someone without one is followed here only).
     across?.begin(begun.target.seat, begun.seen ?? was);
@@ -374,13 +374,14 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
    * 2026-11-11); none (the Stop button): your own layers and Vision come back. */
   const stopFollowing = (why?: string) => {
     const was = followed();
+    const wasJoin = target?.joins;
     if (following() === undefined) return;
     target = undefined;
     setFollowing(undefined);
     player.forget(why ? "keep" : "restore");
     tell(null);
     across?.end();
-    if (why && was) say(`Stopped following ${nameOfPeer(was)}`, { label: "Follow again", run: () => follow(was.peer, was.state?.seat, was) });
+    if (why && was) say(`Stopped following ${nameOfPeer(was)}`, { label: "Follow again", run: () => follow(was.peer, was.state?.seat, was, wasJoin) });
   };
   // The session follows someone who is in it (the follow crossed to this tab with them, or
   // "Follow again" after a tab was picked): this board follows them here, found in its room by
@@ -920,13 +921,15 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   // else the board roster's. The picker reads and writes the same.
   const ownHeroes = createMemo(() => captured(state.rowsIn<SceneState>("SceneState", scene()?.id)[0]?.r?.more).heroes);
   const heroIn = (s: ReturnType<typeof state.roster>[number]) => (scene() ? sceneState.hero(slotKey(s.slot.team, s.slot.slot)).hero() : s.slot.hero);
+  const slotDisplayName = (s: ReturnType<typeof state.roster>[number]) =>
+    (scene() ? sceneState.hero(slotKey(s.slot.team, s.slot.slot)).name() : null) || s.slot.name.trim() || undefined;
   /** Heroes held by other slots than `slot`, with who holds them: a hero is unique in a match. */
   const takenBy = (slot: RecordId | undefined) =>
     new Map(
       state
         .roster()
         .filter((s) => s.id !== slot && heroIn(s) != null)
-        .map((s) => [heroIn(s)!, `${rosterTeamName(s.slot.team)} ${s.slot.name || `Player ${s.slot.slot + 1}`}`] as const),
+        .map((s) => [heroIn(s)!, `${rosterTeamName(s.slot.team)} ${slotDisplayName(s) || `Player ${s.slot.slot + 1}`}`] as const),
     );
   const pickedSlot = () => state.roster().find((x) => x.id === heroPick());
   const sceneIndex = () => state.scenes().findIndex((s) => s.id === scene()?.id);
@@ -1056,7 +1059,6 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   // or the board record while the scene has no note yet.
   const noteFocus = () => note()?.id ?? state.metaId() ?? null;
   const [noteDraft, setNoteDraft] = createSignal<string>();
-  createEffect(on(() => scene()?.id, () => setNoteDraft(undefined), { defer: true }));
   const noteEditors = createMemo(() => {
     const s = scene()?.id;
     const ids = new Set([note()?.id, state.metaId()].filter(Boolean));
@@ -1065,15 +1067,31 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       return x.state?.scene === s && f != null && ids.has(f);
     });
   });
-  const saveNote = (text: string) => {
-    const s = scene();
-    const n = note();
-    if (!s || text === (n?.text ?? "")) return;
+  const saveNoteTo = (targetScene: RecordId | undefined, text: string) => {
+    if (!targetScene || !state.canEdit() || !state.scenes().some((s) => s.id === targetScene)) return;
+    const row = state.inScene("Note", targetScene)[0];
+    const n = row && "Note" in row[1] ? { id: row[0], text: row[1].Note.text } : undefined;
+    if (text === (n?.text ?? "")) return;
     if (n) state.edit([{ Set: { id: n.id, value: { NoteText: text } } }]);
-    else if (text.trim()) state.edit([{ Create: { id: newRecordId(), record: { Note: { scene: s.id, text } } } }]);
+    else if (text.trim()) state.edit([{ Create: { id: newRecordId(), record: { Note: { scene: targetScene, text } } } }]);
   };
+  const saveNote = (text: string) => saveNoteTo(scene()?.id, text);
   /** Whether this person is in the note's field: set on focus, cleared when they leave it. */
   let inNote = false;
+  // Save an unsaved draft back to the scene it was typed on before switching away (e.g. a
+  // presenter flipping scenes while a follower types, or ←/→ shortcuts).
+  createEffect(
+    on(
+      () => scene()?.id,
+      (next, prev) => {
+        const draft = untrack(noteDraft);
+        if (prev && prev !== next && draft !== undefined) saveNoteTo(prev, draft);
+        setNoteDraft(undefined);
+        if (inNote && next) state.presence({ focus: untrack(noteFocus) });
+      },
+      { defer: true },
+    ),
+  );
   /** Leaving the note's field: what was typed is saved, and presence stops saying "editing". */
   const leaveNote = (text: string) => {
     inNote = false;
@@ -1226,7 +1244,15 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   );
 
   const PhoneBoard = () => (
-    <div class="phone" ref={phoneEl} classList={{ "phone-player": inPlayer(), "phone-editing": phoneEdit() }} data-testid="board" data-board={p.board} data-layout="phone">
+    <div
+      class="phone"
+      ref={phoneEl}
+      classList={{ "phone-player": inPlayer(), "phone-editing": phoneEdit() }}
+      data-testid="board"
+      data-board={p.board}
+      data-layout="phone"
+      style={{ "--me": colorOf(me()?.color ?? 0) }}
+    >
       <header class="p-top">
         <Wordmark />
         {/* In a session, its title: it opens the Games sheet (sessions.md §8). */}
@@ -1467,8 +1493,6 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
             class={phone ? "p-map" : "mapbox"}
             data-testid="map"
             data-view={`${Math.round(view().x)} ${Math.round(view().y)} ${Math.round(view().w)}`}
-            // My presence colour (avatar, cursor): what I select is highlighted in it.
-            style={{ "--me": colorOf(me()?.color ?? 0) }}
           >
             <MapView
               art={p.art}
@@ -1658,7 +1682,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   return (
     <>
     <Show when={!phone()} fallback={<PhoneBoard />}>
-    <div class="app board-app" data-testid="board" data-board={p.board}>
+    <div class="app board-app" data-testid="board" data-board={p.board} style={{ "--me": colorOf(me()?.color ?? 0) }}>
       <header class="top">
         <Wordmark />
         <Show when={!inSession} fallback={inSession!.title()}>
@@ -1910,6 +1934,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       <HeroPicker
         heroes={heroList().filter((h) => h.playable)}
         slot={pickedSlot()}
+        name={pickedSlot() ? slotDisplayName(pickedSlot()!) : undefined}
         current={pickedSlot() ? heroIn(pickedSlot()!) : null}
         clearable={!ownHeroes()}
         takenBy={takenBy(heroPick())}

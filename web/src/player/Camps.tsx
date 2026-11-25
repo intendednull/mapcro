@@ -16,7 +16,7 @@ import type { TokenFrame } from "../board/Tokens";
 import type { MapState } from "../mapstate/state";
 import { shownDoors, shownUrn } from "../mapstate/shown";
 import { buffInfo } from "../match/buffs";
-import { hoverMarker, localHover, registerHover } from "../map/HoverLabel";
+import { hoverMarker, localHover, registerHover, remoteHover } from "../map/HoverLabel";
 import { DOOR_HOVER_PREFIX, DOOR_R } from "./Doors";
 import { urnTip } from "./Urn";
 
@@ -307,7 +307,7 @@ export function MarkerTips(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; 
  */
 export function TeleporterLink(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; k: number }) {
   const pair = createMemo(() => {
-    const h = localHover();
+    const h = localHover() ?? remoteHover()?.ref;
     if (h?.kind !== "marker") return undefined;
     const a = p.art.model.markers.find((m) => m.key === h.id && m.kind === "teleporter");
     const b = a?.link ? p.art.model.markers.find((m) => m.key === a.link) : undefined;

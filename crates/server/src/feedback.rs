@@ -288,8 +288,26 @@ pub struct Submit {
     title: String,
     description: String,
     /// Absent (or null) from an older client, or when the sender left the match out.
+    /// Parsed as a raw JSON value so a malformed shape gets `Invalid::Match` ("the match details
+    /// aren't valid") rather than the generic body error.
     #[serde(default)]
-    r#match: Option<MatchRef>,
+    r#match: Option<serde_json::Value>,
+}
+
+impl Submit {
+    fn parse_match(&self) -> Result<Option<MatchRef>, Invalid> {
+        match &self.r#match {
+            None | Some(serde_json::Value::Null) => Ok(None),
+            Some(v) => serde_json::from_value::<MatchRef>(v.clone()).map(Some).map_err(|_| Invalid::Match),
+        }
+    }
+
+    fn to_issue(&self, build: &str) -> Result<(String, String), Invalid> {
+        // Validate title & description first (matching `issue`), then parse & check `match`.
+        issue(&self.title, &self.description, None, build)?;
+        let m = self.parse_match()?;
+        issue(&self.title, &self.description, m.as_ref(), build)
+    }
 }
 
 /// `POST /api/feedback`: `{title, description, match?: {id, t_s, tier}}` → 201 `{url}` of the
@@ -306,7 +324,7 @@ pub async fn send(
     let Ok(Json(body)) = body else {
         return reject(FeedbackRejection::Invalid, StatusCode::BAD_REQUEST, "expected a title and a description");
     };
-    let (title, text) = match issue(&body.title, &body.description, body.r#match.as_ref(), mapcro_schema::BUILD_ID) {
+    let (title, text) = match body.to_issue(mapcro_schema::BUILD_ID) {
         Ok(x) => x,
         Err(e) => return reject(FeedbackRejection::Invalid, StatusCode::BAD_REQUEST, e.message()),
     };
@@ -471,15 +489,26 @@ mod tests {
     #[test]
     fn an_older_client_without_the_match_still_parses() {
         let s: Submit = serde_json::from_str(r#"{"title":"t","description":"d"}"#).expect("parses");
-        assert!(s.r#match.is_none());
+        assert!(s.parse_match().expect("none").is_none());
         let s: Submit = serde_json::from_str(r#"{"title":"t","description":"d","match":null}"#).expect("parses");
-        assert!(s.r#match.is_none());
+        assert!(s.parse_match().expect("null").is_none());
         let s: Submit = serde_json::from_str(r#"{"title":"t","description":"d","match":{"id":"12","t_s":5,"tier":"summary"}}"#).expect("parses");
-        assert_eq!(s.r#match.expect("match").line(), Ok("Match 12 at 0:05 (API summary)".into()));
-        // A time that isn't a whole, non-negative number, or a missing field, doesn't parse.
-        for bad in [r#"{"id":"12","t_s":-1,"tier":"replay"}"#, r#"{"id":"12","t_s":1.5,"tier":"replay"}"#, r#"{"id":12,"t_s":1,"tier":"replay"}"#, r#"{"id":"12","tier":"replay"}"#] {
+        assert_eq!(s.parse_match().expect("match").expect("some").line(), Ok("Match 12 at 0:05 (API summary)".into()));
+        // A malformed match shape deserialises into Submit and fails with Invalid::Match (never
+        // the generic title/description error), while empty title still takes precedence.
+        for bad in [
+            r#"{"id":"12","t_s":-1,"tier":"replay"}"#,
+            r#"{"id":"12","t_s":1.5,"tier":"replay"}"#,
+            r#"{"id":12,"t_s":1,"tier":"replay"}"#,
+            r#"{"id":"12","tier":"replay"}"#,
+            r#""not-an-object""#,
+        ] {
             let j = format!(r#"{{"title":"t","description":"d","match":{bad}}}"#);
-            assert!(serde_json::from_str::<Submit>(&j).is_err(), "{bad}");
+            let s: Submit = serde_json::from_str(&j).expect("submit parses");
+            assert_eq!(s.to_issue("abc"), Err(Invalid::Match), "{bad}");
+            let empty_title = format!(r#"{{"title":"","description":"d","match":{bad}}}"#);
+            let s: Submit = serde_json::from_str(&empty_title).expect("submit parses");
+            assert_eq!(s.to_issue("abc"), Err(Invalid::TitleEmpty), "{bad}");
         }
     }
 

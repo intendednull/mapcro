@@ -101,10 +101,12 @@ describe("objective tips", () => {
   });
 
   it("a hover crosses the wire as a key alone", () => {
-    for (const r of [{ kind: "marker" as const, id: "camp:neutral:lane0:3" }, { kind: "token" as const, id: "Amber-2" }, { kind: "token" as const, id: "Sapphire-0", part: "vis" }]) {
-      expect(hoverFromWire(hoverWire(r))).toEqual({ part: undefined, ...r });
+    for (const r of [{ kind: "marker" as const, id: "camp:neutral:lane0:3" }, { kind: "token" as const, id: "Amber-2" }]) {
+      expect(hoverFromWire(hoverWire(r))).toEqual(r);
     }
-    expect(hoverFromWire("token:Amber-1:evil")).toEqual({ kind: "token", id: "Amber-1", part: undefined });
+    // Legacy `:part` suffixes from older clients are tolerated and stripped cleanly (TD-13).
+    expect(hoverFromWire("token:Sapphire-0:vis")).toEqual({ kind: "token", id: "Sapphire-0" });
+    expect(hoverFromWire("token:Amber-1:evil")).toEqual({ kind: "token", id: "Amber-1" });
     expect(hoverFromWire("nope:x")).toBeUndefined();
     expect(hoverWire(undefined)).toBeNull();
   });

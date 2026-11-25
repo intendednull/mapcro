@@ -1113,7 +1113,21 @@ fn real_install() {
         return;
     };
 
-    let out = Path::new("/tmp/mapcro-extract2-real");
+    let out_buf = std::env::temp_dir().join(format!(
+        "mapcro-extract-real-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos())
+    ));
+    let out = out_buf.as_path();
+    struct RemoveOnDrop(std::path::PathBuf);
+    impl Drop for RemoveOnDrop {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let _guard = RemoveOnDrop(out_buf.clone());
     let _ = std::fs::remove_dir_all(out);
     let report = extract(Path::new(&game), out).expect("real extraction");
 

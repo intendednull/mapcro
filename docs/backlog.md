@@ -19,7 +19,7 @@ Staged plan (Antigravity/agy usage only):
 
 Found during [QA Pass 006](qa/passes/2026-11-24-pass-006-r3-tooltips-100pct-deep.md) live on production (`c8d5782` + pack `6864-upgrades`, reference replay `129738985`) — **all Goal 1 items passed live on prod** (Phase 5 R3 Group B `1:00`/`10:30`/`11:30`/`12:40`/`31:20`, `.mapcro` v6 export + TD-162 matchless import, Feedback `#62` `.gt-tier-props` tooltips with 0 blank upgrade tiers) and **all 14 remaining `smoke` rows deepened to `deep` (`70/70` = 100% web coverage)**:
 
-- **Raw HTML entity `&amp;` rendered in visible ability upgrade tooltip text on Apollo's `Riposte` Tier 3** (`bug-minor`, `FM-091`). On `129738985` at `20:00` (pack `6864-upgrades`), hovering Apollo's `Riposte` displays Tier 3 (`5`) as `"Gain 75% Bullet, Spirit &amp; Melee Lifesteal against the Riposte target for 13s"` with literal `&amp;` in DOM `textContent`. Decode HTML entities (at least `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&#...;`) during localization extraction in `crates/extract` or tooltip text formatting in `web/src/`, and add a regression test.
+- ~~**Raw HTML entity `&amp;` rendered in visible ability upgrade tooltip text on Apollo's `Riposte` Tier 3** (`bug-minor`, `FM-091`).~~ **Fixed** (`backlog-straightforward`, 2026-11-25): added single-pass `decodeEntities` in `web/src/match/tooltips.ts` (called on `parseMarkup` text nodes after tag tokenization so escaped tags never become HTML, plus `str()`, `upgradeLines()`, and `GameTooltip.tsx` card/row labels) with regression tests in `web/test/tooltips.test.ts` — fixes Apollo's `Riposte` Tier 3 across all deployed packs without re-extraction.
 
 
 ## Exploratory QA Pass 005 findings (2026-11-23)
@@ -106,16 +106,9 @@ Found during [QA Pass 001](qa/passes/2026-11-21-pass-001-player-narrow-tablet.md
   (TD-101). It has no count, and it isn't on the phone's strip any differently. The label
   wants the lead's check against §4b.
 
-## A scene under Show last seen draws only the faded hero (2026-11-14, operator decision)
+## A scene under Show last seen draws only the faded hero (2026-11-14, operator decision): resolved
 
-**Built (map-state phase 4, branch `ms-p4-tokens`, 2026-11-17), not yet merged.** A saved
-scene's tokens read `heroDraw`: a hero out of the viewer's sight is drawn faded where it
-stands, and no last-seen marker is drawn, even with Show last seen location on. `heroDraw`'s
-`{ as: "faded" }` carries no ghost now, and `web/test/shown.test.ts` says so; Player still
-draws the ghost where last seen. No scene holds each team's sight yet (phase 5), so today the
-fade is the legacy one: a hero marked out of sight by hand, faded for every viewer.
-`player-vision.spec.ts` holds it in the page ("in a scene, a hero out of sight is only
-faded…"). Close this item at the merge.
+Resolved (merged with map-state phase 4 & 5): `heroDraw` draws out-of-sight heroes in a scene faded where they stand with no ghost, pinned by `web/test/shown.test.ts` and `web/e2e/player-vision.spec.ts`.
 
 ## Speed on a phone held upright is still the list (2026-11-14, from feedback-56-60; for mobile-defaults)
 
@@ -133,21 +126,13 @@ A phone on its side, a tablet and the desktop have the buttons. Whoever next lay
 transport decides whether upright phones get them too: a column of its own for the speed, a
 third row, or a single button that cycles.
 
-## A scene change under someone typing the scene note drops what they typed (2026-11-14, found in the feedback-56-60 review)
+## A scene change under someone typing the scene note drops what they typed (2026-11-14, found in the feedback-56-60 review): resolved
 
-`Board.tsx` clears the note's draft when the scene changes (`createEffect(on(() => scene()?.id, …))`).
-The field keeps the focus, so no blur saved it first: a follower typing the note when their
-presenter flips the scene loses the text (the same for ← → pressed elsewhere while the draft is
-unsaved). Feedback #57 fixed the case where the field leaves the page (Player opens); this one is
-older. Save the draft to the scene it was typed on before clearing it.
+Resolved (`backlog-straightforward`, 2026-11-25): `Board.tsx` now commits any unsaved `noteDraft` directly to the previous scene (`saveNoteTo(prev, draft)`, guarded against deleted scenes) before clearing the draft and moving presence `focus` on scene change; regression in `web/e2e/note.spec.ts`.
 
-## The scrubber is 36 px wide in a window just over 800 px (2026-11-14, found by feedback-56-60)
+## The scrubber is 36 px wide in a window just over 800 px (2026-11-14, found by feedback-56-60): resolved
 
-In the desktop layout the transport is one row down to 800 px, where the scrubber gets a row of
-its own (`app.css`, `@media (max-width: 800px)`). Just above that, the row has no room left: at
-820 px the scrubber is at its minimum, 36 px of track (measured in a browser, 2026-11-14; the same
-with the old speed list, which was 14 px narrower than the buttons). Raise the breakpoint to
-where the scrubber still has a usable width, or let it wrap when it falls under one.
+Resolved by `player-alt-blend` (`web/src/styles/transport.css`): the desktop transport gives `.pl-scrub` its own full-width `"lane"` grid row at every desktop width (and wraps keys onto their own row under `840 px`).
 
 ## Map-state phase 2 leftovers from its review (2026-11-14, lead)
 
@@ -215,19 +200,9 @@ run, All builds' items wrapped. Seen and not fixed:
 - **The selected tab's underline** (Events, Map layers, ⋯ in the transport's row 2) is an inset
   shadow on a button with rounded corners, so its ends curl up. Cosmetic.
 
-## Map state: one shape, computed by Player, stored by a scene (2026-11-13, operator; building)
+## Map state: one shape, computed by Player, stored by a scene (2026-11-13, operator): resolved
 
-Spec: `docs/specs/map-state.md` (third revision: the independent review in
-`docs/specs/map-state-review.md` folded in; decisions in its §2). One `MapState` shape for
-everything Player shows at a frame: Player computes it, Save as scene stores all of it, the scene
-viewer draws and edits it with Player's components. A field registry makes a new feature a row, a
-producer and a draw, with storage, sync, undo, clone and board files following. Rows are
-append-only and readable one release before they are written. Phases 0 to 7 (its §8); building on
-branch `scene-state`, state in `docs/journal/2026-11-13-map-state-build.md`. It **supersedes the
-narrow fix for feedback #49** (build dropdowns in a scene): that lands as phase 2, the tracer, for
-old scenes too (Retake). When built it also settles the scene-names entry "A scene saved from
-another match shows no names" (2026-11-09), "Resume a scene" (2026-11-08), TD-50, and replaces
-the quick right-click of #53 (phase 6).
+Resolved (shipped through Phase 5 R3 `c94cdac` + Doorman doorways `539bbcd`): `MapState` unifies Player and Scenes across all 42 rows (heroes, builds, sight, CC, movement, lane edges, skulls, camps, powerups, objective health, rifts, urn, rejuvenator, Doorman doorways), with Retake, TD-162 matchless `.mapcro` v7 files, and two-release reader/writer rollouts. Remaining minor follow-ups (phone scene builds, follow-matrix scene column) remain tracked in their own entries above.
 
 ## The hero menu on a phone, and the token menu with the scene-state rework (2026-11-13, from fb-hero-feedback)
 
@@ -255,9 +230,7 @@ from /tmp (the Sprite's root overlay faulted), the dev shell, and Chromium from 
   path (another server, port or board?), not timing or disk. It works on the dev box.
 - **Next if picked up:** log which server and board the page's request reaches. Or use a Fly Machine
   with dedicated CPUs and a normal disk (the operator allowed one; tear it down after).
-- **Server gap found on the way:** `timeline()` falls back to the summary without logging why
-  (no cache, no `REPLAY_DIR`, or a failed read). One debug line per fallback would have saved
-  three sessions.
+- ~~**Server gap found on the way:** `timeline()` falls back to the summary without logging why.~~ Already resolved in `crates/server/src/replays.rs:780` (`tracing::debug!(match_id = %id, reason = why, kind = ?kind, "match timeline: metadata summary")`).
 
 ## Share a verified upload with every board (2026-11-12, operator: backlog)
 
@@ -364,14 +337,12 @@ Decided, to build after fix-batch-4 (#41 #42) and harrow-stacks (#38) land:
   it isn't #40. The lead's gate passed it at 20:14, so it is likely this tree's environment or
   a race with the source closing after an API-summary load. Check it at the gate.
 
-## Follow across restarts: small leftovers (2026-11-11, restart-follow)
+## Follow across restarts: small leftovers (2026-11-11, restart-follow): resolved
 
-- **"Follow again" right after a restart waits only 5 s** (`RECONNECT_MS`) for the seat, not 20 s
-  from the rejoin: the toast records the join it was clicked on. Pass the original join through.
-- **The people list can briefly mark the wrong person as followed** while that wait runs
-  (`followingHere()` still holds a reused peer id). Presence itself sends `null`, so peers are told
-  the truth.
-- The `just e2e` recipe doesn't quote `{{args}}`: `-g "a|b"` becomes a shell pipe.
+Resolved (`backlog-straightforward`, 2026-11-25):
+- `stopFollowing` passes the target's original `wasJoin` through `"Follow again"` into `startFollow(..., wasJoin, myPeer)` so post-restart re-follows never match a reused peer id and keep the full 20 s `REJOIN_MS` wait (`web/test/follow.test.ts`).
+- `Board.tsx` sets `followJoin` only once `begun.seen` (or `locate`) confirms the presenter on this join, so `followingHere()` never marks a wrong peer during the reconnect wait.
+- `justfile` `e2e`, `e2e-webkit`, and `e2e-firefox` use `[positional-arguments]` with `"$@"` so `-g "a|b"` is quoted safely.
 
 ## Feedback wave 3: hotkeys, names, layout (2026-11-11, operator decisions)
 
@@ -402,10 +373,7 @@ After view-state (the registry) lands:
 
 ## Rift troopers: follow-ups (2026-11-11, lead QA of 03fda8c)
 
-- **The "Rift trooper" hover rarely wins on real data.** On 129738985 at the 13:00 capture, the
-  seven troopers spawn on the rift marker (its "Rift opens in" hover wins) and then walk under the
-  capturing heroes (the hero hover wins). Decide the hit-test order: troopers before the rift
-  marker at least. Drawing (1.6x, darker) is right.
+- ~~**The "Rift trooper" hover rarely wins on real data.**~~ **Fixed** (`backlog-straightforward`, 2026-11-25): `HoverLabel.tsx` `localHover` now orders `[token(), unit(), marker(), handle()]` so hovered Rift troopers beat static markers like the rift spawner underneath them while hero tokens still win (`web/test/hover-label.test.ts`).
 - **Timelines parsed before 03fda8c lack the bit**, so their rift troopers draw as ordinary ones
   until the match is re-parsed. No action unless someone asks.
 
@@ -1009,15 +977,9 @@ All of these are on main 38d8a5a, untouched by pack-abilities. `mapcro-extract` 
 `cargo fmt --check` also reports about 1,500 diffs on main, so the gate's fmt step can't pass as
 written either.
 
-## The dev-warnings e2e picks Vite's port the old way (2026-11-09, from web-test-ports)
+## The dev-warnings e2e picks Vite's port the old way (2026-11-09, from web-test-ports): resolved
 
-web/e2e/solid-dev-warnings.spec.ts listens on 0, closes, and starts Vite on that port with
-`--port` (no `--strictPort`), then polls `${base}/healthz`. If the port is taken in between, Vite
-quietly moves to the next free one, so `base` and the server's `PUBLIC_ORIGIN` name a port that is
-not Vite's: the poll times out ("vite never came up") or reaches someone else's server. The
-mapcro-server half of that spec now starts on a port of its own (web/test/support/server.ts);
-Vite's half could pass `--strictPort` (fail rather than move) and retry on a fresh port, or start
-Vite through its JS API and use the address it actually bound.
+Resolved (`backlog-straightforward`, 2026-11-25; TD-7): `web/e2e/solid-dev-warnings.spec.ts` passes `--strictPort`, detects early Vite exit, and retries up to 5 free ports cleanly.
 
 ## Check the API's item ids against a demo (2026-11-09, from match-data-v7)
 
@@ -1070,13 +1032,9 @@ ring on the spot, the very cue the skull withholds. Worth asking the operator wh
 (and the jump ring) should take the skull's rule (`player/skulls.ts` `deathSeen`) in a team's
 view; the events list could stay as it is.
 
-## A malformed feedback `match` gets the generic 400 (2026-11-09, from feedback-match)
+## A malformed feedback `match` gets the generic 400 (2026-11-09, from feedback-match): resolved
 
-`POST /api/feedback` refuses a `match` whose fields are the wrong JSON type (a numeric id, a
-negative or fractional `t_s`, a missing `tier`) at deserialisation, so the answer is the generic
-"expected a title and a description" rather than "the match details aren't valid", which only
-well-typed but invalid values get. Only a client other than ours can send those shapes; parsing
-`match` as a raw value and checking it by hand would give one message for both.
+Resolved (`backlog-straightforward`, 2026-11-25): `Submit.r#match` (`crates/server/src/feedback.rs`) deserialises as `Option<serde_json::Value>` and validates into `MatchRef`, returning `Invalid::Match` (`"the match details aren't valid"`) for any malformed `match` shape while preserving title/description validation precedence.
 
 ## clippy: `unwrap()` in packs.rs (2026-11-09, from feedback-match): resolved
 
@@ -1158,11 +1116,9 @@ is a different match than the one open shows the slot labels (K1…) rather than
 players' names. Showing its own match's names would mean loading that match's timeline (or
 carrying the names on the scene). Rare: a board with several matches, switching between them.
 
-## The hero picker and "taken" labels don't use the match's names (2026-11-09, from scene-names)
+## The hero picker and "taken" labels don't use the match's names (2026-11-09, from scene-names): resolved
 
-HeroPicker's heading (`who`) and Board's `takenBy` ("Hidden King Player 1 has this hero") use the
-slot's typed name only, so on a match board they say "K 1" / "Player 1" where the top bar now
-says the player's name. Passing Board's `matchName` through would fix both.
+Resolved (`backlog-straightforward`, 2026-11-25): `Board.tsx` resolves `slotDisplayName` through `sceneState.hero(...).name()` (respecting the Names toggle and typed names) for both `takenBy` and `<HeroPicker name={...}>`; regression in `web/e2e/player-names.spec.ts`.
 
 ## A blank scene on a match board doesn't take the match's heroes (2026-11-09, from scene-names)
 
@@ -1186,13 +1142,9 @@ Clone carries the board's matches and each uploaded timeline already cached
 opens that match at the fetched or summary tier, and someone has to upload the file again there.
 A fix would record the clone against the job and link the result to it when it lands.
 
-## An e2e spec that uploads over 6 times fails without saying why (2026-11-09, from vision-fade)
+## An e2e spec that uploads over 6 times fails without saying why (2026-11-09, from vision-fade): resolved
 
-Each Player e2e test opens its synthetic match by uploading a `.dem`, and the server allows one
-client 6 uploads an hour (`REPLAY_PER_CLIENT_PER_HOUR`, replays.rs). The 7th test in a spec then
-times out polling the replay inbox, with nothing on the page or in the error saying the limit
-was hit. player-vision.spec.ts now raises the limit for its server; a shared default in
-e2e/server.ts, or the helper reporting the refusal, would spare the next spec the hunt.
+Resolved (`backlog-straightforward`, 2026-11-25; TD-7): `web/e2e/server.ts` defaults `REPLAY_PER_CLIENT_PER_HOUR="100"` (overridable via `extraEnv` for rate-limit tests).
 
 ## Clippy fails on crates/replay/src/parse.rs (2026-11-09, from shop-state): resolved
 
@@ -1218,18 +1170,13 @@ machine is its own networked `CNPC_Neutral_SinnersSacrifice` the whole match
 (docs/research/map-objectives-audit.md), so a partial clear could show on hover ("1 of 3 left").
 That changes the timeline (`timeline::FORMAT`).
 
-## A follower doesn't see the presenter's teleporter pair (2026-11-09, from map-layers)
+## A follower doesn't see the presenter's teleporter pair (2026-11-09, from map-layers): resolved
 
-Hovering a teleporter draws the line to its pair from this browser's own hover only
-(`player/Camps.tsx` `TeleporterLink` reads `localHover()`). The presenter's hover reaches a
-follower (spec §8) and its label shows, but a teleporter has no label, so the follower sees
-nothing. `TeleporterLink` could take the remote hover too, as `HoverLabels` does.
+Resolved (`backlog-straightforward`, 2026-11-25): `TeleporterLink` (`web/src/player/Camps.tsx`) now reads `localHover() ?? remoteHover()?.ref`, matching `HoverLabels` and `DoormanDoors`; regression in `web/e2e/map-furniture.spec.ts`.
 
-## The extractor's real-install test writes a fixed path in /tmp (2026-11-09, from map-layers)
+## The extractor's real-install test writes a fixed path in /tmp (2026-11-09, from map-layers): resolved
 
-`crates/extract/tests/extract.rs` `real_install` removes and rewrites `/tmp/mapcro-extract2-real`.
-Two agents running it at once (the box is shared) clobber each other's pack mid-run. A temp dir
-of its own, or one under `CARGO_TARGET_TMPDIR`, would keep runs apart.
+Resolved (`backlog-straightforward`, 2026-11-25; TD-6): `crates/extract/tests/extract.rs` `real_install` writes to a unique per-process temp dir with `Drop` cleanup.
 
 ## The other dialogs don't hold the focus (2026-11-09, from the feedback form): resolved
 
@@ -1306,14 +1253,9 @@ different assertions each time (a `toBeGreaterThan` on the trail, then a `toHave
 1-min load at 13–17 from other jobs. It passed in the lead's gate. The trail fades by age on the
 clock (#42), so the spec's timing likely depends on load. That branch changed nothing in the laser.
 
-## Hover-label token parts are unused now (2026-11-09)
+## Hover-label token parts are unused now (2026-11-09): resolved
 
-Left by portrait-menu: with the tokens' eye and skull buttons gone (kill and vision moved to the
-top-bar portrait's right-click menu), nothing calls `hoverToken` with a `part` any more.
-`map/HoverLabel.tsx` still carries the `part` field, its doc comment naming `vis` and `life`, and
-`fromPresence` still accepts those two from peers (an older client may still send them for one
-deploy). Once no client in the field sends parts, drop `part` from `HoverRef`, the resolver's
-argument and the `data-part` attribute. Cleanup only; no behaviour change.
+Resolved (`backlog-straightforward`, 2026-11-25; TD-13): dropped `part` from `HoverRef`, the resolver signature, `hoverWire`, and `data-part` (`hoverFromWire` still strips legacy `:part` suffixes cleanly).
 
 ## Camp selection rings oversized on the fallback map (2026-11-09)
 
@@ -1324,12 +1266,9 @@ Noticed by board-ux while checking the selection-in-your-colour shots
 rings overlap. With pack art the icon fills the box. Fix: size the fallback camp glyph to its box,
 or size the ring from the glyph. Not checked against every real-art camp tier.
 
-## Top-bar hover rings don't wear the viewer's colour (2026-11-09)
+## Top-bar hover rings don't wear the viewer's colour (2026-11-09): resolved
 
-`--me` (my presence colour) is set on the map box only (`Board.tsx` mapBox), so the hover ring on a
-top-bar portrait (`.tb-focus:hover`) and the roster chip's outline fall back to `--accent`. Moving
-`--me` to the board's root (the `.app.board-app` and `.phone` divs) would colour them too.
-Cosmetic.
+Resolved (`backlog-straightforward`, 2026-11-25): moved `--me` onto `.app.board-app` and `.phone` roots in `Board.tsx` so top-bar portraits and roster chips inherit the viewer's presence colour too.
 
 ## Rift capture rings under the hero tokens (2026-11-09)
 
@@ -1339,12 +1278,9 @@ the heroes stand on the point, and `player/Rift.tsx`'s rings are drawn over thei
 read better drawn under the tokens, or with radii that clear a token on the point. Screenshots of
 that rift come from `e2e/shots-rejuv-rift.spec.ts` (set `MAPCRO_SHOT_REPLAY` to a format-3 parse).
 
-## A hidden marker's silence has no test of its own (2026-11-09)
+## A hidden marker's silence has no test of its own (2026-11-09): resolved
 
-Since labels became timers-only (2026-11-09), `e2e/hover-hidden.spec.ts` hovers walkers in Sandbox,
-which say nothing whether hidden or not. So `MarkerTips`' `p.hidden(m.key)` check
-(player/Camps.tsx) is no longer pinned. A Player test that hides a timed marker (a cleared camp) and
-expects no label would pin it.
+Resolved (`backlog-straightforward`, 2026-11-25; TD-14): `web/e2e/hover-hidden.spec.ts` saves a replay scene with cleared timed markers (`CAMP` & `BOSS`), marks `CAMP` `Hidden`, and asserts hovering it shows no `hover-label` while `BOSS` keeps `"Respawns in ..."`.
 
 ## Parse replays in the browser (2026-11-08)
 
