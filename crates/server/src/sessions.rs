@@ -79,6 +79,24 @@ fn one_line(s: &str, max: usize) -> String {
     s.trim().to_owned()
 }
 
+/// A board's current title as a tab name (one line, at most `LIMITS.max_name`, §7.2).
+#[allow(clippy::result_large_err)] // the error *is* the HTTP response
+async fn board_title(app: &AppState, board: &str) -> Result<String, Response> {
+    match app.rooms.snapshot(board).await {
+        Ok(doc) => Ok(doc
+            .iter_live()
+            .find_map(|(_, r)| {
+                if let Record::BoardMeta(m) = r {
+                    Some(one_line(&m.title, LIMITS.max_name))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default()),
+        Err(e) => Err(internal(e)),
+    }
+}
+
 /// The board link a body presents for `board`, and the role it holds, if it's a live board link
 /// to that board. Not found, revoked, another board's or a session's all read the same.
 #[allow(clippy::result_large_err)] // the error *is* the HTTP response
@@ -145,6 +163,7 @@ struct GrantInfo {
     grant_id: String,
     board: String,
     role: LinkRole,
+    title: String,
 }
 
 #[derive(Deserialize)]
@@ -218,18 +237,9 @@ pub async fn create(
                 );
             }
             // The tab is named for the board, as its title reads now (§7.2).
-            let name = match app.rooms.snapshot(board).await {
-                Ok(doc) => doc
-                    .iter_live()
-                    .find_map(|(_, r)| {
-                        if let Record::BoardMeta(m) = r {
-                            Some(one_line(&m.title, LIMITS.max_name))
-                        } else {
-                            None
-                        }
-                    })
-                    .unwrap_or_default(),
-                Err(e) => return internal(e),
+            let name = match board_title(&app, board).await {
+                Ok(n) => n,
+                Err(r) => return r,
             };
             let role = grant_role(held, body.role);
             let g = new_grant(
@@ -263,10 +273,11 @@ pub async fn create(
             })
             .unwrap_or_default(),
     );
-    let info = first.as_ref().map(|(b, _, g)| GrantInfo {
+    let info = first.as_ref().map(|(b, name, g)| GrantInfo {
         grant_id: g.grant_id.clone(),
         board: b.clone(),
         role: g.role,
+        title: name.clone(),
     });
     let grant = first.map(|(_, _, g)| g);
     let had_grant = grant.is_some();
@@ -343,7 +354,7 @@ pub async fn add_grant(
             "too many games added; try again later",
         );
     }
-    let title = match app.rooms.snapshot(&session).await {
+    let session_title = match app.rooms.snapshot(&session).await {
         Ok(doc) => doc
             .iter_live()
             .find_map(|(_, r)| {
@@ -356,12 +367,16 @@ pub async fn add_grant(
             .unwrap_or_default(),
         Err(e) => return internal(e),
     };
+    let title = match board_title(&app, &body.board).await {
+        Ok(n) => n,
+        Err(r) => return r,
+    };
     let role = grant_role(held, body.role);
     let g = new_grant(
         &session,
         &body.board,
         role,
-        grant_label(&title),
+        grant_label(&session_title),
         minted_by,
         caller.link_hash,
     );
@@ -369,6 +384,7 @@ pub async fn add_grant(
         grant_id: g.grant_id.clone(),
         board: body.board,
         role,
+        title,
     };
     match app.store.add_grant(g).await {
         Ok(GrantWrite::Written) => (StatusCode::CREATED, Json(info)).into_response(),

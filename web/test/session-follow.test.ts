@@ -14,7 +14,7 @@ import type { LinkRole } from "../src/gen/LinkRole";
 import type { PeerPresence } from "../src/gen/PeerPresence";
 import type { Presence } from "../src/gen/Presence";
 import { SESSION_KEYS, type SessionKey, VIEW_KEYS, type Values, createViewState } from "../src/player/viewstate";
-import { createSessionFollow, elsewhere, farPeer, farPresenters, onTabs, seated, stripHeard, whereTo } from "../src/session/follow";
+import { createSessionFollow, dropAllowed, elsewhere, farPeer, farPresenters, onTabs, seated, stripHeard, whereTo } from "../src/session/follow";
 import type { TabRow } from "../src/session/tabs";
 import { MAX_UNSENT, loadUnsent, saveUnsent, unsentKey, withUnsent } from "../src/session/unsent";
 
@@ -57,6 +57,13 @@ describe("what a follow takes from the strip (§6.3)", () => {
     stripHeard(was, "A", true);
     stripHeard(was, "B", false);
     expect([...was]).toEqual([["A", false]]);
+  });
+  it("dropAllowed drops cached yes entries while keeping refusals (TD-153)", () => {
+    const none = known(["A", false]);
+    expect(dropAllowed(none)).toBe(none);
+    const mixed = known(["A", false], ["B", true], ["C", true]);
+    expect([...dropAllowed(mixed)]).toEqual([["A", false]]);
+    expect([...mixed]).toEqual([["A", false], ["B", true], ["C", true]]);
   });
 });
 
@@ -548,6 +555,62 @@ describe("the session's follow (src/session/follow.ts)", () => {
     h.setPeers([h.coach(C), other(B)]);
     expect(h.f.tab()).toBe(C);
     h.dispose();
+  });
+  it("a tab visited earlier whose grant is later revoked is re-checked via ask and stays on the current tab with No access (TD-153)", () => {
+    const [peers, setPeers] = createSignal<PeerPresence[]>([]);
+    const [tabs] = createSignal<TabRow[]>(TABS);
+    const [openable, setOpenable] = createSignal<ReadonlyMap<string, boolean>>(new Map());
+    const asked: string[] = [];
+    const { f, dispose } = createRoot((dispose) => ({
+      dispose,
+      f: createSessionFollow({
+        first: A,
+        peers,
+        myPeer: () => 9,
+        tabs,
+        access: (t) => openable().get(t.id),
+        ask: (t) => void asked.push(t.id),
+        went: () => setOpenable(dropAllowed),
+        onPicked: () => {},
+      }),
+    }));
+    const coach = (tab: string) => peer(1, "owner", { name: "Coach", seat: 7, tab });
+    // Follower visits B by hand (opened(true) through stripHeard never caches true), returns to A.
+    f.pick(B);
+    setOpenable((m) => stripHeard(m, B, true));
+    f.pick(A);
+    setOpenable((m) => stripHeard(m, A, true));
+    expect(f.tab()).toBe(A);
+    // Follows presenter on A, then presenter switches to B (whose grant is still live).
+    setPeers([coach(A)]);
+    f.board.begin(7, undefined);
+    setPeers([coach(B)]);
+    expect(asked).toEqual([B]);
+    expect(f.tab()).toBe(A);
+    // canOpen answers true: follower moves to B, went() clears the one-shot yes, no re-ask loop.
+    setOpenable((m) => new Map(m).set(B, true));
+    expect(f.tab()).toBe(B);
+    expect(openable().has(B)).toBe(false);
+    expect(asked).toEqual([B]);
+    // Presenter returns to A: asks again for A, canOpen answers true, moves to A and clears yes.
+    setPeers([coach(A)]);
+    expect(asked).toEqual([B, A]);
+    setOpenable((m) => new Map(m).set(A, true));
+    expect(f.tab()).toBe(A);
+    expect(openable().has(A)).toBe(false);
+    // Now B's grant is revoked and presenter switches back to B: asks B, gets false -> stays on A with No access!
+    setPeers([coach(B)]);
+    expect(asked).toEqual([B, A, B]);
+    expect(f.tab()).toBe(A);
+    setOpenable((m) => new Map(m).set(B, false));
+    expect(f.tab()).toBe(A);
+    expect(f.board.noAccess()).toBe(true);
+    // Presenter moves to C: asks C, canOpen answers true -> moves to C and clears No access.
+    setPeers([coach(C)]);
+    setOpenable((m) => new Map(m).set(C, true));
+    expect(f.tab()).toBe(C);
+    expect(f.board.noAccess()).toBe(false);
+    dispose();
   });
 });
 

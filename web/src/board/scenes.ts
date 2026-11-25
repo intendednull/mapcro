@@ -1,6 +1,7 @@
 // Scene edits as single transactions (one gesture, one undo step).
 
 import { keyBetween } from "../core/order";
+import { chunkByBytes, fitsTx } from "../core/txChunk";
 import { LIMITS } from "../gen/limits";
 import type { More } from "../gen/More";
 import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
@@ -9,10 +10,9 @@ import type { Record as Rec } from "../gen/Record";
 import type { RecordId } from "../gen/RecordId";
 import { ROWS, type RowKey } from "../gen/rows";
 import type { Scene } from "../gen/Scene";
-import { WRITTEN, captured } from "../mapstate/build";
+import { WRITTEN, captured } from "../mapstate/keys";
 import { decodeCamps, decodeObjHealth, decodePowerups, decodeRift, decodeUrn, isCampKind } from "../mapstate/codec";
 import type { FrameMarkers } from "../mapstate/frame";
-import { chunkByBytes, fitsTx } from "../match/save";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { canNest } from "./tree";
 import type { BoardState } from "./state";

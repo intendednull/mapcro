@@ -69,6 +69,25 @@ export function addTabOps(id: RecordId, tabs: TabRow[], board: string, grant: st
   return [{ Create: { id, record: { Tab: { board, grant, name: tabName(name), order: lastKey(tabs) } } } }];
 }
 
+/**
+ * Add a granted board as a tab (TD-59, TD-62): picks the local title, else the grant's board
+ * title, else `Game N`. If the tab edit is refused locally, withdraws the grant only when this
+ * request created it (201) — never an existing 200 grant that another tab may hold.
+ */
+export function commitGrantedTab(o: {
+  id: RecordId;
+  tabs: TabRow[];
+  grant: { grant_id: string; board: string; title?: string; created: boolean };
+  localTitle: string | undefined;
+  edit: (ops: Op[]) => boolean;
+  withdraw: (grantId: string) => void;
+}): boolean {
+  const name = o.localTitle || o.grant.title || `Game ${o.tabs.length + 1}`;
+  if (o.edit(addTabOps(o.id, o.tabs, o.grant.board, o.grant.grant_id, name))) return true;
+  if (o.grant.created) o.withdraw(o.grant.grant_id);
+  return false;
+}
+
 /** The ops renaming a tab, or none if the name is empty or the same. */
 export function renameOps(tab: TabRow, name: string): Op[] {
   const n = tabName(name);

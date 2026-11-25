@@ -269,8 +269,9 @@ test("the presenter switches tab, and the follower switches and follows inside t
   // The viewport.
   await zoomIn(a);
   await sameView(b, a);
-  // And back to A, where the presenter flips the scene: the follower's flips with it. A opened
-  // here before, so the follower doesn't ask whether it opens: its board's own request only.
+  // And back to A, where the presenter flips the scene: the follower's flips with it. Even
+  // though A opened here before, a follow checks `canOpen` before moving (TD-153) so a revoked
+  // grant never lands the follower on No access: one check + the board's own init request.
   let asked = 0;
   b.on("request", (r) => {
     if (r.method() === "GET" && new URL(r.url()).pathname === `/api/boards/${m.boards[0]}/matches`) asked += 1;
@@ -279,7 +280,7 @@ test("the presenter switches tab, and the follower switches and follows inside t
   await on(b, m, 0);
   await expect(following(b)).toHaveCount(1);
   await saved(b);
-  expect(asked).toBe(1);
+  expect(asked).toBe(2);
   await scenes(a).nth(0).click();
   await expect.poll(() => sceneOn(a)).toBe(0);
   await expect.poll(() => sceneOn(b)).toBe(0);
@@ -473,24 +474,30 @@ test("on a phone in Player, the follow chip drops the scene name but says No acc
   await expect(following(phone)).toHaveCount(1);
 });
 
-test("a tab that died after the follower had opened it: the follower lands there once, and not again", async ({ browser }) => {
+test("a tab that died after the follower had opened it: the follower stays on its tab with No access, and the follow resumes (TD-153)", async ({ browser }) => {
   const m = await session(browser, 3);
   const { a } = m;
   const b = await member(browser, m, "Student");
-  // The follower has been on C, so it knows C opens.
+  // The follower visits C first, then returns to A and follows Coach.
   await go(b, m, 2);
   await go(b, m, 0);
   await follow(b);
   await revokeGrant(m, 2);
-  // The presenter opens C: the follower goes too, and both are told.
+  // The presenter opens C: the follower checks access before switching, stays on A with No access,
+  // and never lands on C's dead-tab banner.
   await tabs(a).nth(2).click();
   await expect(a.getByTestId("no-access")).toBeVisible();
-  await expect(b.getByTestId("no-access")).toBeVisible();
-  // On to a tab that opens: the follow goes on there.
+  await expect(where(b)).toHaveText("No access");
+  await b.waitForTimeout(500);
+  expect(await mounted(b)).toBe(m.boards[0]);
+  await expect(b.getByTestId("no-access")).toHaveCount(0);
+  await expect(following(b)).toHaveCount(1);
+  // On to a tab that opens: the follow resumes there and the chip clears.
   await go(a, m, 1);
   await on(b, m, 1);
   await expect(following(b)).toHaveCount(1);
-  // C again: the follower knows now, and stays.
+  await expect(where(b)).not.toHaveText("No access");
+  // C again: still stays on B with No access.
   await tabs(a).nth(2).click();
   await expect(a.getByTestId("no-access")).toBeVisible();
   await expect(where(b)).toHaveText("No access");

@@ -14,9 +14,54 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 const RULES: &str = "CCitadelGameRulesProxy";
 const ORIGIN: &str = "CBodyComponent.m_skeletonInstance.m_vecOrigin";
 
+struct ClassInfo {
+    /// Tracked (non-position) field key → dotted field name.
+    names: HashMap<u64, String>,
+    cells: [Option<u64>; 3],
+    vecs: [Option<u64>; 3],
+}
+
+fn is_tracked(name: &str) -> bool {
+    !name.contains("m_vec") && !name.contains("m_cell") && !name.contains("Origin") && !name.contains("m_ang")
+}
+
+fn same_f32_slice(a: &[f32], b: &[f32]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits())
+}
+
+fn same_value(a: &FieldValue, b: &FieldValue) -> bool {
+    match (a, b) {
+        (FieldValue::Bool(x), FieldValue::Bool(y)) => x == y,
+        (FieldValue::I32(x), FieldValue::I32(y)) => x == y,
+        (FieldValue::I64(x), FieldValue::I64(y)) => x == y,
+        (FieldValue::U32(x), FieldValue::U32(y)) => x == y,
+        (FieldValue::U64(x), FieldValue::U64(y)) => x == y,
+        (FieldValue::F32(x), FieldValue::F32(y)) => x.to_bits() == y.to_bits(),
+        (FieldValue::String(x), FieldValue::String(y)) => x == y,
+        (FieldValue::Vector2(x), FieldValue::Vector2(y)) => same_f32_slice(x, y),
+        (FieldValue::Vector3(x), FieldValue::Vector3(y)) => same_f32_slice(x, y),
+        (FieldValue::Vector4(x), FieldValue::Vector4(y)) => same_f32_slice(x, y),
+        (FieldValue::FloatVector(x), FieldValue::FloatVector(y)) => same_f32_slice(x, y),
+        (FieldValue::QAngle(x), FieldValue::QAngle(y)) => same_f32_slice(x, y),
+        // `FieldValue` is `#[non_exhaustive]`: distinct variants aren't equal, and any future
+        // variant falls back to formatted comparison only if both have the same discriminant.
+        _ if std::mem::discriminant(a) != std::mem::discriminant(b) => false,
+        _ => show(a) == show(b),
+    }
+}
+
 fn show(v: &FieldValue) -> String {
     let s = format!("{v:?}");
     if s.len() > 60 { format!("{}…", &s[..60]) } else { s }
+}
+
+fn pos_of<'a>(cache: &'a mut Option<String>, e: &boon::Entity, ci: &ClassInfo) -> &'a str {
+    cache
+        .get_or_insert_with(|| {
+            let p = world_position(e, ci.cells, ci.vecs);
+            format!("({:.0},{:.0})", p[0], p[1])
+        })
+        .as_str()
 }
 
 fn main() {
@@ -28,43 +73,65 @@ fn main() {
     let parser = Parser::from_file(&dem).expect("opens");
     let mut classes: HashSet<&str> = wanted.iter().map(String::as_str).collect();
     classes.insert(RULES);
-    // Per class: packed key → field name (top level, and one level into components).
-    let mut names: HashMap<String, HashMap<u64, String>> = HashMap::new();
-    let mut last: BTreeMap<(i32, u32), (bool, BTreeMap<u64, String>)> = BTreeMap::new();
+    // Per class: resolved origin keys and packed key → tracked field name.
+    let mut info: HashMap<String, ClassInfo> = HashMap::new();
+    let mut rules_keys: Option<(Option<u64>, Option<u64>)> = None;
+    let mut last: BTreeMap<(i32, u32), (bool, BTreeMap<u64, FieldValue>)> = BTreeMap::new();
     let mut header_done = false;
     parser
         .run_to_end_with_events_filtered(&classes, |ctx, _| {
             let sers = ctx.serializers();
             if !header_done {
+                if let Some(rs) = sers.get(RULES) {
+                    rules_keys = Some((
+                        rs.resolve_field_key("m_pGameRules.m_flGameStartTime"),
+                        rs.resolve_field_key("m_pGameRules.m_nTotalPausedTicks"),
+                    ));
+                }
                 for c in &wanted {
                     let Some(s) = sers.get(c) else { continue };
                     println!("# {c} fields");
                     let mut m = HashMap::new();
                     for f in &s.fields {
                         println!("{} : {}", f.var_name, f.var_type);
-                        if let Some(k) = s.resolve_field_key(&f.var_name) {
+                        if is_tracked(&f.var_name)
+                            && let Some(k) = s.resolve_field_key(&f.var_name)
+                        {
                             m.insert(k, f.var_name.to_string());
                         }
                         if let Some(fs) = f.field_serializer.as_ref() {
                             for g in &fs.fields {
                                 let p = format!("{}.{}", f.var_name, g.var_name);
-                                if let Some(k) = s.resolve_field_key(&p) {
+                                if is_tracked(&p)
+                                    && let Some(k) = s.resolve_field_key(&p)
+                                {
                                     m.insert(k, p);
                                 }
                             }
                         }
                     }
-                    names.insert(c.clone(), m);
+                    let ok = |p: &str| s.resolve_field_key(&format!("{ORIGIN}.{p}"));
+                    info.insert(
+                        c.clone(),
+                        ClassInfo {
+                            names: m,
+                            cells: [ok("m_cellX"), ok("m_cellY"), ok("m_cellZ")],
+                            vecs: [ok("m_vecX"), ok("m_vecY"), ok("m_vecZ")],
+                        },
+                    );
                 }
                 header_done = true;
             }
             let Some(rules) = ctx.entities().iter().find(|(_, e)| e.class_name.as_ref() == RULES).map(|(_, e)| e) else { return };
-            let rk = |p: &str| sers.get(RULES).and_then(|s| s.resolve_field_key(p));
-            let start = f64::from(rules.get_f32(rk("m_pGameRules.m_flGameStartTime")));
+            let (start_key, paused_key) = *rules_keys.get_or_insert_with(|| {
+                let rk = |p: &str| sers.get(RULES).and_then(|s| s.resolve_field_key(p));
+                (rk("m_pGameRules.m_flGameStartTime"), rk("m_pGameRules.m_nTotalPausedTicks"))
+            });
+            let start = f64::from(rules.get_f32(start_key));
             if start <= 0.0 {
                 return;
             }
-            let paused = rules.get_i64(rk("m_pGameRules.m_nTotalPausedTicks")) as f64;
+            let paused = rules.get_i64(paused_key) as f64;
             let game = (f64::from(ctx.tick() + server_start) - paused) * f64::from(ctx.tick_interval()) - start;
             let mut now = HashSet::new();
             for (_, e) in ctx.entities().iter() {
@@ -72,36 +139,41 @@ fn main() {
                 if class == RULES {
                     continue;
                 }
-                let Some(m) = names.get(class) else { continue };
+                let Some(ci) = info.get(class) else { continue };
                 let id = (e.index, e.serial);
                 now.insert(id);
-                let vals: BTreeMap<u64, String> = e
-                    .fields
-                    .iter()
-                    .filter(|(k, _)| m.get(*k).is_some_and(|n| !n.contains("m_vec") && !n.contains("m_cell") && !n.contains("Origin") && !n.contains("m_ang")))
-                    .map(|(k, v)| (*k, show(v)))
-                    .collect();
-                let s = sers.get(class).expect("serializer");
-                let ok = |p: &str| s.resolve_field_key(&format!("{ORIGIN}.{p}"));
-                let p = world_position(e, [ok("m_cellX"), ok("m_cellY"), ok("m_cellZ")], [ok("m_vecX"), ok("m_vecY"), ok("m_vecZ")]);
-                let at = format!("({:.0},{:.0})", p[0], p[1]);
-                match last.get(&id) {
+                let mut at_cache: Option<String> = None;
+                match last.get_mut(&id) {
                     None => {
-                        let all: Vec<String> = vals.iter().map(|(k, v)| format!("{}={v}", m[k])).collect();
-                        println!("{game:.1}\t{class}\t{}\t{at}\tNEW active={}\t{}", e.index, e.active, all.join(" "));
+                        let vals: BTreeMap<u64, FieldValue> = e
+                            .fields
+                            .iter()
+                            .filter(|(k, _)| ci.names.contains_key(*k))
+                            .map(|(k, v)| (*k, v.clone()))
+                            .collect();
+                        let all: Vec<String> = vals.iter().map(|(k, v)| format!("{}={}", ci.names[k], show(v))).collect();
+                        println!("{game:.1}\t{class}\t{}\t{}\tNEW active={}\t{}", e.index, pos_of(&mut at_cache, e, ci), e.active, all.join(" "));
+                        last.insert(id, (e.active, vals));
                     }
                     Some((act, old)) => {
                         if *act != e.active {
-                            println!("{game:.1}\t{class}\t{}\t{at}\tactive={}", e.index, e.active);
+                            println!("{game:.1}\t{class}\t{}\t{}\tactive={}", e.index, pos_of(&mut at_cache, e, ci), e.active);
+                            *act = e.active;
                         }
-                        for (k, v) in &vals {
-                            if old.get(k) != Some(v) {
-                                println!("{game:.1}\t{class}\t{}\t{at}\t{}={v}", e.index, m[k]);
+                        let mut seen = 0usize;
+                        for (k, v) in &e.fields {
+                            let Some(name) = ci.names.get(k) else { continue };
+                            seen += 1;
+                            if old.get(k).is_none_or(|prev| !same_value(prev, v)) {
+                                println!("{game:.1}\t{class}\t{}\t{}\t{name}={}", e.index, pos_of(&mut at_cache, e, ci), show(v));
+                                old.insert(*k, v.clone());
                             }
+                        }
+                        if seen != old.len() {
+                            old.retain(|k, _| e.fields.contains_key(k));
                         }
                     }
                 }
-                last.insert(id, (e.active, vals));
             }
             let gone: Vec<(i32, u32)> = last.keys().filter(|id| !now.contains(*id)).copied().collect();
             for id in gone {

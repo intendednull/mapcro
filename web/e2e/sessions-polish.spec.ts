@@ -417,7 +417,7 @@ test("tabs that don't fit scroll, All games lists them all, and only tabs in vie
   const items = b.getByTestId("all-games-list").getByTestId("all-games-tab");
   await expect(items).toHaveCount(14);
   await expect(items.nth(0)).toHaveAttribute("aria-checked", "true");
-  await expect(items.nth(13)).toHaveText("Game 14");
+  await expect(items.nth(13)).toHaveText("Board 14");
   await items.nth(13).click();
   await expect(b.getByTestId("all-games-list")).toHaveCount(0);
   await expect(tab(b, 13)).toHaveAttribute("aria-selected", "true");

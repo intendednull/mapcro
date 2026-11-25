@@ -256,12 +256,15 @@ test("health bars, token arcs and objective fills follow the replay; Health turn
   expect(await box(amber0.getByTestId("tb-respawn"))).toEqual(await box(amber0.locator(".tb-disc")));
   await expect(a.locator('.tb-player[data-slot="Amber-1"] [data-testid=tb-health]')).toHaveAttribute("data-health", "100");
 
-  await scrubTo(a, 45);
+  await scrubTo(a, 65);
   await revealControls(a, "health-toggle");
   await a.getByTestId("health-toggle").click();
   await expect(bar(a)).toHaveCount(0);
   await expect(a.locator("[data-testid=tok-health]")).toHaveCount(0);
   await expect(a.locator(".mk[data-health]")).toHaveCount(0);
+  // Patron stays Stage 2 even with Health off (TD-100), while its HP fill is hidden.
+  await expect(mk(a, "patron:sapphire:lane0:1")).toHaveClass(/\bstage2\b/);
+  await scrubTo(a, 45);
   await expect.poll(() => fill(a, "walker:amber:lane1:1")).toBe(100);
 });
 

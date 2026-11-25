@@ -11,6 +11,7 @@
 // rows Live; tested with synthetic `written = 27` and `written = 40`).
 
 import { keyBetween } from "../core/order";
+import { TX_SLACK, chunkByBytes, fitsTx, opsBytes } from "../core/txChunk";
 import type { Op } from "../gen/Op";
 import type { RecordId } from "../gen/RecordId";
 import type { MoreValue } from "../gen/MoreValue";
@@ -36,7 +37,7 @@ import { type Feature, featuresOf, urnOf } from "../mapstate/state";
 import { deathSeen, skullsAt } from "../player/skulls";
 import type { Player } from "../board/state";
 
-export { slotKey };
+export { chunkByBytes, fitsTx, opsBytes, slotKey };
 
 /** Roster slots whose hero differs from the match's (the "Roster → match heroes" change). */
 export function rosterChanges(roster: Slot[], tl: Timeline): Array<{ id: RecordId; hero: number }> {
@@ -538,12 +539,6 @@ export function matchSceneOps(
   ];
   return { id, ops, order, builds: stored };
 }
-
-/** Bytes kept free in a transaction for what wraps its ops on the wire (the client's id, the
- * cseq and kind) and for each `more` key's own punctuation. */
-const TX_SLACK = 1024;
-/** Ops as the server counts a transaction against `max_tx_bytes`: their JSON, in bytes. */
-export const opsBytes = (ops: Op[]) => new TextEncoder().encode(JSON.stringify(ops)).length;
 
 /**
  * Each roster slot's build (plus any optional Group A hero rows) at `second` of the match, as its
@@ -1069,29 +1064,6 @@ export function retakeOps(
 /** Whether a scene saved from a match of `tier` can be retaken from `tl`: what the scene reads
  * as captured, `tl` holds (the health of a scene saved from the replay). */
 const retakesFrom = (tier: string | null | undefined, tl: Pick<Timeline, "tier">) => !holdsHealth(tier) || holdsHealth(tl.tier);
-
-/** Whether ops fit one transaction's bytes, with room for what wraps them on the wire. */
-export const fitsTx = (ops: Op[]) => opsBytes(ops) <= LIMITS.max_tx_bytes - TX_SLACK;
-
-/** Groups of ops as transactions: each within the op and byte caps, a group never split
- * (a group here is one record's writes, itself within both). */
-export function chunkByBytes(groups: Op[][]): Op[][] {
-  const out: Op[][] = [];
-  let cur: Op[] = [];
-  let bytes = 0;
-  for (const g of groups) {
-    const n = opsBytes(g);
-    if (cur.length && (cur.length + g.length > LIMITS.max_ops_per_tx || bytes + n > LIMITS.max_tx_bytes - TX_SLACK)) {
-      out.push(cur);
-      cur = [];
-      bytes = 0;
-    }
-    cur = cur.concat(g);
-    bytes += n;
-  }
-  if (cur.length) out.push(cur);
-  return out;
-}
 
 export interface SceneOpts {
   /** The scene's name (default "Match moment"). */

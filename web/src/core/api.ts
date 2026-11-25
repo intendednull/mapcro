@@ -79,6 +79,8 @@ export interface Grant {
   grant_id: string;
   board: string;
   role: LinkRole;
+  /** The board's live title (TD-59), one line up to `max_name`. */
+  title?: string;
 }
 
 /** A session API refusal, with the server's status and its words. */
@@ -108,13 +110,15 @@ export function createSession(title: string, from?: { board: string; token: stri
   }).then((r) => answer<CreatedSession>(r));
 }
 
-/** Delegate a board to a session with a link for it (§3.2): the token goes once, in the body. */
-export function addGrant(session: string, token: string, board: string, boardToken: string, role?: "view") {
-  return fetch(`/api/sessions/${session}/grants`, {
+/** Delegate a board to a session with a link for it (§3.2): the token goes once, in the body.
+ * `created` is true on 201 (a new grant) and false on 200 (an existing grant returned as is). */
+export async function addGrant(session: string, token: string, board: string, boardToken: string, role?: "view"): Promise<Grant & { created: boolean }> {
+  const r = await fetch(`/api/sessions/${session}/grants`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
     body: JSON.stringify(role ? { board, board_token: boardToken, role } : { board, board_token: boardToken }),
-  }).then((r) => answer<Grant>(r));
+  });
+  return { ...(await answer<Grant>(r)), created: r.status === 201 };
 }
 
 /** Withdraw a grant (§3.7, "Remove and revoke"): the session's owner or the grant's adder. */

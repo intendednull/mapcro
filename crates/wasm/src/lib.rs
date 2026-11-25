@@ -466,3 +466,247 @@ mod changed_tests {
         assert!(step(&mut r, "disconnect", |r| r.disconnect()).0.is_empty());
     }
 }
+
+#[cfg(test)]
+mod rv_fuzz {
+    use super::*;
+    use mapcro_engine::ClientMsg;
+    use mapcro_engine::wire::Base;
+    use mapcro_schema::{Callout, FieldValue, Record, SceneState, Tx, TxKind, WorldPos, apply_tx, genesis};
+    use serde_json::Value;
+    use std::collections::VecDeque;
+
+    const SCENE: RecordId = RecordId(14);
+    const ME: &str = "00000000000000000000000000000007";
+
+    struct Rng(u64);
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+        fn below(&mut self, n: u64) -> u64 {
+            self.next() % n
+        }
+    }
+
+    fn doc() -> Doc {
+        let mut n = 0u128;
+        genesis(
+            || {
+                n += 1;
+                RecordId(n)
+            },
+            "t",
+        )
+    }
+
+    fn rand_op(r: &mut Rng) -> Op {
+        let id = RecordId(100 + u128::from(r.below(6)));
+        let sid = RecordId(200 + u128::from(r.below(3)));
+        let txt = |r: &mut Rng| format!("v{}", r.below(4));
+        match r.below(12) {
+            0..=2 => Op::Create {
+                id,
+                record: Record::Callout(Callout {
+                    scene: SCENE,
+                    pos: WorldPos { x: 0, y: 0 },
+                    text: txt(r),
+                    color: None,
+                    side: Default::default(),
+                }),
+            },
+            3 | 4 => Op::Set { id, value: FieldValue::CalloutText(txt(r)) },
+            5 => Op::SetIf { id, expect: FieldValue::CalloutText(txt(r)), value: FieldValue::CalloutText(txt(r)) },
+            6 => Op::Delete { id },
+            7 => Op::Restore { id },
+            8 | 9 => Op::Create { id: sid, record: Record::SceneState(SceneState { scene: SCENE, more: Default::default() }) },
+            10 => Op::Delete { id: sid },
+            _ => Op::Restore { id: sid },
+        }
+    }
+
+    fn rand_ops(r: &mut Rng) -> Vec<Op> {
+        (0..1 + r.below(3)).map(|_| rand_op(r)).collect()
+    }
+
+    fn call(r: &mut BoardReplica, what: &str, f: impl FnOnce(&mut BoardReplica) -> Result<String, JsError>) -> Vec<Tx> {
+        let before = r.inner.view().clone();
+        let Ok(out) = f(r) else { panic!("{what}: failed") };
+        let update: Value = serde_json::from_str(&out).expect("update");
+        let want = serde_json::to_value(diff(&before, r.inner.view())).expect("diff");
+        assert_eq!(update["changed"], want, "{what}: changed is not the diff");
+        assert!(r.inner.view_is_rebuilt(), "{what}: view drifted");
+        let frames: Vec<WireIn> = serde_json::from_value(update["frames"].clone()).expect("frames");
+        frames
+            .into_iter()
+            .filter_map(|f| match f {
+                WireIn::Msg { msg: ClientMsg::Submit(tx) } => Some(tx),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn fuzz_changed_and_view() {
+        let (mut edits, mut entries, mut rejects, mut rebases, mut refusedn) = (0u64, 0u64, 0u64, 0u64, 0u64);
+        // 500 seeds (~8 s in debug, 60,000 steps) hits every path thoroughly while keeping `just test` snappy.
+        for seed in 1..=500u64 {
+            let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
+            let base = serde_json::to_string(&Base { doc: doc(), seq: 0 }).expect("base");
+            let mut r = BoardReplica::new(ME, "secret", &base).unwrap_or_else(|_| panic!("new"));
+            let mut server = doc();
+            let mut seq = 0u64;
+            let mut decided = 0u64; // next cseq of ours the server will decide
+            let mut up: VecDeque<Tx> = VecDeque::new(); // client -> server
+            let mut down: VecDeque<String> = VecDeque::new(); // server -> client
+            let mut peer_cseq = 0u64;
+            call(&mut r, "connect", |r| r.connect());
+            for _ in 0..120 {
+                match rng.below(20) {
+                    0..=4 => {
+                        let o = rand_ops(&mut rng);
+                        let silent = rng.below(4) == 0;
+                        let sent = call(&mut r, "edit", |r| {
+                            if silent {
+                                r.edit_silent(&serde_json::to_string(&o).expect("o"))
+                            } else {
+                                r.edit(&serde_json::to_string(&o).expect("o"))
+                            }
+                        });
+                        if sent.is_empty() {
+                            refusedn += 1;
+                        } else {
+                            edits += 1;
+                        }
+                        up.extend(sent);
+                    }
+                    5 | 6 => up.extend(call(&mut r, "undo", |r| r.undo())),
+                    7 => up.extend(call(&mut r, "redo", |r| r.redo())),
+                    8..=10 => {
+                        // a peer's transaction, decided by the server
+                        let tx = Tx { client: ClientId(9), cseq: peer_cseq, kind: TxKind::Edit, ops: rand_ops(&mut rng) };
+                        if apply_tx(&mut server, &tx).is_ok() {
+                            peer_cseq += 1;
+                            seq += 1;
+                            down.push_back(serde_json::to_string(&WireOut::Msg { msg: ServerMsg::Entry { seq, tx } }).expect("f"));
+                        }
+                    }
+                    11..=14 => {
+                        // the server decides our oldest undecided transaction
+                        if let Some(tx) = up.pop_front() {
+                            assert_eq!(tx.cseq, decided);
+                            decided += 1;
+                            match apply_tx(&mut server, &tx) {
+                                Ok(_) => {
+                                    seq += 1;
+                                    down.push_back(serde_json::to_string(&WireOut::Msg { msg: ServerMsg::Entry { seq, tx } }).expect("f"));
+                                }
+                                Err(reason) => down.push_back(serde_json::to_string(&WireOut::Msg { msg: ServerMsg::Rejected { cseq: tx.cseq, reason } }).expect("f")),
+                            }
+                        }
+                    }
+                    15..=18 => {
+                        if let Some(f) = down.pop_front() {
+                            let is_rej = f.contains("Rejected");
+                            call(&mut r, "receive", |r| r.receive(&f));
+                            if is_rej {
+                                rejects += 1;
+                            } else {
+                                entries += 1;
+                            }
+                        }
+                    }
+                    _ => {
+                        // reconnect with a rebase: everything in flight is lost
+                        down.clear();
+                        call(&mut r, "disconnect", |r| r.disconnect());
+                        if rng.below(2) == 0 {
+                            // edits made offline
+                            let o = rand_ops(&mut rng);
+                            call(&mut r, "offline edit", |r| r.edit(&serde_json::to_string(&o).expect("o")));
+                        }
+                        let rebase = serde_json::to_string(&WireOut::Msg {
+                            msg: ServerMsg::Rebase { doc: server.clone(), seq, decided_below: decided },
+                        })
+                        .expect("f");
+                        let resent = call(&mut r, "connect", |r| r.connect());
+                        call(&mut r, "rebase", |r| r.receive(&rebase));
+                        up = resent.into_iter().filter(|t| t.cseq >= decided).collect();
+                        rebases += 1;
+                    }
+                }
+            }
+            // drain
+            while let Some(tx) = up.pop_front() {
+                match apply_tx(&mut server, &tx) {
+                    Ok(_) => {
+                        seq += 1;
+                        down.push_back(serde_json::to_string(&WireOut::Msg { msg: ServerMsg::Entry { seq, tx } }).expect("f"));
+                    }
+                    Err(reason) => down.push_back(serde_json::to_string(&WireOut::Msg { msg: ServerMsg::Rejected { cseq: tx.cseq, reason } }).expect("f")),
+                }
+            }
+            while let Some(f) = down.pop_front() {
+                call(&mut r, "drain", |r| r.receive(&f));
+            }
+            assert_eq!(r.inner.view(), &server, "seed {seed}: quiescent view is not the server's");
+            assert_eq!(r.inner.confirmed(), &server);
+        }
+        assert!(
+            edits > 1000 && rejects > 100 && entries > 1000 && rebases > 100 && refusedn > 100,
+            "edits {edits} refused {refusedn} entries {entries} rejects {rejects} rebases {rebases}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod rv_chunk {
+    use mapcro_schema::*;
+
+    #[test]
+    fn a_scene_created_without_all_twelve_heroes_is_refused() {
+        let mut n = 0u128;
+        let mut doc = genesis(
+            || {
+                n += 1;
+                RecordId(n)
+            },
+            "t",
+        );
+        let slots: Vec<(RecordId, Team, u8)> = doc
+            .iter_live()
+            .filter_map(|(id, r)| match r {
+                Record::RosterSlot(s) => Some((id, s.team, s.slot)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(slots.len(), 12);
+        let scene = RecordId(1000);
+        let mk = |k: usize| {
+            let mut ops = vec![Op::Create {
+                id: scene,
+                record: Record::Scene(Scene {
+                    name: String::new(),
+                    order: OrderKey::between(Some(&OrderKey::first()), None),
+                    clock: None,
+                    source: None,
+                    live: false,
+                    parent: None,
+                }),
+            }];
+            for (i, (slot, team, idx)) in slots.iter().take(k).enumerate() {
+                ops.push(Op::Create {
+                    id: RecordId(2000 + i as u128),
+                    record: Record::PlayerState(PlayerState::starting(scene, *slot, *team, *idx)),
+                });
+            }
+            Tx { client: ClientId(7), cseq: 0, kind: TxKind::Edit, ops }
+        };
+        let r = apply_tx(&mut doc.clone(), &mk(7));
+        assert_eq!(r.err(), Some(Reject::IncompleteScene));
+        assert!(apply_tx(&mut doc, &mk(12)).is_ok());
+    }
+}

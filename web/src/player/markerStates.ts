@@ -37,7 +37,7 @@ export function markerStates(frame: MarkerFrame, keys: () => readonly string[]) 
       if (site) return site;
       const c = m.camp();
       if (c) return c.state === "alive" ? "Active" : "Destroyed";
-      return frame.health() && m.health()?.stage === 2 ? "Stage2" : undefined;
+      return m.health()?.stage === 2 ? "Stage2" : undefined;
     }
     // Player shows only the match at t (spec §6b): what was down, and from a replay
     // the rifts and powerups; never the scene's states. Without a replay, rifts are off.
@@ -45,8 +45,9 @@ export function markerStates(frame: MarkerFrame, keys: () => readonly string[]) 
     if (site) return site;
     if (k.startsWith("rift:") || k.startsWith("urn:")) return "Destroyed";
     if (m.down()) return "Destroyed";
-    // The patron's stage from the replay, under Health: its shield (stage 1) or its core (stage 2).
-    return frame.health() && m.health()?.stage === 2 ? "Stage2" : "Active";
+    // The patron's stage from the replay: its shield (stage 1) or its core (stage 2),
+    // independent of the viewer's Health toggle (TD-100).
+    return m.health()?.stage === 2 ? "Stage2" : "Active";
   };
   /** Each marker's value, for the markers that have one. */
   const valuesOf = <W,>(pick: (m: ReturnType<MapState["marker"]>) => W | undefined) => {

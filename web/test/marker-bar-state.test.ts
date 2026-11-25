@@ -36,14 +36,14 @@ const shownOf = (view: Pick<Shown, "vision" | "lastSeen">, health: boolean): Sho
 /** Whole seconds, tenths, and between them. */
 const TIMES = Array.from({ length: N * 10 + 1 }, (_, k) => k / 10 + (k % 3) * 0.013);
 
-/** What the map showed for a marker from the frame, as `markerStates` did before `MapState`. */
-function statusFrom(pv: MatchPreview, k: string) {
+/** What the map showed for a marker from the frame, with patron Stage 2 independent of Health (TD-100). */
+function statusFrom(pv: MatchPreview, k: string, stage?: number) {
   if (k.startsWith("shop:")) return pv.shops?.has(k) ? "Hidden" : undefined;
   const site = pv.sites.get(k);
   if (site) return site;
   if (k.startsWith("rift:") || k.startsWith("urn:")) return "Destroyed";
   if (pv.down.has(k)) return "Destroyed";
-  return pv.health?.get(k)?.stage === 2 ? "Stage2" : "Active";
+  return (stage ?? pv.health?.get(k)?.stage) === 2 ? "Stage2" : "Active";
 }
 
 /** Runs `check` for every time and view on a tier, with Player's state at that time. */
@@ -67,12 +67,33 @@ describe.each([["the replay tier", replay()], ["the metadata tier", metadata]] a
       const marks = markerStates({ ms: () => state, player: () => true, health: () => shown.health }, () => KEYS);
       for (const k of KEYS) {
         const b = pv.powerups?.get(k);
-        expect([k, marks.status(k), marks.health(k), marks.camp(k), marks.buff(k)]).toEqual([k, statusFrom(pv, k), pv.health?.get(k)?.pct, pv.camps.get(k)?.state, b?.state === "up" ? b.buff : undefined]);
+        expect([k, marks.status(k), marks.health(k), marks.camp(k), marks.buff(k)]).toEqual([k, statusFrom(pv, k, state.marker(k).health()?.stage), pv.health?.get(k)?.pct, pv.camps.get(k)?.state, b?.state === "up" ? b.buff : undefined]);
         seen.add(marks.status(k));
       }
     });
     expect(seen.has("Destroyed") && seen.has("Active")).toBe(true);
   });
+
+  if (tl.tier === "replay") {
+    it("keeps patron Stage2 when Health is off while hiding the HP fill (TD-100)", () => {
+      const patronKey = markers.find((m) => m.kind === "t3" && m.team === "amber")!.key;
+      createRoot((dispose) => {
+        const state = fromTimeline({ tl: () => tl, t: () => 11, markers: () => markers });
+        const [showHealth, setShowHealth] = createSignal(true);
+        const marks = markerStates({ ms: () => state, player: () => true, health: showHealth }, () => KEYS);
+        expect(marks.status(patronKey)).toBe("Stage2");
+        expect(marks.health(patronKey)).toBeDefined();
+        setShowHealth(false);
+        expect(marks.status(patronKey)).toBe("Stage2");
+        expect(marks.health(patronKey)).toBeUndefined();
+        // Scene mode with baseline obj_health (no stored ObjectiveState) behaves the same.
+        const sceneMarks = markerStates({ ms: () => state, player: () => false, health: showHealth }, () => KEYS);
+        expect(sceneMarks.status(patronKey)).toBe("Stage2");
+        expect(sceneMarks.health(patronKey)).toBeUndefined();
+        dispose();
+      });
+    });
+  }
 
   it("the hovers say what they said", () => {
     const said = new Set<string>();

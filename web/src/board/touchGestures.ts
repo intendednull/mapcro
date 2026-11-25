@@ -37,7 +37,10 @@ export function touchGestures(
     f.spent = true;
     cancelling = true;
     try {
-      (f.target ?? svg).dispatchEvent(new PointerEvent("pointercancel", { pointerId: id, pointerType: "touch", bubbles: true, clientX: f.x, clientY: f.y }));
+      // If the pressed node was replaced mid-gesture, fall back to `svg` so the synthetic cancel
+      // still bubbles to window/svg listeners (TD-134).
+      const target = f.target instanceof Node && f.target.isConnected ? f.target : svg;
+      target.dispatchEvent(new PointerEvent("pointercancel", { pointerId: id, pointerType: "touch", bubbles: true, clientX: f.x, clientY: f.y }));
     } finally {
       cancelling = false;
     }

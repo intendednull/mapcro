@@ -443,20 +443,23 @@ describe("Player's frame", () => {
       const read = () => markers.map(({ key }) => [marks.status(key), marks.health(key), marks.camp(key), marks.buff(key)]);
       let runs = 0;
       createComputed(() => (read(), runs++));
-      const pick = (f: MatchPreview) => markers.map(({ key }) => [shownStatus(f, key), f.health?.get(key)?.pct, f.camps.get(key)?.state, buffOf(f, key)]);
+      const pick = (f: MatchPreview, full: MatchPreview = f) =>
+        markers.map(({ key }) => [shownStatus(full, key), f.health?.get(key)?.pct, f.camps.get(key)?.state, buffOf(f, key)]);
       for (let f = 0; f < 120; f++) {
         setT(3 + f / 60);
         expect(read()).toEqual(pick(before(m, t(), ALL, true)));
       }
       // Across one second's boundary, and only at it.
       expect(runs).toBeLessThanOrEqual(2);
-      // Health off: no health, and the patron's stage goes with it, as in the frame.
+      // Health off: no health fill, while the patron's Stage2 stays independent of Health (TD-100).
       setT(11);
       setHealth(false);
-      expect(read()).toEqual(pick(before(m, 11, { ...ALL, health: false }, true)));
+      const patronKey = markers.find((k) => k.kind === "t3" && k.team === "amber")!.key;
+      expect(read()).toEqual(pick(before(m, 11, { ...ALL, health: false }, true), before(m, 11, ALL, true)));
+      expect(marks.status(patronKey)).toBe("Stage2");
       expect(markers.every(({ key }) => marks.health(key) === undefined)).toBe(true);
       setHealth(true);
-      expect(marks.status(markers.find((k) => k.kind === "t3" && k.team === "amber")!.key)).toBe("Stage2");
+      expect(marks.status(patronKey)).toBe("Stage2");
       dispose();
     });
     // No timeline: nothing down, rifts off, as the empty frame.

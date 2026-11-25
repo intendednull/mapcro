@@ -1520,3 +1520,43 @@ async fn a_sessions_room_carries_the_open_tab() {
     let seen = presence_of(&mut fan, "Coach4").await;
     assert_eq!(seen["state"].get("tab"), None, "{seen}");
 }
+
+/// TD-59: `POST /api/sessions/{s}/grants` answers the board's live title (capped at `max_name`)
+/// on both a fresh 201 and an idempotent 200, so pasting an unknown board names its tab.
+#[tokio::test(flavor = "multi_thread")]
+async fn add_grant_returns_the_boards_live_title() {
+    let server = Server::start(&[]);
+    let (s, v) = server.json("POST", "/api/boards", None, serde_json::json!({ "title": "Scrim vs Apex" }));
+    assert_eq!(s, 201, "{v}");
+    let (board, owner) = (v["board"].as_str().expect("board").to_owned(), v["owner_token"].as_str().expect("owner").to_owned());
+    let (_, view) = server.mint(&board, &owner, "view");
+    let session = server.create_session("Titles", None);
+
+    // Fresh 201 grant carries the board's title.
+    let (code, body) = server.add_grant(&session.id, &session.owner, &board, &view, None);
+    assert_eq!(code, 201, "{body}");
+    assert_eq!(body["title"].as_str(), Some("Scrim vs Apex"));
+
+    // Idempotent 200 carries the same title (and reflects live renames, capped at `max_name`).
+    let (code, again) = server.add_grant(&session.id, &session.owner, &board, &view, None);
+    assert_eq!(code, 200, "{again}");
+    assert_eq!(again["grant_id"], body["grant_id"]);
+    assert_eq!(again["title"].as_str(), Some("Scrim vs Apex"));
+
+    // Live title edit on the board: next add_grant returns the updated title, cut to `max_name`.
+    let mut b_raw = Raw::open(server.port, &board, &owner, 0xf2).await;
+    let meta = b_raw
+        .doc()
+        .iter_live()
+        .find_map(|(id, r)| matches!(r, mapcro_schema::Record::BoardMeta(_)).then_some(id))
+        .expect("board meta");
+    let long = "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234";
+    b_raw
+        .submit(vec![mapcro_schema::Op::Set { id: meta, value: mapcro_schema::FieldValue::Title(long.into()) }])
+        .await
+        .expect("rename board");
+    let (code, renamed) = server.add_grant(&session.id, &session.owner, &board, &view, None);
+    assert_eq!(code, 200, "{renamed}");
+    let want: String = long.chars().take(mapcro_schema::LIMITS.max_name).collect();
+    assert_eq!(renamed["title"].as_str(), Some(want.as_str()));
+}

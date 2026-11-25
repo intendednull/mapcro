@@ -114,7 +114,7 @@ test("Remove and revoke withdraws the grant first: refused, the tab stays; done,
   await expect(tabs(page)).toHaveCount(2);
   await expect(page.getByTestId("session-toast")).toHaveText("Removed Game two");
   await expect(page.getByTestId("session-toast-undo")).toHaveCount(0);
-  // Ctrl+Z takes back the step before it (the paste of Game 3), never the dead tab.
+  // Ctrl+Z takes back the step before it (the paste of Game three), never the dead tab.
   await page.keyboard.press("Control+z");
   await expect.poll(() => tabNames(page)).toEqual(["Game one"]);
 });

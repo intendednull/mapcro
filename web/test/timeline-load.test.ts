@@ -529,4 +529,49 @@ describe("a tab as its board opens (sessions.md §4.2)", () => {
     expect(b.h.remember().match).toBeUndefined();
     b.end();
   });
+
+  it("no-match presenter always sends mode in presence so followers mirror Sandbox/Player and scene build open/close consistently (F4)", () => {
+    const presenter = host(BOARD);
+    const follower = host(BOARD);
+    try {
+      // Follower starts in Player (no match) with its own Vision choice; presenter is in Sandbox (no match).
+      follower.h.setMode("player");
+      follower.h.setVision("sapphire");
+      const closed = presenter.h.presence();
+      expect(closed).toEqual({ player: false, match_id: 0, t: 0, playing: false, speed: 1 });
+
+      // Mirroring the closed no-match presenter puts follower into Sandbox immediately without disturbing Vision.
+      follower.h.mirror({ playback: closed! });
+      expect(follower.h.mode()).toBe("sandbox");
+      expect(follower.h.vision()).toBe("sapphire");
+      expect(follower.h.openBuild()).toBeUndefined();
+
+      // Presenter opens a scene build panel -> follower mirrors it in Sandbox.
+      presenter.h.setOpenBuild("amber-2");
+      const opened = presenter.h.presence();
+      expect(opened).toMatchObject({ player: false, match_id: 0, inspect: { team: "Amber", slot: 2 } });
+      follower.h.mirror({ playback: opened! });
+      expect(follower.h.mode()).toBe("sandbox");
+      expect(follower.h.openBuild()).toBe("amber-2");
+
+      // Presenter closes the build panel -> presence still carries player:false; follower closes the panel and stays in Sandbox.
+      presenter.h.setOpenBuild(undefined);
+      const closedAgain = presenter.h.presence();
+      expect(closedAgain).toEqual({ player: false, match_id: 0, t: 0, playing: false, speed: 1 });
+      follower.h.mirror({ playback: closedAgain! });
+      expect(follower.h.mode()).toBe("sandbox");
+      expect(follower.h.openBuild()).toBeUndefined();
+
+      // Presenter switches to Player (no match) and back to Sandbox (no match) -> follower mirrors both transitions.
+      presenter.h.setMode("player");
+      follower.h.mirror({ playback: presenter.h.presence()! });
+      expect(follower.h.mode()).toBe("player");
+      presenter.h.setMode("sandbox");
+      follower.h.mirror({ playback: presenter.h.presence()! });
+      expect(follower.h.mode()).toBe("sandbox");
+    } finally {
+      presenter.end();
+      follower.end();
+    }
+  });
 });
