@@ -27,8 +27,8 @@ import type { Op } from "../gen/Op";
 import type { RecordId } from "../gen/RecordId";
 import { LIMITS } from "../gen/limits";
 import { ROWS } from "../gen/rows";
-import { fitsTx } from "../match/save";
-import { BUILD_KEYS, WRITTEN, captured, moreBytes } from "./build";
+import { fitsTx } from "../core/txChunk";
+import { BUILD_KEYS, WRITTEN, captured, moreBytes } from "./keys";
 
 type Value = MoreValue | null;
 
@@ -41,11 +41,9 @@ export interface Decided {
   changed: boolean;
 }
 
-/** A hero's slot keys: its hero and its build rows. Made on first use: the session imports this
- * module, and `build.ts` reaches the session through its own imports, so `BUILD_KEYS` may not
- * be defined yet when this module loads. */
-let slotKeys: Set<string> | undefined;
-const isSlot = (key: string) => (slotKeys ??= new Set<string>(["hero", ...BUILD_KEYS])).has(key);
+/** A hero's slot keys: its hero and its build rows (TD-159: top-level now that `keys.ts` is a leaf). */
+const SLOT_KEYS = new Set<string>(["hero", ...BUILD_KEYS]);
+const isSlot = (key: string) => SLOT_KEYS.has(key);
 const same = (x: Value, y: Value) => JSON.stringify(x) === JSON.stringify(y);
 const more = (key: string, value: Value): FieldValue => ({ More: { key, value } });
 

@@ -351,6 +351,38 @@ describe("a late job answer and the open tab's own (TD-118)", () => {
     expect(tierChip(d.get("A"))?.text).toBe("Parsing…");
     dispose();
   });
+  it("a failed job request inside load keeps the previous job so polling continues (TD-150)", async () => {
+    const { f, d, dispose } = make();
+    d.seen("A");
+    await f.answer("matches A", [52001]);
+    await f.answer("preview 52001", preview("amber"));
+    await f.answer("job A 52001", job("fetching"));
+    expect(tierChip(d.get("A"))?.text).toBe("Fetching…");
+    expect(wantsAgain(d.get("A"))).toBe(true);
+    // Tab left triggers `load`; matches answers, but `job` fails (`undefined`).
+    d.left("A");
+    await f.answer("matches A", [52001]);
+    await f.answer("job A 52001", undefined);
+    expect(d.get("A")?.job).toEqual(job("fetching"));
+    expect(tierChip(d.get("A"))?.text).toBe("Fetching…");
+    expect(wantsAgain(d.get("A"))).toBe(true);
+    // Next tick still polls the job.
+    d.again(["A"]);
+    expect(f.pending()).toEqual(["job A 52001"]);
+    dispose();
+  });
+  it("a stale pre-open refusal does not replace the open tab's own details or notify opened(false) (TD-151)", async () => {
+    const { f, d, dispose } = make();
+    d.seen("A");
+    d.shown("A", own);
+    expect(f.opened).toEqual([["A", true]]);
+    await f.answer("matches A", "refused");
+    expect(d.get("A")?.kind).toBe("ready");
+    expect(d.get("A")?.own).toBe(true);
+    expect(tierChip(d.get("A"))?.text).toBe("Full replay");
+    expect(f.opened).toEqual([["A", true]]);
+    dispose();
+  });
 });
 
 describe("while the server doesn't answer (TD-118)", () => {

@@ -10,7 +10,7 @@
 // pipeline or capture.
 
 import { type Browser, type CDPSession, type Locator, type Page, expect, test } from "./fixtures";
-import { gesture, joinNew, mapPoint } from "./helpers";
+import { gesture, joinNew, mapPoint, viewLink } from "./helpers";
 import { hasCdp, phoneContext } from "./phone-layout";
 import { Server, newBoardUrl } from "./server";
 
@@ -434,4 +434,100 @@ test("on a touch screen's desktop layout, a tap opens a comment and a long press
   await menu(t).getByTestId("comment-side-below").tap();
   for (const p of [a, t]) await expect(p.locator(".mapbox [data-callout]")).toHaveAttribute("data-side", "Below");
   await expect(co).toHaveAttribute("data-open", "false");
+});
+
+test("Edit off and viewers open no menu on a long press (TD-134)", async ({ browser }) => {
+  const url = await newBoardUrl(server, "touch edit off");
+  const a = await joinNew(browser, url, "Coach");
+  const { arrow } = await placeAll(a);
+
+  // Phone editor starts with Edit off: holding a pin or arrow opens no menu.
+  const ctx = await phoneContext(browser, PHONE);
+  const t = await ctx.newPage();
+  await t.goto(url);
+  await t.locator("#join-name").fill("Thumb");
+  await t.keyboard.press("Enter");
+  await expect(t.getByTestId("join-card")).toBeHidden();
+  await t.getByTestId("map").evaluate((e) => e.scrollIntoView({ block: "nearest" }));
+  const f = await fingers(browser, t);
+  const pin = t.locator(".p-map [data-callout]");
+  const arrowHit = t.locator(`.p-map [data-arrow="${arrow}"] .hit`);
+  await longPress(f, await centre(pin));
+  await expect(menu(t)).toHaveCount(0);
+  await f.lift(1);
+  await longPress(f, await centre(arrowHit));
+  await expect(menu(t)).toHaveCount(0);
+  await f.lift(1);
+
+  // Viewer (view link) on touch: no edit button, and holding a placed thing opens no menu.
+  const vCtx = await phoneContext(browser, PHONE);
+  const v = await vCtx.newPage();
+  await v.goto(await viewLink(server.url, url));
+  await v.locator("#join-name").fill("Guest");
+  await v.keyboard.press("Enter");
+  await expect(v.getByTestId("join-card")).toBeHidden();
+  await v.getByTestId("map").evaluate((e) => e.scrollIntoView({ block: "nearest" }));
+  const vf = await fingers(browser, v);
+  await longPress(vf, await centre(v.locator(".p-map [data-callout]")));
+  await expect(menu(v)).toHaveCount(0);
+  await vf.lift(1);
+
+  // Turning Edit on + Select on the editor enables the long-press menu.
+  await t.getByTestId("phone-edit").tap();
+  await t.getByTestId("tool-select").tap();
+  await longPress(f, await centre(pin));
+  await expect(menu(t)).toBeVisible();
+  await f.lift(1);
+  await expect(menu(t)).toHaveAttribute("aria-label", "Comment");
+});
+
+test("jitter within the 10 px slop during a 500 ms hold still opens the menu (TD-134)", async ({ browser }) => {
+  const url = await newBoardUrl(server, "touch jitter");
+  const a = await joinNew(browser, url, "Coach");
+  await placeAll(a);
+  const t = await touchEditor(browser, url, PHONE);
+  const f = await fingers(browser, t);
+  const pin = t.locator(".p-map [data-callout]");
+  const c = await centre(pin);
+
+  await f.press(1, c);
+  for (const [dx, dy] of [[3, -2], [-3, 4], [2, 3], [-2, -3]] as const) {
+    await sleep(140);
+    await f.move(1, { x: c.x + dx, y: c.y + dy });
+  }
+  await sleep(250);
+  await expect(menu(t)).toBeVisible();
+  await f.lift(1);
+  await expect(menu(t)).toHaveAttribute("aria-label", "Comment");
+});
+
+test("a second finger landing 150-500 ms into a still hold cancels into a pinch and opens no menu (TD-134)", async ({ browser }) => {
+  const url = await newBoardUrl(server, "touch late pinch");
+  const a = await joinNew(browser, url, "Coach");
+  await placeAll(a);
+  const t = await touchEditor(browser, url, PHONE);
+  const f = await fingers(browser, t);
+  const pin = t.locator(".p-map [data-callout]");
+  const view = () => t.getByTestId("map").getAttribute("data-view");
+
+  const p0 = await centre(pin);
+  const v0 = await view();
+  await f.press(1, p0);
+  // Past PINCH_YOUNG_MS (150 ms) but still within PINCH_YOUNG_PX (10 px) and before LONG_PRESS_MS (500 ms).
+  await sleep(260);
+  const q0 = { x: p0.x + 40, y: p0.y + 60 };
+  await f.press(2, q0);
+  await slide(f, 2, q0, { x: q0.x + 60, y: q0.y + 90 }, 300);
+  await sleep(HOLD);
+  await expect(menu(t)).toHaveCount(0);
+  await f.lift(2);
+  await f.lift(1);
+  await expect.poll(view).not.toBe(v0);
+  await sleep(HOLD);
+  await expect(menu(t)).toHaveCount(0);
+
+  // A fresh single-finger hold on the pin still opens the menu.
+  await longPress(f, await centre(pin));
+  await expect(menu(t)).toBeVisible();
+  await f.lift(1);
 });

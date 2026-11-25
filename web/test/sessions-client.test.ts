@@ -25,7 +25,7 @@ import type { RecordId } from "../src/gen/RecordId";
 import type { KnownBoard } from "../src/core/device";
 import { UndoHistory, type UndoSide } from "../src/session/history";
 import { createSessionState } from "../src/session/state";
-import { type TabRow, addTabOps, credentialFor, linkDead, liveTabs, moveOps, neighbourOf, pickTab, removeOps, renameOps, sessionMeta, tabName } from "../src/session/tabs";
+import { type TabRow, addTabOps, commitGrantedTab, credentialFor, linkDead, liveTabs, moveOps, neighbourOf, pickTab, removeOps, renameOps, sessionMeta, tabName } from "../src/session/tabs";
 
 const ROOT = resolve(__dirname, "../..");
 const ORIGIN = "http://localhost:5173";
@@ -97,6 +97,74 @@ describe("the tab list", () => {
     expect(renameOps(t[0]!, "A")).toEqual([]);
     expect(renameOps(t[0]!, "Game 2")).toEqual([{ Set: { id: id(1), value: { TabName: "Game 2" } } }]);
     expect(removeOps(id(1))).toEqual([{ Delete: { id: id(1) } }]);
+  });
+
+  it("commits a granted tab with local title > grant title > Game N, and withdraws only newly created grants on failed edit (TD-59, TD-62)", () => {
+    const t = rows("A", "B");
+    const sent: unknown[] = [];
+    const withdrawn: string[] = [];
+    const tabNameOf = (op: unknown) => (op as { Create: { record: { Tab: { name: string } } } }).Create.record.Tab.name;
+
+    // Unknown local board inherits the server grant's live board title.
+    expect(
+      commitGrantedTab({
+        id: id(10),
+        tabs: t,
+        grant: { grant_id: G1, board: B1, title: "Scrim vs Apex", created: true },
+        localTitle: undefined,
+        edit: (ops) => (sent.push(...ops), true),
+        withdraw: (g) => void withdrawn.push(g),
+      }),
+    ).toBe(true);
+    expect(tabNameOf(sent.pop())).toBe("Scrim vs Apex");
+    expect(withdrawn).toEqual([]);
+
+    // Local title wins over grant title; empty grant title falls back to `Game N`.
+    commitGrantedTab({
+      id: id(11),
+      tabs: t,
+      grant: { grant_id: G1, board: B1, title: "Server title", created: false },
+      localTitle: "Local title",
+      edit: (ops) => (sent.push(...ops), true),
+      withdraw: (g) => void withdrawn.push(g),
+    });
+    expect(tabNameOf(sent.pop())).toBe("Local title");
+
+    commitGrantedTab({
+      id: id(12),
+      tabs: t,
+      grant: { grant_id: G1, board: B1, title: "", created: true },
+      localTitle: undefined,
+      edit: (ops) => (sent.push(...ops), true),
+      withdraw: (g) => void withdrawn.push(g),
+    });
+    expect(tabNameOf(sent.pop())).toBe("Game 3");
+
+    // Failed tab edit on a 201 newly created grant withdraws the orphan grant.
+    expect(
+      commitGrantedTab({
+        id: id(13),
+        tabs: t,
+        grant: { grant_id: "NEW_GRANT", board: B1, title: "Board", created: true },
+        localTitle: undefined,
+        edit: () => false,
+        withdraw: (g) => void withdrawn.push(g),
+      }),
+    ).toBe(false);
+    expect(withdrawn).toEqual(["NEW_GRANT"]);
+
+    // Failed tab edit on an idempotent 200 existing grant NEVER withdraws it (another tab may hold it).
+    expect(
+      commitGrantedTab({
+        id: id(14),
+        tabs: t,
+        grant: { grant_id: "EXISTING_GRANT", board: B1, title: "Board", created: false },
+        localTitle: undefined,
+        edit: () => false,
+        withdraw: (g) => void withdrawn.push(g),
+      }),
+    ).toBe(false);
+    expect(withdrawn).toEqual(["NEW_GRANT"]);
   });
 
   it("opens a tab with this device's own link only when it can edit", () => {

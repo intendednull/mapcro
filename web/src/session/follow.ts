@@ -99,6 +99,20 @@ export function stripHeard(known: ReadonlyMap<string, boolean>, key: string, ok:
   return next;
 }
 
+/**
+ * Drop any one-shot "yes" entries from the openable map while keeping refusals (TD-153): a
+ * follow always asks `canOpen` before moving to another tab so a grant revoked since the last
+ * visit never lands the follower on a dead tab.
+ */
+export function dropAllowed(known: ReadonlyMap<string, boolean>): ReadonlyMap<string, boolean> {
+  let hasYes = false;
+  for (const ok of known.values()) if (ok) { hasYes = true; break; }
+  if (!hasYes) return known;
+  const next = new Map<string, boolean>();
+  for (const [k, ok] of known) if (!ok) next.set(k, false);
+  return next;
+}
+
 /** The session's presenters this page could follow onto another tab: followed, seated, on a
  * tab that isn't `mine`, and not the one already followed. */
 export function farPresenters(peers: PeerPresence[], me: number | undefined, iFollow: number | undefined, mine: RecordId | undefined) {
@@ -146,6 +160,9 @@ export interface SessionFollowOptions {
    * answers into what `access` reads). */
   access: (t: TabRow) => boolean | undefined;
   ask: (t: TabRow) => void;
+  /** Called in the same batch when a follow moves to `tab`, so a one-shot `canOpen` yes is
+   * cleared and never cached stale after leaving that tab (TD-153). */
+  went?: (tab: RecordId) => void;
   /** The follower picked a tab itself, which stopped the follow on `was` (§6.2 "Stop").
    * `seat`: theirs, when they are in the session, so the follow can be taken up again. */
   onPicked: (was: PeerPresence | undefined, seat: number | undefined) => void;
@@ -191,7 +208,12 @@ export function createSessionFollow(o: SessionFollowOptions) {
     // A refusal is asked about again each time the presenter is heard there: what was refused
     // can open later (a removed tab put back by undo), and then this page goes.
     if (to.kind === "ask" || to.kind === "no-access") o.ask(to.tab);
-    if (to.kind === "go") view.mirror({ tab: to.tab });
+    if (to.kind === "go") {
+      batch(() => {
+        view.mirror({ tab: to.tab });
+        o.went?.(to.tab);
+      });
+    }
   });
   const board: SessionFollow = {
     seat,

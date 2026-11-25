@@ -14,6 +14,9 @@ import { ROWS, type RowKey } from "../gen/rows";
 import { type AbilityBuildEntry, type BuildAt, type BuildEntry, buildAt, killsAt } from "../match/builds";
 import { PICKUPS_FORMAT, type StatBuild } from "../match/stats";
 import { type Timeline, type TimelinePlayer, scoreboardValueAt } from "../match/timeline";
+import { BUILD_KEYS, type CapturedSnapshot, type HeroKey, IS_BUILD, type SceneKey, WRITTEN, captured, moreBytes } from "./keys";
+
+export { BUILD_KEYS, type CapturedSnapshot, IS_BUILD, WRITTEN, captured, moreBytes };
 
 /** One row of the timeline's `items` series: `[tenths of a second, item id, kind]`. */
 export type OrderRow = [number, number, number];
@@ -40,17 +43,6 @@ export interface HeroBuild {
 }
 
 type Row = (typeof ROWS)[RowKey];
-type HeroKey = { [K in RowKey]: (typeof ROWS)[K]["entity"] extends "hero" ? K : never }[RowKey];
-type SceneKey = { [K in RowKey]: (typeof ROWS)[K]["entity"] extends "scene" ? K : never }[RowKey];
-
-/** The registry's length as far as this build writes it: the rows before the first one still
- * `ahead` (rows go live in order). A snapshot stores it as its watermark (`rows`, spec §4.5):
- * a row at or above it was not captured, whatever a later build knows. */
-export const WRITTEN: number = (() => {
-  const rows = Object.values(ROWS) as Row[];
-  const ahead = rows.filter((r) => r.status === "ahead").map((r) => r.index);
-  return ahead.length ? Math.min(...ahead) : rows.length;
-})();
 
 const ITEM = 4; // id, cooldown (tenths; -1 none), charges (-1 none), stacks (-1 none)
 const ABILITY = 5; // id, level, then as an item
@@ -138,10 +130,6 @@ export function heroBuildAt(tl: Pick<Timeline, "events" | "players" | "format" |
   };
 }
 
-const jsonLen = (more: More) => new TextEncoder().encode(JSON.stringify(more)).length;
-/** A `more`'s size as the server counts it against `max_more_bytes`: its JSON, in bytes. */
-export const moreBytes = jsonLen;
-
 /** A build as the hero record's `more`: the rows this build writes, within `budget` bytes of
  * JSON (at most one record's cap, `max_more_bytes`; less when a save's twelve must share one
  * transaction). Over it, the build order loses its oldest rows first; what is left may still be
@@ -153,24 +141,13 @@ export function captureBuild(build: HeroBuild, budget: number = LIMITS.max_more_
     const v = HERO[key].put(build);
     if (v !== undefined) more[key] = v;
   }
-  while (jsonLen(more) > Math.min(budget, LIMITS.max_more_bytes)) {
+  while (moreBytes(more) > Math.min(budget, LIMITS.max_more_bytes)) {
     const order = more.build_order as number[] | undefined;
     if (!order?.length) { delete more.build_order; break; }
     more.build_order = order.slice(Math.ceil(order.length / ORDER / 2) * ORDER);
   }
   return more;
 }
-
-/** Which of a hero's rows are its build: what a pick of another hero in a scene that holds its
- * heroes drops with the old hero (edit.ts), and what such a record must still hold to have a
- * build (buildView.ts `holdsBuild`). Every hero row says which it is. */
-const IS_BUILD: { [K in HeroKey]-?: boolean } = {
-  hero: false, name: false,
-  items: true, abilities: true, build_order: true, level: true, health: true, pickups: true, kills: true, deaths: true, assists: true, max_health: true,
-  // Phase 5 Group A: slot-at-the-frame facts, kept on hero pick (plan §6).
-  unseen: false, cc: false, height: false, zipline: false,
-};
-export const BUILD_KEYS = (Object.keys(IS_BUILD) as HeroKey[]).filter((k) => IS_BUILD[k]);
 
 /** What a snapshot's state says of the scene, by what the save stored. */
 export interface SceneCapture {
@@ -251,50 +228,6 @@ export const writesHeroes = (written: number = WRITTEN): boolean => ROWS.has_her
 export function retakeRows(written: number = WRITTEN): number {
   const mine = (Object.values(ROWS) as Row[]).filter((r) => r.index < written && r.index !== ROWS.has_heroes.index).map((r) => r.index);
   return mine.length ? Math.max(...mine) + 1 : 0;
-}
-
-export interface CapturedSnapshot {
-  builds: boolean;
-  heroes: boolean;
-  sight: boolean;
-  cc: boolean;
-  movement: boolean;
-  lanes: boolean;
-  skulls: boolean;
-  camps: boolean;
-  powerups: boolean;
-  obj_health: boolean;
-  rifts: boolean;
-  urn: boolean;
-  rejuv: boolean;
-  doors: boolean;
-  rows: number;
-  patch: number | undefined;
-}
-
-/** What a scene's state says it holds (spec §4.5). No state, or an empty one: nothing.
- * `heroes`: the scene's own heroes win over the board roster's (D2). */
-export function captured(scene: More | undefined): CapturedSnapshot {
-  const rows = int(scene?.rows) ?? 0;
-  const flag = (k: SceneKey, last: RowKey) => scene?.[k] === true && ROWS[last].index < rows;
-  return {
-    builds: scene?.has_builds === true && rows > 0,
-    heroes: flag("has_heroes", "has_heroes"),
-    sight: flag("has_sight", "unseen"),
-    cc: flag("has_cc", "cc"),
-    movement: flag("has_movement", "zipline"),
-    lanes: flag("has_lanes", "edges"),
-    skulls: flag("has_skulls", "skulls"),
-    camps: flag("has_camps", "camps"),
-    powerups: flag("has_powerups", "powerups"),
-    obj_health: flag("has_obj_health", "obj_health"),
-    rifts: flag("has_rifts", "rift"),
-    urn: flag("has_urn", "urn_at"),
-    rejuv: flag("has_rejuv", "rejuv"),
-    doors: flag("has_doors", "doors"),
-    rows,
-    patch: int(scene?.build) ?? undefined,
-  };
 }
 
 /** The hero a slot holds in a scene (spec D2): the scene's own (`hero` on the hero's record)

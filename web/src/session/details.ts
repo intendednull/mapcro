@@ -148,19 +148,21 @@ export function createTabDetails(src: DetailsSource, clock: () => number = Date.
         return;
       }
       heard(key);
+      const before = all().get(key);
+      // The board opened here meanwhile says its own (its own socket handles a real revocation, TD-151).
+      if (before?.own) return;
       src.opened?.(key, m !== "refused");
       if (m === "refused") return void put(key, { kind: "refused" });
       const match = m[0] === undefined ? undefined : String(m[0]);
-      const before = all().get(key);
-      // The board opened here meanwhile says its own.
-      if (before?.own) return;
       const same = before?.kind === "ready" && before.match === match;
       put(key, { kind: "ready", match, ...(same ? { preview: before.preview, duration: before.duration, job: before.job } : {}) });
       if (match === undefined) return;
       const duration = src.held?.(key, match);
       if (duration !== undefined) patch(key, match, { duration });
       preview(key, match);
-      jobSaid(key, match, await src.job(key, match));
+      const j = await src.job(key, match);
+      // A failed job request (`undefined`) leaves a known job intact so `wantsAgain` keeps polling (TD-150).
+      if (j !== undefined) jobSaid(key, match, j);
     } finally {
       asking.delete(key);
       if (redo.delete(key)) void load(key);

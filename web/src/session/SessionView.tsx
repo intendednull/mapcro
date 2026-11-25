@@ -35,10 +35,10 @@ import { InlineEdit } from "../ui/InlineEdit";
 import { Wordmark } from "../ui/Wordmark";
 import { type AddChoice, AddMenu, refusal, takeAddOnOpen } from "./AddGame";
 import { createTabDetails, subLine, tierChip } from "./details";
-import { createSessionFollow, onTabs, stripHeard } from "./follow";
+import { createSessionFollow, dropAllowed, onTabs, stripHeard } from "./follow";
 import { UndoHistory } from "./history";
 import { SESSION_SIDE, createSessionState } from "./state";
-import { type TabRow, addTabOps, credentialFor, linkDead, moveOps, neighbourOf, pickTab, removeOps, renameOps } from "./tabs";
+import { type TabRow, commitGrantedTab, credentialFor, linkDead, moveOps, neighbourOf, pickTab, removeOps, renameOps } from "./tabs";
 import { loadUnsent, saveUnsent, withUnsent } from "./unsent";
 
 const editable = (t: EventTarget | null) => t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || (t instanceof HTMLElement && t.isContentEditable);
@@ -51,9 +51,10 @@ export function SessionView(p: { session: string; token: string; tab: string | u
   // The session is left: its boards' visits are over (a tab switch alone keeps them).
   onCleanup(() => resetVisit());
   const loaded = () => s.settled();
-  // ---- what this page may open (§6.3), as far as it knows: a tab's board answered when it
-  // was opened here, or was asked about for a follow. By board and the credential it opens
-  // through; a refusal is asked about again each time it matters. ----
+  // ---- what this page may open (§6.3), as far as it knows: refusals are kept until cleared
+  // (so the strip dims dead tabs and a follow says No access at once); a yes is never cached
+  // past the follow move it authorised (TD-153), so a follow always checks `canOpen` before
+  // switching to another tab. ----
   const [openable, setOpenable] = createSignal<ReadonlyMap<string, boolean>>(new Map());
   const credential = (t: TabRow) => credentialFor(t, p.session, p.token, knownBoards());
   const openKey = (board: string, grant: string | undefined) => `${board} ${grant ?? ""}`;
@@ -73,9 +74,14 @@ export function SessionView(p: { session: string; token: string; tab: string | u
       // No answer (offline, a server error) is not a refusal: the board says when it opens.
       void canOpen(t.board, c.token, c.via).then((ok) => {
         asking.delete(key);
-        noteOpen(key, ok ?? true);
+        if (ok === false) return noteOpen(key, false);
+        // Only grant a one-shot move if the presenter is still asking for this live tab; `went`
+        // clears it in the same batch as the switch (TD-153).
+        if (untrack(() => follow.presenter()?.state?.tab === t.id && active() !== t.id && s.tabs().some((x) => x.id === t.id))) noteOpen(key, true);
+        else setOpenable((m) => stripHeard(m, key, true));
       });
     },
+    went: () => setOpenable(dropAllowed),
     onPicked: (was, seat) => say(`Stopped following ${was?.state?.name || "them"}`, seat === undefined ? {} : { again: () => follow.again(seat, was) }),
   });
   const active = follow.tab;
@@ -330,7 +336,15 @@ export function SessionView(p: { session: string; token: string; tab: string | u
     try {
       const g = await addGrant(p.session, p.token, c.board, c.token, c.view ? "view" : undefined);
       const id = newRecordId();
-      if (!s.edit(addTabOps(id, s.tabs(), g.board, g.grant_id, c.title ?? `Game ${s.tabs().length + 1}`))) return "Failed";
+      const ok = commitGrantedTab({
+        id,
+        tabs: s.tabs(),
+        grant: g,
+        localTitle: c.title,
+        edit: s.edit,
+        withdraw: (grantId) => void withdrawGrant(p.session, p.token, grantId).catch(() => {}),
+      });
+      if (!ok) return "Failed";
       follow.pick(id);
       return undefined;
     } catch (e) {
@@ -713,8 +727,9 @@ export function SessionView(p: { session: string; token: string; tab: string | u
                 session={{
                   ...inSession(),
                   ...(m.via ? { via: m.via } : {}),
-                  // Whether this mount's own credential opens: said of that credential.
-                  opened: (ok) => noteOpen(openKey(m.board, m.via?.grant), ok),
+                  // Whether this mount's own credential opens: records a refusal or clears a prior
+                  // one without caching a stale yes for future follow moves (TD-153).
+                  opened: (ok) => setOpenable((prev) => stripHeard(prev, openKey(m.board, m.via?.grant), ok)),
                   // Left: the strip asks about it again (its match may have changed here).
                   left: (board, n) => {
                     left(board, n);

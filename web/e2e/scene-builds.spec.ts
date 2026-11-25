@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
 import { joinNew, revealControls } from "./helpers";
 import { ROOT, Server, TIMELINE_FORMAT, newBoardUrl } from "./server";
+import { heroPack } from "./synthetic";
 
 const ID = "129000151";
 const N = 60;
@@ -28,7 +29,7 @@ test.beforeAll(async () => {
   });
   await new Promise<void>((ok) => upstream.listen(0, "127.0.0.1", ok));
   const port = (upstream.address() as { port: number }).port;
-  server = new Server(undefined, { MATCH_API_BASE: `http://127.0.0.1:${port}`, REPLAY_DIR: queue, REPLAY_PER_CLIENT_PER_HOUR: "50" });
+  server = new Server(heroPack(14), { MATCH_API_BASE: `http://127.0.0.1:${port}`, REPLAY_DIR: queue, REPLAY_PER_CLIENT_PER_HOUR: "50" });
   await server.start();
 });
 test.afterAll(() => {
@@ -399,4 +400,30 @@ test("a scene whose builds are over one transaction is duplicated whole (review 
   await b.getByTestId("scene-card").nth(2).click();
   await b.getByTestId("all-builds").click();
   await expect(builds(b)).toHaveCount(12);
+});
+
+test("changing a hero on a scene with a captured build clears its open build column (holdsBuild)", async ({ browser }) => {
+  const p = await joinNew(browser, await newBoardUrl(server, "Hero build clear"), "Coach");
+  await savedScene(p);
+  // Open Amber-3's build column first, so the column is visibly mounted on screen.
+  await portrait(p, "Amber-3").getByTestId("focus-hero").click();
+  await expect(builds(p)).toHaveCount(1);
+  await expect(portrait(p, "Amber-3").locator("[data-testid=hero-build]:not([hidden])")).toHaveCount(1);
+
+  // Change Amber-3's hero while its build column is open: the column disappears immediately.
+  await portrait(p, "Amber-3").click({ button: "right", position: { x: 20, y: 30 } });
+  await p.getByTestId("hero-menu").getByRole("menuitem", { name: "Change hero…" }).click();
+  await expect(p.getByTestId("hero-picker")).toBeVisible();
+  await p.locator('.hero-cell[data-hero="Testhero M"]').click();
+  await expect(p.getByTestId("hero-picker")).toHaveCount(0);
+
+  await expect(builds(p)).toHaveCount(0);
+  await expect(portrait(p, "Amber-3").locator("[data-testid=hero-build]:not([hidden])")).toHaveCount(0);
+  // Clicking the changed hero opens no build; the other eleven still hold theirs.
+  await portrait(p, "Amber-3").getByTestId("focus-hero").click();
+  await expect(builds(p)).toHaveCount(0);
+  await p.getByTestId("all-builds").click();
+  await expect(builds(p)).toHaveCount(11);
+  await expect(portrait(p, "Amber-3").locator("[data-testid=hero-build]:not([hidden])")).toHaveCount(0);
+  await expect(portrait(p, "Sapphire-1").locator("[data-testid=hero-build]:not([hidden])")).toHaveCount(1);
 });

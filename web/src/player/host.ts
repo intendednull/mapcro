@@ -880,16 +880,17 @@ export function createPlayerHost(board: string, token: string, via?: Via, rememb
 
   /**
    * What presence carries (spec §6b): the mode and, with a match, the playback re-sampled now.
-   * For a board without a match: only the builds open on a scene (map-state spec §7: a scene's
-   * snapshot shows them with no match), and nothing while none is.
+   * For a board without a match in Sandbox: still carry `player: false, match_id: 0` and any open
+   * scene build panels (map-state spec §7, F4) so followers mirror mode and build open/close
+   * consistently without disturbing Vision or other match-only keys.
    */
   const presence = (): PlaybackPresence | undefined => {
     const id = matchId();
-    // In Player with no match yet, still say so (match 0): others see you're in Player.
+    // Without a match in Sandbox, send mode + any open scene build panels.
     if (!id && mode() !== "player") {
       const w = viewWire();
       const open: Partial<PlaybackPresence> = { ...(w.inspect ? { inspect: w.inspect } : {}), ...(w.all_builds ? { all_builds: true } : {}), ...(w.build_popover ? { build_popover: w.build_popover } : {}) };
-      return Object.keys(open).length ? { player: false, match_id: 0, t: 0, playing: false, speed: 1, ...open } : undefined;
+      return { player: false, match_id: 0, t: 0, playing: false, speed: 1, ...open };
     }
     const pb = playback();
     const jumpedTo = pin();

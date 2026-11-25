@@ -20,8 +20,8 @@ test.afterAll(() => server.stop());
 
 test("a board becomes a session; boards are added, switched, removed and undone, renamed, reordered", async ({ browser }) => {
   const { page, a, b, c } = await threeTabs(browser);
-  // A pasted board this device doesn't know is named for its place until renamed.
-  expect(await tabNames(page)).toEqual(["Game one", "Game two", "Game 3"]);
+  // A pasted board this device doesn't know inherits its live title from add_grant (TD-59).
+  expect(await tabNames(page)).toEqual(["Game one", "Game two", "Game three"]);
 
   // Switch: the board mounts, and the address names the tab.
   await tabs(page).nth(0).click();
@@ -37,10 +37,10 @@ test("a board becomes a session; boards are added, switched, removed and undone,
   await tabs(page).nth(2).getByTestId("tab-remove").click();
   await expect(tabs(page)).toHaveCount(2);
   await expect.poll(() => activeBoard(page)).toBe(boardOf(b));
-  await expect(page.getByTestId("session-toast")).toContainText("Removed Game 3");
+  await expect(page.getByTestId("session-toast")).toContainText("Removed Game three");
   await page.getByTestId("session-toast-undo").click();
   await expect(tabs(page)).toHaveCount(3);
-  expect(await tabNames(page)).toEqual(["Game one", "Game two", "Game 3"]);
+  expect(await tabNames(page)).toEqual(["Game one", "Game two", "Game three"]);
 
   // Remove again, then the app's Undo button (one history): it re-links it too.
   await tabs(page).nth(2).getByTestId("tab-remove").click();
@@ -131,15 +131,15 @@ test("a second device on the session link sees the same tabs, live; a view link 
   await tabs(page).nth(0).dblclick();
   await page.getByTestId("tab-name-input").fill("Renamed");
   await page.getByTestId("tab-name-input").press("Enter");
-  await expect.poll(() => tabNames(other)).toEqual(["Renamed", "Game two", "Game 3"]);
+  await expect.poll(() => tabNames(other)).toEqual(["Renamed", "Game two", "Game three"]);
   // A peer removes the tab the other is on: it moves to the left neighbour.
   await tabs(other).nth(1).click();
   await expect.poll(() => activeBoard(other)).toBe(boardOf(b));
   await tabs(page).nth(1).getByTestId("tab-remove").click();
-  await expect.poll(() => tabNames(other)).toEqual(["Renamed", "Game 3"]);
+  await expect.poll(() => tabNames(other)).toEqual(["Renamed", "Game three"]);
   await expect.poll(() => activeBoard(other)).toBe(boardOf(a));
   await page.getByTestId("session-toast-undo").click();
-  await expect.poll(() => tabNames(other)).toEqual(["Renamed", "Game two", "Game 3"]);
+  await expect.poll(() => tabNames(other)).toEqual(["Renamed", "Game two", "Game three"]);
   await other.goto(server.url);
   await expect(other.locator('[data-testid="known-board"]')).toHaveCount(1);
   await expect(other.locator('[data-testid="known-board"]')).toHaveAttribute("data-kind", "session");
@@ -153,7 +153,7 @@ test("a second device on the session link sees the same tabs, live; a view link 
   const { token } = (await r.json()) as { token: string };
   const viewer = await joinNew(browser, `${server.url}/s/${session}#${token}`, "Viewer");
   await expect(viewer.getByTestId("game-strip")).toHaveAttribute("data-can-edit", "false");
-  expect(await tabNames(viewer)).toEqual(["Renamed", "Game two", "Game 3"]);
+  expect(await tabNames(viewer)).toEqual(["Renamed", "Game two", "Game three"]);
   await expect(viewer.getByTestId("tab-remove")).toHaveCount(0);
   await expect(viewer.getByTestId("add-game")).toHaveCount(0);
   await expect(viewer.getByTestId("session-share")).toHaveCount(0);
@@ -166,7 +166,7 @@ test("a second device on the session link sees the same tabs, live; a view link 
   await tabs(viewer).nth(1).click();
   await expect.poll(() => activeBoard(viewer)).toBe(boardOf(b));
   await expect(viewer.getByTestId("save-status")).toHaveAttribute("data-can-edit", "false");
-  expect(await tabNames(page)).toEqual(["Renamed", "Game two", "Game 3"]);
+  expect(await tabNames(page)).toEqual(["Renamed", "Game two", "Game three"]);
 });
 
 test("the same board twice, once with Can view: each tab opens it at its own grant", async ({ browser }) => {
