@@ -3,6 +3,31 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Deployed 251f9d1: Straightforward Backlog & Tech-Debt Batches 1 + 2 (18 items, schema/wire/format-neutral) — COMPLETE (2026-11-25, lead 2a42cd74)
+
+- **Prod `web` runs `251f9d1`** (`infra` `7955018`, JS `/assets/index-CzNrFP83.js`, CSS `/assets/index-VJmreSPo.css`, `/healthz ok rooms=0`, store **`v19`** floor **`18`** unchanged, newest pack **`6864-upgrades`**).
+  - **Batch 1 (`38b0099`, merged `e73541a`, Neon worker `b6177d93`, Claude Opus 5.5 review `APPROVE` 0 Blockers / 0 Majors):**
+    - `FM-091`: single-pass post-tokenization `decodeEntities` across ability/item tooltips (fixes Apollo `Riposte` Tier 3 `&amp;` across all deployed packs without re-extraction).
+    - Scene note draft saved to previous scene on scene switch (`Board.tsx`, `note.spec.ts`).
+    - Follower sees presenter's hovered teleporter pair (`Camps.tsx`, `map-furniture.spec.ts`).
+    - Rift trooper hover priority ahead of rift marker + `TD-13` drop unused `HoverRef.part` (`HoverLabel.tsx`, wire compat preserved).
+    - `HeroPicker` & `takenBy` use match player names (`Board.tsx`, `HeroPicker.tsx`).
+    - Top-bar hover rings wear viewer's `--me` colour (`Board.tsx` `.app.board-app` & `.phone` roots).
+    - Follow-across-restarts leftovers (`"Follow again"` `wasJoin` / `myPeer`, `followingHere()` `begun.seen` guard) + `justfile` `[positional-arguments]` e2e quoting.
+    - `POST /api/feedback` malformed `match` returns `Invalid::Match` (`"the match details aren't valid"`).
+    - `TD-6` unique extractor temp dir with `Drop`, `TD-7` Vite `--strictPort` retry + default upload limit, `TD-14` hidden cleared timed camp silence e2e, `TD-4` prod memory peak verification (`39.2 MB` RSS / `26.2 MB` anon vs `268.4 MB` cap, `0` OOM kills — historical peak was reclaimable page cache), stale `backlog.md` cleanup.
+  - **Batch 2 (`09b9c79`, merged `49fd4fd` + docs `251f9d1`, Neon worker `16b2367c`, Claude Opus 5.5 review `APPROVE` 0 Blockers / 0 Majors, 0 file overlap with Batch 1):**
+    - Adopted `rv_fuzz` (500 seeds = 60,000 steps) + `rv_chunk` wasm `changed`-diff fuzz tests (`crates/wasm/src/lib.rs`).
+    - `TD-15`: raw `FieldValue` diffing & hoisted keys in `crates/replay/examples/heal_probe.rs`.
+    - `TD-59` + `TD-62`: `POST /api/sessions/{s}/grants` returns live board `title` for pasted boards (`sessions.md` updated); failed tab edit withdraws newly created `201` grants only (never `200`).
+    - `TD-150` + `TD-151` + `TD-153`: strip preserves active job on failed job fetch, ignores stale pre-open refusals for active board, and follow re-checks `canOpen` via one-shot `went`/`dropAllowed` so followers never jump back onto a revoked tab.
+    - `TD-86` + `TD-159`: extracted leaf `web/src/core/txChunk.ts` and `web/src/mapstate/keys.ts`, breaking the `core/session.ts` ↔ `mapstate/undo.ts` circular import.
+    - `TD-134`: detached touch cancel fallback to `svg` + 3 missing `touch-menu.spec.ts` rows.
+    - Map-state `F4` (no-match presenter follow consistency), `holdsBuild` hero-change browser e2e (`scene-builds.spec.ts`), and `TD-100` (Patron Stage 2 independent of viewer `Health` toggle).
+  - **Gates & deploy:** Batch 1 (`just clippy` 0 warnings, `just test` 581 workspace + failpoints + 2× 1000-seed sim + `reader-check` vs `539bbcd`, `just web-test` 89/89 / 1,054 passed, Chromium E2E 152/152) and Batch 2 (`just clippy` 0 warnings, `just test`, `just web-test` 90/90 / 1,063 passed, Chromium E2E 61/61). Strictly `mapcro`-only closure diff (`mapcro-server: +34.8 KiB` + updated `mapcro-web` & `mapcro-replay`).
+  - **Live prod verification (`https://mapcro.dmgdeadlock.com`):** `/healthz ok rooms=0`, `POST /api/sessions/{s}/grants` returned `201` with live board `title`, malformed `POST /api/feedback` `match` returned `400 {"error":"the match details aren't valid"}`, and `129738985` at `20:00` Apollo `Riposte` Tier 3 rendered `"Bullet, Spirit & Melee Lifesteal"` (`HAS_RAW_AMP: false`, `HAS_DECODED: true`), `0` console/page errors.
+- **Next (in flight):** **Batch 3 (`backlog-straightforward-3`, Neon worker `d5afd13d`)** covering `TD-12` (dead TS + gating `noUnusedLocals`), Argon #8 (Feedback match details from saved scenes), 6 Opus Batch 1/2 polish minors (`TD-14` hit-test pin, `TD-7` `/@vite/client` ready probe, `"Follow again"` 5 s wait floor, catalog label entity decoding, `--me` comment, `F4` `!settled` guard), `TD-35`, `TD-64`, `TD-75`, and `TD-111`.
+
 ## Deployed 539bbcd: Doorman Doorways Stage 3 / Release 2 (Scene Writer + manual Scene placement, store v19 floor 18, .mapcro v7) — COMPLETE (2026-11-24, lead 2a42cd74)
 
 - **Prod `web` runs `539bbcd`** (`infra` `ba5c930`, JS `/assets/index-CiobRwlt.js`, CSS `/assets/index-VJmreSPo.css`, `/healthz ok`, store **`v19`**, `compat_floor = 18`, `PRAGMA integrity_check: ok`, newest asset pack **`6864-upgrades`** `pack_id: 62feb9ec...`).
