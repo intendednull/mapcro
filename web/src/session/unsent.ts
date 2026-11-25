@@ -46,3 +46,27 @@ export function withUnsent(boards: ReadonlySet<string>, board: string, unsent: n
   else next.delete(board);
   return new Set([...next].slice(-MAX_UNSENT));
 }
+
+/**
+ * Re-check marked boards against stored pending counts (TD-111): another tab of this browser may
+ * have opened a board and sent its pending edits. Clears any board whose stored pending queue is
+ * now empty (`0`), while leaving untouched boards that still have pending work or whose storage
+ * could not be read (`undefined` or thrown).
+ */
+export async function reconcileUnsent(
+  boards: ReadonlySet<string>,
+  pendingOf: (board: string) => Promise<number | undefined>,
+): Promise<ReadonlySet<string>> {
+  if (boards.size === 0) return boards;
+  let next = boards;
+  for (const board of boards) {
+    let n: number | undefined;
+    try {
+      n = await pendingOf(board);
+    } catch {
+      n = undefined;
+    }
+    next = withUnsent(next, board, n);
+  }
+  return next;
+}

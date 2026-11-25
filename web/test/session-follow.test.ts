@@ -7,16 +7,19 @@ import { describe, expect, it, vi } from "vitest";
 // The browser build: the reactive one (node resolves solid-js to the server's, which doesn't
 // track), as sessions-client.test.ts does.
 vi.mock("solid-js", async () => await import(/* @vite-ignore */ "solid-js/dist/" + "solid.js"));
+import "fake-indexeddb/auto";
 import { createRoot, createSignal } from "solid-js";
 import { followable, locate, presenters } from "../src/board/follow";
+import { IdbPersist, MemoryPersist, storedPendingCount } from "../src/core/persist";
 import { VIEW_STATE } from "../src/gen/viewState";
 import type { LinkRole } from "../src/gen/LinkRole";
 import type { PeerPresence } from "../src/gen/PeerPresence";
 import type { Presence } from "../src/gen/Presence";
+import type { Tx } from "../src/gen/Tx";
 import { SESSION_KEYS, type SessionKey, VIEW_KEYS, type Values, createViewState } from "../src/player/viewstate";
 import { createSessionFollow, dropAllowed, elsewhere, farPeer, farPresenters, onTabs, seated, stripHeard, whereTo } from "../src/session/follow";
 import type { TabRow } from "../src/session/tabs";
-import { MAX_UNSENT, loadUnsent, saveUnsent, unsentKey, withUnsent } from "../src/session/unsent";
+import { MAX_UNSENT, loadUnsent, reconcileUnsent, saveUnsent, unsentKey, withUnsent } from "../src/session/unsent";
 
 const id = (n: number) => n.toString(16).padStart(32, "0");
 const [A, B, C, X] = [id(0xa), id(0xb), id(0xc), id(0xdead)];
@@ -669,5 +672,47 @@ describe("tabs left with changes not sent (TD-101)", () => {
     expect([...loadUnsent(refuses, S)]).toEqual([]);
     expect(() => saveUnsent(refuses, S, new Set([b("A")]))).not.toThrow();
     expect(() => saveUnsent(refuses, S, new Set())).not.toThrow();
+  });
+  it("clears a stale Not sent mark once the persisted pending queue empties in another tab (TD-111)", async () => {
+    const tx = (cseq: number): Tx => ({ client: "c1", cseq, kind: "Edit", ops: [] });
+    const replicaJson = (pending: Tx[], next_cseq = pending.length) =>
+      JSON.stringify({ client: "c1", next_cseq, pending, undo: [], redo: [] });
+
+    // Pure helper counts pending entries after folding journal without mutating storage.
+    expect(storedPendingCount(undefined, [])).toBeUndefined();
+    expect(storedPendingCount("{", [])).toBeUndefined();
+    expect(storedPendingCount(replicaJson([]), [])).toBe(0);
+    expect(storedPendingCount(replicaJson([tx(0)], 1), [tx(1)])).toBe(2);
+
+    // IndexedDB read-only pendingCount + reconcileUnsent: board A's edits are sent elsewhere,
+    // board B still has a journaled edit pending, board C has no stored copy (kept untouched).
+    const idb = new IdbPersist(indexedDB, `mapcro-td111-${Math.random()}`);
+    await idb.save(b("A"), replicaJson([tx(0)], 1));
+    await idb.save(b("B"), replicaJson([], 0));
+    await idb.savePending(b("B"), [tx(0)]);
+
+    const marked = new Set([b("A"), b("B"), b("C")]);
+    // While A and B still hold pending edits, every mark stays.
+    expect([...(await reconcileUnsent(marked, (board) => idb.pendingCount(board)))]).toEqual([b("A"), b("B"), b("C")]);
+    // Read-only check must not delete B's pending journal entry.
+    expect(await idb.pendingCount(b("B"))).toBe(1);
+
+    // Another tab sends A's edit and saves an empty pending queue.
+    await idb.save(b("A"), replicaJson([], 1));
+    const cleared = await reconcileUnsent(marked, (board) => idb.pendingCount(board));
+    expect([...cleared]).toEqual([b("B"), b("C")]);
+
+    // A throwing reader leaves marks untouched.
+    expect([...(await reconcileUnsent(cleared, async () => { throw new Error("blocked"); }))]).toEqual([b("B"), b("C")]);
+    idb.close();
+
+    // MemoryPersist mirrors the same read-only contract.
+    const mem = new MemoryPersist();
+    await mem.save(b("A"), replicaJson([], 0));
+    await mem.savePending(b("A"), [tx(0)]);
+    expect(await mem.pendingCount(b("A"))).toBe(1);
+    await mem.save(b("A"), replicaJson([], 1));
+    await mem.dropPending(b("A"), "c1", 1);
+    expect(await mem.pendingCount(b("A"))).toBe(0);
   });
 });

@@ -3,9 +3,10 @@
 // timers and news), from the replay's own times; and the powerup events naming their buff.
 import { describe, expect, it } from "vitest";
 import { FALLBACK } from "../src/map/fallback-data";
-import { modelFromFallback } from "../src/map/model";
+import { type Marker, modelFromFallback } from "../src/map/model";
+import { mapToView } from "../src/map/transform";
 import { type Timeline, campAt, powerupAt, riftAt } from "../src/match/timeline";
-import { campTip, powerupTip, riftTip } from "../src/player/Camps";
+import { campTip, nearestMarker, powerupTip, riftTip } from "../src/player/Camps";
 import { tipOf } from "./support/tips";
 import { label, namesFor, shortLabel } from "../src/player/events";
 import { hoverFromWire, hoverWire } from "../src/map/HoverLabel";
@@ -109,5 +110,17 @@ describe("objective tips", () => {
     expect(hoverFromWire("token:Amber-1:evil")).toEqual({ kind: "token", id: "Amber-1" });
     expect(hoverFromWire("nope:x")).toBeUndefined();
     expect(hoverWire(undefined)).toBeNull();
+  });
+
+  it("a hidden marker overlapping a visible timed marker does not swallow its hover hit (TD-14)", () => {
+    const hiddenMk: Marker = { key: "camp:neutral:lane0:hidden", kind: "camp", team: "neutral", lane: null, title: "Camp", at: { x: 500, y: 500 }, px: 28, z: 0 };
+    const visibleMk: Marker = { key: "mid_boss:neutral:lane0:1", kind: "midboss", team: "neutral", lane: null, title: "Mid-Boss", at: { x: 502, y: 500 }, px: 40, z: 0 };
+    const pointer = mapToView(hiddenMk.at, "amber");
+    // When both are visible, the closer marker (distance 0) wins.
+    expect(nearestMarker([hiddenMk, visibleMk], pointer, "amber", 1, () => false)).toBe(hiddenMk.key);
+    // Once the closer marker is hidden, hit-testing skips it and lands on the overlapping visible marker.
+    expect(nearestMarker([hiddenMk, visibleMk], pointer, "amber", 1, (k) => k === hiddenMk.key)).toBe(visibleMk.key);
+    // If both are hidden, nothing hits.
+    expect(nearestMarker([hiddenMk, visibleMk], pointer, "amber", 1, () => true)).toBeUndefined();
   });
 });

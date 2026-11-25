@@ -137,7 +137,7 @@ Resolved by `player-alt-blend` (`web/src/styles/transport.css`): the desktop tra
 ## Map-state phase 2 leftovers from its review (2026-11-14, lead)
 
 From the adversarial review of e878c30 (scene builds, #49); none blocked the deploy.
-- ~~**Follow with a no-match presenter (F4).**~~ **Resolved (`09b9c79`, 2026-11-25):** `host.ts` `presence()` always sends `{ player: false, match_id: 0, ... }` for a no-match presenter (pinned in `timeline-load.test.ts`). Minor follow-up: gate on `settled` to avoid a brief Sandbox flicker while a presenter's match is still loading.
+- ~~**Follow with a no-match presenter (F4).**~~ **Resolved (`09b9c79` + `backlog-straightforward-3`, 2026-11-25):** `host.ts` `presence()` sends `{ player: false, match_id: 0, ... }` for a no-match presenter once initial `api.matches()` settles (or immediately if a scene build panel is open), avoiding any mount/reload Sandbox flicker (pinned in `timeline-load.test.ts`).
 - **Stats for an alive hero with no stored health (F5).** `statOf` (`web/src/mapstate/build.ts`
   ~179) gives 100 where Player's `statBuild` gives `null` (skipping life-threshold items); stored
   health is rounded and clamped. Not expected in replay data.
@@ -333,7 +333,7 @@ Decided, to build after fix-batch-4 (#41 #42) and harrow-stacks (#38) land:
 ## Follow across restarts: small leftovers (2026-11-11, restart-follow): resolved
 
 Resolved (`backlog-straightforward`, 2026-11-25):
-- `stopFollowing` passes the target's original `wasJoin` through `"Follow again"` into `startFollow(..., wasJoin, myPeer)` so post-restart re-follows never match a reused peer id and keep the full 20 s `REJOIN_MS` wait (`web/test/follow.test.ts`).
+- `stopFollowing` passes the target's original `wasJoin` through `"Follow again"` into `startFollow(..., wasJoin, myPeer, Date.now())` so post-restart re-follows never match a reused peer id and wait the rest of the 20 s `REJOIN_MS` window — and at least `RECONNECT_MS` (5 s) from the click (`web/test/follow.test.ts`).
 - `Board.tsx` sets `followJoin` only once `begun.seen` (or `locate`) confirms the presenter on this join, so `followingHere()` never marks a wrong peer during the reconnect wait.
 - `justfile` `e2e`, `e2e-webkit`, and `e2e-firefox` use `[positional-arguments]` with `"$@"` so `-g "a|b"` is quoted safely.
 
@@ -895,8 +895,8 @@ before fixing it.
    (`SceneThumb`).
 7. **The dialogs don't hold focus.** This is the same as "The other dialogs don't hold the focus",
    below. *Resolved 2026-11-10 (ux-batch-1).*
-8. **Feedback offers no match while you're viewing a scene saved from a match.**
-   `feedbackMatchOf` only reads Player; the scene's `source` has the match id and time.
+8. ~~**Feedback offers no match while you're viewing a scene saved from a match.**~~
+   *Resolved (`backlog-straightforward-3`, 2026-11-25):* `feedbackMatchOf` reads the viewed scene's `source` (`{ match_id, t, tier }`) when `!player`, offering its match details for saved match scenes and omitting them on blank sandbox scenes (`web/test/feedback.test.ts`, `web/e2e/feedback.spec.ts`).
 
 ## Own stacks: the rest (2026-11-11, from harrow-stacks, feedback #38)
 

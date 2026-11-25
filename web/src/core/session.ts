@@ -14,6 +14,7 @@ import type { RoomKind } from "../gen/RoomKind";
 import type { Via } from "../gen/Via";
 import { BoardReplica, buildId, newClientId, newClientSecret, presenceFrameOk } from "../wasm/mapcro_wasm.js";
 import { decideStep } from "../mapstate/undo";
+import { isLiveLayerCreate } from "../player/live";
 import { MemoryPersist, type Persist } from "./persist";
 import { pageSeat } from "./seat";
 import type { SaveStatus, Update } from "./update";
@@ -69,6 +70,8 @@ export interface SessionOptions {
    */
   onOutdated?: () => void;
   maxDelayMs?: number;
+  /** How long to wait for a previous session's final saves before opening anyway (TD-64). */
+  endingWaitMs?: number;
   /** The seat sent in presence (default: this page's, `pageSeat()`). */
   seat?: number;
   /**
@@ -86,6 +89,8 @@ const FINAL: CloseReason[] = ["unauthorized", "revoked"];
 
 /** How long an ended session waits for its edits in flight to go out before it closes. */
 const FLUSH_MS = 2000;
+/** How long a reopening board waits for its previous session's final saves before moving on (TD-64). */
+export const ENDING_WAIT_MS = 5000;
 
 /**
  * Presence send cadence. The server coalesces presence in 50 ms batches, the latest state per
@@ -177,6 +182,8 @@ export class BoardSession {
   private live = false;
   private attempt = 0;
   private timer: ReturnType<typeof setTimeout> | undefined;
+  private endingTimer: ReturnType<typeof setTimeout> | undefined;
+  private cancelEndingWait: (() => void) | undefined;
   private stopped = false;
   /** `end` was called: the session is over for good. */
   private ended = false;
@@ -210,9 +217,44 @@ export class BoardSession {
     return (this.starting = this.begin());
   }
 
+  private async waitForEnding(): Promise<boolean> {
+    const prev = ending.get(this.o.board);
+    if (!prev || this.stopped || this.ended) return false;
+    const waitMs = this.o.endingWaitMs ?? ENDING_WAIT_MS;
+    let timedOut = false;
+    let cancelled = false;
+    try {
+      await Promise.race([
+        prev,
+        new Promise<void>((resolve) => {
+          this.cancelEndingWait = () => {
+            cancelled = true;
+            clearTimeout(this.endingTimer);
+            this.endingTimer = undefined;
+            resolve();
+          };
+          this.endingTimer = setTimeout(() => {
+            this.endingTimer = undefined;
+            timedOut = true;
+            resolve();
+          }, waitMs);
+        }),
+      ]);
+    } finally {
+      clearTimeout(this.endingTimer);
+      this.endingTimer = undefined;
+      this.cancelEndingWait = undefined;
+    }
+    if (timedOut && !cancelled && !this.stopped && !this.ended) {
+      this.problems.push("previous session's local save timed out");
+    }
+    return cancelled;
+  }
+
   private async begin(): Promise<void> {
-    // The writes of this board's last session (left just now) land first.
-    await ending.get(this.o.board);
+    // The writes of this board's last session (left just now) land first, bounded so a hung
+    // storage write never blocks reopening indefinitely (TD-64).
+    if (await this.waitForEnding()) return;
     this.roleStore = await roleKey(this.o.board, this.o.token, this.o.via);
     let saved: string | undefined;
     let role: string | undefined;
@@ -248,6 +290,9 @@ export class BoardSession {
   stop(): void {
     this.stopped = true;
     clearTimeout(this.timer);
+    clearTimeout(this.endingTimer);
+    this.endingTimer = undefined;
+    this.cancelEndingWait?.();
     this.dropSocket();
     // The save indicator must say "offline", never "syncing", once nothing is connected.
     this.markOffline();
@@ -269,9 +314,9 @@ export class BoardSession {
     clearTimeout(this.saveSoon);
     this.saveSoon = undefined;
     if (this.dirtySince !== undefined) this.saveState().catch(() => {});
-    {
-      // No timer of its own: a write that never ends would hold the next load in storage anyway
-      // (IndexedDB runs a store's transactions in order).
+    if (this.replica !== undefined) {
+      // Only a session that loaded a replica can have storage writes in flight; an unstarted or
+      // cancelled session must not clobber an earlier session's still-pending `ending` entry.
       const board = this.o.board;
       const last: Promise<unknown> = Promise.allSettled([this.saves, this.chain]).finally(() => {
         if (ending.get(board) === last) ending.delete(board);
@@ -281,6 +326,9 @@ export class BoardSession {
     // No reconnect from here on.
     this.stopped = true;
     clearTimeout(this.timer);
+    clearTimeout(this.endingTimer);
+    this.endingTimer = undefined;
+    this.cancelEndingWait?.();
     // An edit made just before (a drag released as a tab switches, sessions.md §4.1) is still on
     // its way through the save chain: it goes out on this socket, to this board, before the
     // socket closes. Bounded, so a stuck write never holds the socket open.
@@ -363,8 +411,15 @@ export class BoardSession {
     return this.live && this.replica !== undefined && this.replica.lastSeq() >= (this.head ?? 0);
   }
 
-  /** The hello just made: the server forgets refusals below its `pending_from`, so this does. */
-  private connected(hello: WireIn | undefined) {
+  /** The hello just made: recognise any restored live-layer ensure still pending across a reload
+   * (TD-35), and forget ensures below `pending_from` (the server no longer reports them). */
+  private connected(frames: WireIn[]) {
+    for (const f of frames) {
+      if (f.t === "msg" && "Submit" in f.msg && isLiveLayerCreate(this.o.board, f.msg.Submit)) {
+        this.ensures.add(f.msg.Submit.cseq);
+      }
+    }
+    const hello = frames[0];
     const from = hello?.t === "msg" && "Hello" in hello.msg ? hello.msg.Hello.pending_from : undefined;
     if (from !== undefined) for (const c of this.ensures) if (c < from) this.ensures.delete(c);
   }
@@ -575,7 +630,7 @@ export class BoardSession {
         }
         const u = this.apply(this.replica.connect());
         this.connectedOnce = true;
-        this.connected(u.frames[0]);
+        this.connected(u.frames);
         // Edits made through another link (an edit grant, or this board's own link) are pending
         // in the copy this one shares by board id. Through a view link the server would take
         // them as abuse and drop the socket, on every reconnect: they're held instead, and go

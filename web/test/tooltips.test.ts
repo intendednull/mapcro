@@ -2,7 +2,7 @@
 // localisation uses, value formatting, upgrade tiers, the per-patch overlay and the manifest
 // section. Synthetic records shaped like crates/extract/src/tooltips.rs writes them.
 import { expect, it } from "vitest";
-import { type PackManifest, tooltipIndex } from "../src/map/pack";
+import { type PackManifest, buildCatalogFromData, tooltipIndex } from "../src/map/pack";
 import { soulsLabel, tierReached } from "../src/match/ladder";
 import { type Tip, type TipProp, type TooltipData, blockShown, decodeEntities, fmt, parseMarkup, shown, substitute, upgradeLines, upgraded, upgradesTo, withOverlay } from "../src/match/tooltips";
 
@@ -248,4 +248,16 @@ it("decodes HTML entities in tooltip text, labels, and strings without turning e
   expect(upgradeLines(entTip, { props: {}, upgrades: [{ Lifesteal: "15" }] }, 0)).toEqual([
     { key: "Lifesteal", value: "+15%", label: "Bullet & Spirit Lifesteal" },
   ]);
+
+  // Catalog record labels decode HTML entities on pack load (single-pass) so events, build columns,
+  // build order, and tooltips all see clean text automatically.
+  const catManifest: PackManifest = { game: { client_version: 6864 }, blobs: {} };
+  const catalog = buildCatalogFromData("", "p", catManifest, {
+    records: {
+      "10": { kind: "item", name: "item_combo", label: "Bullet &amp; Spirit" },
+      "11": { kind: "ability", name: "ab_esc", label: "A &amp;amp; B" },
+    },
+  });
+  expect(catalog.records.get(10)?.label).toBe("Bullet & Spirit");
+  expect(catalog.records.get(11)?.label).toBe("A &amp; B");
 });

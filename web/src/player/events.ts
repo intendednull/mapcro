@@ -236,7 +236,7 @@ export const eventKey = (e: MatchEvent) => `${e.t}:${e.kind}:${e.team ?? ""}:${e
 
 /** The parser's souls-swing window (`crates/replay/src/timeline.rs`): an event fires when the
  * lead moved by its `SWING_SOULS` within this many seconds. Only the window is needed here. */
-const SWING_WINDOW_S = 60;
+export const SWING_WINDOW_S = 60;
 
 /** Seconds each side of a second averaged to smooth the lead: players' souls samples land on
  * different seconds, so the raw lead jumps by thousands between neighbours. */

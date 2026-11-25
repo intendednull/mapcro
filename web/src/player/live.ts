@@ -8,6 +8,7 @@
 
 import type { Op } from "../gen/Op";
 import type { RecordId } from "../gen/RecordId";
+import type { Tx } from "../gen/Tx";
 import type { Slot } from "../board/state";
 import { LIMITS } from "../gen/limits";
 
@@ -82,6 +83,52 @@ export function copyAnnotationsOps(rows: Rows, from: RecordId, to: RecordId, min
 /** Clear the live layer. */
 export function clearAnnotationsOps(rows: Rows, live: RecordId): Op[] {
   return ANNOTATIONS.flatMap((kind) => rows(kind, live).map(([id]) => ({ Delete: { id } }) as Op));
+}
+
+/**
+ * Whether `tx` is a live-layer `ensure` creation for `board`: deterministic live-scene id plus
+ * deterministic per-slot `PlayerState` ids only. Used to recognise a pending live-layer ensure
+ * refused `IdTaken` across a page reload (TD-35).
+ */
+export function isLiveLayerCreate(board: string, tx: Pick<Tx, "kind" | "ops">): boolean {
+  if (tx.kind !== "Edit" || tx.ops.length === 0) return false;
+  const first = tx.ops[0]!;
+  if (!("Create" in first) || !("Scene" in first.Create.record)) return false;
+  const scene = first.Create.record.Scene;
+  if (!scene.live || !scene.source) return false;
+  const match = scene.source.match_id;
+  const sceneId = idFrom(`mapcro-live:${board}:${match}`);
+  if (first.Create.id !== sceneId) return false;
+  for (let i = 1; i < tx.ops.length; i++) {
+    const op = tx.ops[i]!;
+    if (!("Create" in op) || !("PlayerState" in op.Create.record)) return false;
+    const ps = op.Create.record.PlayerState;
+    if (ps.scene !== sceneId || op.Create.id !== idFrom(`mapcro-live:${board}:${match}:${ps.slot}`)) return false;
+  }
+  return true;
+}
+
+/**
+ * Transactions for Play from here (TD-35): keep the live-layer `ensure` ops in their own
+ * transaction ahead of the clear/copy transactions so an `IdTaken` race on the live layer never
+ * refuses the copied drawings.
+ */
+export function playFromTxs(
+  records: Entries,
+  rows: Rows,
+  board: string,
+  match: number,
+  roster: Slot[],
+  fromScene: RecordId,
+  existingLive: RecordId | undefined,
+  mint: () => RecordId,
+): { ensure: Op[]; copies: Op[][] } {
+  const live = liveIds(board, match, roster).scene;
+  const ensure = ensureLiveOps(records, board, match, roster);
+  const groups: Op[][] = [];
+  if (existingLive) groups.push(...clearAnnotationsOps(rows, existingLive).map((o) => [o]));
+  groups.push(...copyAnnotationsOps(rows, fromScene, live, mint).map((o) => [o]));
+  return { ensure, copies: chunks(groups.filter((g) => g.length), MAX_OPS_PER_TX) };
 }
 
 /** Split ops into transactions within `cap`, never splitting a group (one scene's ops). */

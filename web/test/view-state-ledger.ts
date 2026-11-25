@@ -41,6 +41,7 @@ export const SIGNALS: Record<string, Entries> = {
     opener: ["local", "the replay prompt"],
     armed: ["local", "the replay prompt"],
     prompted: ["local", "the replay prompt"],
+    settled: ["local", "whether the initial matches lookup or timeline draw has settled"],
     pin: ["wired", "playback.jump"],
     heardJump: ["local", "a follower's side of playback.jump"],
   },

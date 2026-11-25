@@ -264,9 +264,34 @@ test("on a board with a match open, the issue names the match and the time; unti
   expect(r.body.body).not.toContain(MATCH);
   await dlg.getByTestId("feedback-close").click();
 
-  // Back in the sandbox, no match is attached.
+  // Back in the sandbox on the blank Scene 1, no match is attached.
   await revealControls(page, "mode-sandbox");
   await page.getByTestId("mode-sandbox").click();
+  await open.click();
+  await expect(dlg).toBeVisible();
+  await expect(dlg.getByTestId("feedback-match")).toHaveCount(0);
+  await dlg.getByTestId("feedback-cancel").click();
+  await expect(dlg).toHaveCount(0);
+
+  // Save a scene from the match (at 9:02): viewing that saved scene in Scenes pre-fills its match details (Argon #8).
+  await page.getByTestId("mode-player").click();
+  await expect(page.getByTestId("match-clock")).toHaveText("9:02 / 21:40");
+  await page.getByTestId("match-save").click();
+  await expect(page.getByTestId("topbar")).not.toHaveAttribute("data-mode", "player");
+  await open.click();
+  await expect(dlg).toBeVisible();
+  await expect(dlg.getByTestId("feedback-match")).toHaveText(`Includes: match ${MATCH} at 9:02 (API summary)Helps find the moment. Untick to leave it out of the issue.`);
+  await expect(dlg.getByTestId("feedback-match-check")).toBeChecked();
+  await dlg.getByTestId("feedback-title").fill("Saved scene match info");
+  await dlg.getByTestId("feedback-description").fill("From a scene saved from a match.");
+  req = page.waitForRequest((r) => r.url().endsWith("/api/feedback") && r.method() === "POST");
+  await dlg.getByTestId("feedback-send").click();
+  await expect(dlg.getByTestId("feedback-done")).toBeVisible();
+  expect(JSON.parse((await req).postData()!).match).toEqual({ id: MATCH, t_s: 542, tier: "summary" });
+  await dlg.getByTestId("feedback-close").click();
+
+  // Switching to the blank Scene 1 omits match details again.
+  await page.getByTestId("scene-card").first().click();
   await open.click();
   await expect(dlg).toBeVisible();
   await expect(dlg.getByTestId("feedback-match")).toHaveCount(0);

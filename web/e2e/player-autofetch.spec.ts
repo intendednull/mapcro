@@ -94,8 +94,7 @@ test("opening a match fetches its replay: the chip goes from fetching to Full re
   await a.screenshot({ path: "shots/autofetch-fetching.png" });
   release();
   // Downloaded: queued for the worker.
-  let job = "";
-  await expect.poll(() => (job = readdirSync(join(queue, "inbox")).find((f) => f === `${ID}-cdn.dem`) ?? "")).not.toBe("");
+  await expect.poll(() => readdirSync(join(queue, "inbox")).find((f) => f === `${ID}-cdn.dem`) ?? "").not.toBe("");
   // Waiting for the worker (the test plays it, and hasn't started it): nothing ahead.
   await expect(chip).toHaveText("Queued");
   writeFileSync(join(queue, "outbox", `${ID}-cdn.json`), JSON.stringify(timeline()));

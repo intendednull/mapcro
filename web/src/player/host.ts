@@ -6,8 +6,6 @@ import type { Via } from "../gen/Via";
 import { batch, createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js";
 import { type MatchEvent, type Timeline, tierOf, playersAt } from "../match/timeline";
 import type { Shown } from "../mapstate/frame";
-import { slotKey } from "../match/save";
-import type { Marker } from "../map/model";
 import { Api, type JobState, MODE_CODES, busy } from "./api";
 import { markOutdated } from "./reparse";
 import { freezeDeep, isFetched, timelines } from "./timelineCache";
@@ -18,7 +16,7 @@ import { type Playback, SPEEDS, clampT, follow, rebase, tAt } from "./clock";
 import { type Pt, worldToMap } from "../map/transform";
 import { type EventGroup, GROUPS, eventKey } from "./events";
 import { mapCratesShown, mapHealsShown, setMapCratesShown, setMapHealsShown, chooseSummary, markOpened, openedHere, playerLastSeenShown, playerNamesShown, playerVision, setPlayerLastSeenShown, setPlayerNamesShown, setPlayerVision, summaryChosen } from "../core/device";
-import { type Vision, hasVision } from "./vision";
+import type { Vision } from "./vision";
 import type { PlayerVision } from "../gen/PlayerVision";
 import type { DeathRef } from "../gen/DeathRef";
 import type { SlotRef } from "../gen/SlotRef";
@@ -88,7 +86,7 @@ export function createPlayerHost(board: string, token: string, via?: Via, rememb
    */
   let chose: Mode | undefined;
   const setMode = (m: Mode) => {
-    if (!settled) chose = m;
+    if (!untrack(settled)) chose = m;
     enter(m);
   };
   /** The mode changes: the user's (`setMode`), a match opening, or a presenter's while following. */
@@ -490,7 +488,7 @@ export function createPlayerHost(board: string, token: string, via?: Via, rememb
         if (opts.back) comeBack(opts.back);
         // Drawn, if only from this page's copy: what the user does from here is the tab's to
         // remember, whenever the server's answer comes.
-        settled = true;
+        setSettled(true);
       });
       if (gone) return;
       let attached = false;
@@ -831,9 +829,9 @@ export function createPlayerHost(board: string, token: string, via?: Via, rememb
    * known and there's none to draw, the playback is what it remembered before, with the mode
    * the user chose meanwhile (`chose`).
    */
-  let settled = false;
+  const [settled, setSettled] = createSignal(false);
   const remember = (): PlayerRemembered => {
-    if (!settled) return { ...remembered, ...(chose ? { mode: chose } : {}), ...own };
+    if (!untrack(settled)) return { ...remembered, ...(chose ? { mode: chose } : {}), ...own };
     const out: PlayerRemembered = { mode: untrack(mode), ...own };
     const id = untrack(matchId);
     if (id === undefined) return out;
@@ -866,7 +864,7 @@ export function createPlayerHost(board: string, token: string, via?: Via, rememb
     if (gone) return;
     if (drawn) documentDrawn = drawn;
     const handed = takeHandoff(board);
-    if (handed) return startHandoff(handed).finally(() => (settled = true));
+    if (handed) return startHandoff(handed).finally(() => setSettled(true));
     const ms = await api.matches().catch(() => undefined);
     if (gone) return;
     setMatches(ms ?? []);
@@ -875,21 +873,23 @@ export function createPlayerHost(board: string, token: string, via?: Via, rememb
     if (back?.match !== undefined && !matchId()) await open(back.match, { attach: false, back, auto: true });
     else if (ms?.length && !matchId()) await open(String(ms[0]), { attach: false, auto: true });
     // The matches unknown (offline): what was remembered stays.
-    if (ms) settled = true;
+    if (ms) setSettled(true);
   };
 
   /**
    * What presence carries (spec §6b): the mode and, with a match, the playback re-sampled now.
-   * For a board without a match in Sandbox: still carry `player: false, match_id: 0` and any open
-   * scene build panels (map-state spec §7, F4) so followers mirror mode and build open/close
-   * consistently without disturbing Vision or other match-only keys.
+   * For a board without a match in Sandbox: once initial `api.matches()` has settled (or while a
+   * scene build panel is explicitly open), carry `player: false, match_id: 0` and any open scene
+   * build panels (map-state spec §7, F4) so followers mirror mode and build open/close
+   * consistently without a brief Sandbox flicker on mount/reload or disturbing Vision.
    */
   const presence = (): PlaybackPresence | undefined => {
     const id = matchId();
-    // Without a match in Sandbox, send mode + any open scene build panels.
+    // Without a match in Sandbox, send mode + any open scene build panels once settled (or when a panel is open).
     if (!id && mode() !== "player") {
       const w = viewWire();
       const open: Partial<PlaybackPresence> = { ...(w.inspect ? { inspect: w.inspect } : {}), ...(w.all_builds ? { all_builds: true } : {}), ...(w.build_popover ? { build_popover: w.build_popover } : {}) };
+      if (!settled() && !Object.keys(open).length) return undefined;
       return { player: false, match_id: 0, t: 0, playing: false, speed: 1, ...open };
     }
     const pb = playback();

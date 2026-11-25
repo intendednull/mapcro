@@ -4,7 +4,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { VIEW_STATE } from "../src/gen/viewState";
-import { type BoardKey as ViewKey, type ValueOf, type Values, VIEW_KEYS, clipText, createViewState } from "../src/player/viewstate";
+import { type BoardKey as ViewKey, type Values, VIEW_KEYS, clipText, createViewState } from "../src/player/viewstate";
 import { GROUPS } from "../src/player/events";
 import { DISCLOSURES, SCANNED, SIGNALS } from "./view-state-ledger";
 

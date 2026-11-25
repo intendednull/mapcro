@@ -15,7 +15,7 @@ vi.mock("solid-js", async () => await import(/* @vite-ignore */ "solid-js/dist/"
 
 import { readFileSync } from "node:fs";
 import { createComputed, createRoot, createSignal } from "solid-js";
-import { type FrameMarkers, type Shown, savedPart, secondPart, tenthPart } from "../src/mapstate/frame";
+import { type Shown, savedPart, secondPart, tenthPart } from "../src/mapstate/frame";
 import { FEATURES, type PlayerState, featuresOf, fromTimeline, sameValue, urnOf } from "../src/mapstate/state";
 import { buildAt } from "../src/match/builds";
 import { statBuild } from "../src/match/stats";

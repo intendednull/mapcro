@@ -2,7 +2,7 @@
 // panel. The map is the interface: edits happen on it directly.
 
 import { rosterTeamName, teamName } from "../map/model";
-import { type JSX, For, Match, Show, Switch, batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, untrack } from "solid-js";
+import { type JSX, For, Show, batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, untrack } from "solid-js";
 import type { Callout } from "../gen/Callout";
 import { cx } from "../ui/cx";
 import { type Me, colorOf, commentsOpen, setCommentsOpen, hasJoined, inkOn, loadColour, loadMe, saveColour, markJoined, rememberBoard, saveMe, takeRename } from "../core/device";
@@ -258,8 +258,8 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       setToast(undefined);
     }
   });
-  /** The match open in Player, for the feedback form (spec §11a); none in sandbox. */
-  const feedbackMatch = () => feedbackMatchOf(inPlayer(), player.matchId(), player.tl(), player.t());
+  /** The match open in Player, or the saved scene's source in Scenes, for the feedback form (spec §11a). */
+  const feedbackMatch = () => feedbackMatchOf(inPlayer(), player.matchId(), player.tl(), player.t(), scene()?.scene.source);
   // Player draws the match alone, an empty map while there's no timeline (review finding 7).
   // Player's state, on its three clocks (mapstate/state.ts; TD-50).
   const matchState = fromTimeline({ tl: player.tl, t: player.t, markers: () => p.art.model.markers });
@@ -359,7 +359,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   /** `was`: their presence when last seen ("Follow again"), shown while they're looked for. */
   const follow = (peer: number, seat?: number, was?: PeerPresence, wasJoin?: number) => {
     const joins = state.joined().n;
-    const begun = startFollow(peer, seat, state.peerList(), joins, wasJoin ?? joins, state.myPeer());
+    const begun = startFollow(peer, seat, state.peerList(), joins, wasJoin ?? joins, state.myPeer(), Date.now());
     target = begun.target;
     setFollowJoin(begun.seen ? joins : 0);
     setFollowedNow(begun.seen ?? was);
@@ -948,7 +948,6 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   onCleanup(() => wide.removeEventListener("change", onWide));
   const docked = () => !phoneSheet() && landscape() && !player.openBuild() && !player.allBuilds() && !player.tabHeld();
   const sheet = () => phoneSheet() ?? (docked() ? "events" : undefined);
-  const phoneEvents = () => sheet() === "events";
   const openSheet = (k: "events" | "layers" | "more") => {
     if (phoneSheet() === k) return setPhoneSheet(undefined);
     setPhoneSheet(k);

@@ -188,6 +188,27 @@ export function markerTip(m: Pick<Marker, "key" | "kind">, f: TipFacts, t: numbe
   return undefined;
 }
 
+/** Hit-test static map markers at view coordinates `at`, skipping any marker for which `hidden`
+ * returns true so a hidden marker never swallows hover from a visible marker beneath it (TD-14). */
+export function nearestMarker(
+  markers: readonly Marker[],
+  at: Pt,
+  vp: "amber" | "sapphire" | "neutral",
+  k: number,
+  hidden: (key: string) => boolean,
+): string | undefined {
+  let best: { key: string; d: number } | undefined;
+  for (const m of markers) {
+    if (hidden(m.key)) continue;
+    const v = mapToView(m.at, vp);
+    const d = Math.hypot(v.x - at.x, v.y - at.y);
+    // About the icon's drawn size: markers draw at ~40% of their HUD box.
+    const r = Math.max(8, (m.px / HUD_MAP_PX) * 1000 * 0.25 * k);
+    if (d <= r && (!best || d < best.d)) best = { key: m.key, d };
+  }
+  return best?.key;
+}
+
 /** `hidden`: a marker hidden from the map (an objective turned off), which has nothing to say.
  * `shown`: the healing pickups and heavy boxes this browser draws (their toggles); off, they
  * can't be hovered. */
@@ -218,16 +239,7 @@ export function MarkerTips(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; 
       if (dist <= doorR && (!bestDoor || dist < bestDoor.d)) bestDoor = { id: item.d.id, d: dist };
     }
     if (bestDoor) return `${DOOR_HOVER_PREFIX}${bestDoor.id}`;
-    let best: { key: string; d: number } | undefined;
-    for (const m of markers()) {
-      if (p.hidden(m.key)) continue;
-      const v = mapToView(m.at, p.vp);
-      const d = Math.hypot(v.x - at.x, v.y - at.y);
-      // About the icon's drawn size: markers draw at ~40% of their HUD box.
-      const r = Math.max(8, (m.px / HUD_MAP_PX) * 1000 * 0.25 * p.k);
-      if (d <= r && (!best || d < best.d)) best = { key: m.key, d };
-    }
-    return best?.key;
+    return nearestMarker(markers(), at, p.vp, p.k, p.hidden);
   };
   const set = (key: string | undefined) => hoverMarker(key ? { kind: "marker", id: key } : undefined);
   // Every marker can say what it is, from this browser's own state (a follower's too).

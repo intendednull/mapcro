@@ -21,7 +21,7 @@ import type { Marker } from "../map/model";
 import type { Slot } from "../board/state";
 import type { SceneRow } from "../board/scenes";
 import { clampToMap } from "../map/transform";
-import { type RiftAt, type Timeline, clockLabel, riftAt, slotKey } from "./timeline";
+import { type RiftAt, type Timeline, riftAt, slotKey } from "./timeline";
 import { LIMITS } from "../gen/limits";
 import type { More } from "../gen/More";
 import {

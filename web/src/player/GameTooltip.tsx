@@ -145,7 +145,7 @@ function ItemTip(p: { record: BuildRecord; art: Art; tips: Tooltips; ctx?: TipCo
     <div class={cx("gt gt-item", slot())} data-testid="game-tooltip" data-tip-id={p.record.id} data-kind="item"
       style={{ ...(backer() ? { "background-image": `url(${JSON.stringify(backer())})` } : {}), ...(mask() ? { "-webkit-mask-image": `url(${JSON.stringify(mask())})`, "mask-image": `url(${JSON.stringify(mask())})` } : {}) }}>
       <div class="gt-head" style={header() ? { "background-image": `url(${JSON.stringify(header())})` } : {}}>
-        <div class="gt-name" data-testid="game-tooltip-name">{decodeEntities(p.record.label)}</div>
+        <div class="gt-name" data-testid="game-tooltip-name">{p.record.label}</div>
         <Show when={p.ctx?.owned} fallback={
           <Show when={p.record.cost != null}>
             <div class="gt-cost" data-testid="game-tooltip-cost"><Icon icon={{ img: p.tips.data.art["icon_soul"], wash: "#99FFD6" }} tips={p.tips} />{p.record.cost!.toLocaleString("en-US")}</div>
@@ -213,7 +213,7 @@ function ComponentList(p: { label: string; ids: number[]; name: (id: number) => 
           {(id) => (
             <span class="gt-component" data-item-id={id}>
               <span class="gt-component-icon"><Show when={p.name(id)?.icon}>{(src) => <img src={src()} alt="" />}</Show></span>
-              <span>{p.name(id)?.label != null ? decodeEntities(p.name(id)!.label) : "—"}</span>
+              <span>{p.name(id)?.label ?? "—"}</span>
             </span>
           )}
         </For>
@@ -230,7 +230,7 @@ function AbilityTip(p: { record: BuildRecord; art: Art; tips: Tooltips; ctx?: Ti
     <div class="gt gt-ability" data-testid="game-tooltip" data-tip-id={p.record.id} data-kind="ability">
       <div class="gt-ability-body" style={bg() ? { "background-image": `url(${JSON.stringify(bg())})` } : {}}>
         <div class="gt-head">
-          <div class="gt-name" data-testid="game-tooltip-name">{decodeEntities(p.record.label)}</div>
+          <div class="gt-name" data-testid="game-tooltip-name">{p.record.label}</div>
           <div class="gt-head-props">
             <For each={e().tip.header ?? []}>
               {(prop) => (

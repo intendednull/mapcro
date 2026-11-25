@@ -20,6 +20,9 @@ export interface Persist {
   savePending?(board: string, txs: Tx[]): Promise<void>;
   /** Drop `client`'s journal entries below `cseq`: a saved state holds them. */
   dropPending?(board: string, client: string, below: number): Promise<void>;
+  /** How many pending transactions `board`'s stored copy holds (state + journal), read-only;
+   * `undefined` when nothing is stored (TD-111). */
+  pendingCount?(board: string): Promise<number | undefined>;
   /** Let go of the storage: the session using it ended (BoardSession `end`). */
   close?(): void;
 }
@@ -67,6 +70,19 @@ const clientOf = (state: string): string | undefined => {
   }
 };
 
+/** How many pending transactions a stored replica state holds once its journal is folded in;
+ * `undefined` when nothing is stored or unreadable. Pure, never writes (TD-111). */
+export function storedPendingCount(state: string | undefined, journal: Tx[]): number | undefined {
+  if (state === undefined) return undefined;
+  try {
+    const folded = foldPending(state, journal).state;
+    const s = JSON.parse(folded) as Partial<StoredState>;
+    return Array.isArray(s.pending) ? s.pending.length : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export class MemoryPersist implements Persist {
   readonly data = new Map<string, string>();
   /** Journal by board, then `client\0cseq`. */
@@ -92,6 +108,11 @@ export class MemoryPersist implements Persist {
   async dropPending(board: string, client: string, below: number) {
     const j = this.journal.get(board);
     if (j) for (const [k, tx] of j) if (tx.client === client && tx.cseq < below) j.delete(k);
+  }
+  async pendingCount(board: string) {
+    const s = this.data.get(board);
+    const j = this.journal.get(board);
+    return storedPendingCount(s, j ? [...j.values()] : []);
   }
 }
 
@@ -174,6 +195,21 @@ export class IdbPersist implements Persist {
 
   async dropPending(board: string, client: string, below: number) {
     await this.tx(["pending"], "readwrite", (t) => t.objectStore("pending").delete(IdbPersist.range(board, client, below)));
+  }
+
+  /** Pending transaction count for `board` (state + journal), read-only (TD-111). */
+  async pendingCount(board: string): Promise<number | undefined> {
+    let raw: string | undefined;
+    let journal: Tx[] = [];
+    await this.tx(["replicas", "pending"], "readonly", (t) => {
+      const get = t.objectStore("replicas").get(board) as IDBRequest<string | undefined>;
+      const all = t.objectStore("pending").getAll(IdbPersist.range(board)) as IDBRequest<Tx[]>;
+      all.onsuccess = () => {
+        raw = get.result;
+        journal = all.result;
+      };
+    });
+    return storedPendingCount(raw, journal);
   }
 
   close() {
