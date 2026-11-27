@@ -212,7 +212,13 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 344, height: 615 }
     await expect(phone.getByTestId("add-menu")).toBeVisible();
     await phone.keyboard.press("Escape");
     await expect(phone.getByTestId("add-menu")).toHaveCount(0);
-    // Close: the sheet goes, the tab stays.
+    // Close: the sheet goes (by Escape and by ×), focus returns to games-open, the tab stays.
+    await open.tap();
+    await expect(sheet).toBeVisible();
+    expect(await sheet.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+    await phone.keyboard.press("Escape");
+    await expect(sheet).toHaveCount(0);
+    expect(await phone.evaluate(() => document.activeElement?.getAttribute("data-testid"))).toBe("games-open");
     await open.tap();
     await sheet.getByTestId("games-close").tap();
     await expect(sheet).toHaveCount(0);

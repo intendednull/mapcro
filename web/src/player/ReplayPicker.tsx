@@ -61,7 +61,9 @@ export function ReplayPicker(p: { source: LocalSource; art?: Art | undefined; cu
       looking = false;
     }
   };
+  let dlg!: HTMLDivElement;
   onMount(() => {
+    dlg.focus();
     void look();
     const again = () => document.visibilityState === "visible" && void look();
     const timer = setInterval(again, PICKER_POLL_MS);
@@ -88,7 +90,7 @@ export function ReplayPicker(p: { source: LocalSource; art?: Art | undefined; cu
 
   return (
     <ModalScrim testid="replay-picker-scrim" class="picker-scrim" onClose={p.onClose}>
-      <div class="dialog picker" role="dialog" aria-modal="true" aria-labelledby="picker-h" data-testid="replay-picker" onKeyDown={dialogKeys(p.onClose)}>
+      <div ref={dlg} class="dialog picker" role="dialog" aria-modal="true" aria-labelledby="picker-h" data-testid="replay-picker" tabIndex={-1} onKeyDown={dialogKeys(p.onClose)}>
         <header>
           <h2 id="picker-h">Replays</h2>
           <button class="x" type="button" aria-label="Close" data-testid="picker-close" onClick={() => p.onClose()}>

@@ -12,6 +12,7 @@
 // title in the board's header, which opens the Games sheet: the tab list, Add game and the same
 // tab menu.
 
+import { modalOpen } from "../ui/modal";
 import { ShareIcon } from "../ui/ShareIcon";
 import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount, untrack } from "solid-js";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
@@ -222,11 +223,29 @@ export function SessionView(p: { session: string; token: string; tab: string | u
   const [sharing, setSharing] = createSignal(false);
   const [menu, setMenu] = createSignal<{ at: { x: number; y: number }; tab: TabRow }>();
   const [games, setGames] = createSignal(false);
+  let gamesOpenEl: HTMLButtonElement | undefined;
+  let gamesSheetEl: HTMLElement | undefined;
+  let restoreGamesFocus = true;
+  const closeGames = (restore = false) => {
+    restoreGamesFocus = restore;
+    setGames(false);
+  };
   const [overflow, setOverflow] = createSignal(false);
   const [allGames, setAllGames] = createSignal<{ x: number; y: number }>();
   const [renaming, setRenaming] = createSignal<RecordId>();
   const opens = new Map<RecordId, () => void>();
   const [dragging, setDragging] = createSignal<RecordId>();
+
+  // Close the phone Games sheet automatically on tab switches or when leaving touch sheet layout.
+  createEffect(on(active, () => closeGames(false), { defer: true }));
+  onMount(() => {
+    const mq = window.matchMedia("(max-width: 700px), (pointer: coarse) and (max-width: 1400px)");
+    const onMq = () => {
+      if (!mq.matches) closeGames(false);
+    };
+    mq.addEventListener("change", onMq);
+    onCleanup(() => mq.removeEventListener("change", onMq));
+  });
 
   // The open tab: the one asked for while it's live; once it goes (removed here or by a peer),
   // its left neighbour as the strip stood (§7.2); with none asked or live, the first.
@@ -334,7 +353,7 @@ export function SessionView(p: { session: string; token: string; tab: string | u
   const pick = (id: RecordId) => {
     setMenu(undefined);
     // Switching closes the Games sheet and returns to the map (§8).
-    setGames(false);
+    closeGames(false);
     if (pressed) return void (queued = id);
     // A switch picked now wins over one held for a press that just ended.
     queued = undefined;
@@ -513,7 +532,16 @@ export function SessionView(p: { session: string; token: string; tab: string | u
       value={t.name}
       maxLength={LIMITS.max_name}
       bindOpen={(o) => opens.set(t.id, o)}
-      onEditing={(on) => !on && setRenaming(undefined)}
+      onEditing={(on) => {
+        if (!on) {
+          setRenaming(undefined);
+          queueMicrotask(() => {
+            if (games() && gamesSheetEl?.isConnected && (!document.activeElement || document.activeElement === document.body)) {
+              gamesSheetEl.focus();
+            }
+          });
+        }
+      }}
       onCommit={(text) => rename(t, text)}
     />
   );
@@ -633,78 +661,124 @@ export function SessionView(p: { session: string; token: string; tab: string | u
   );
   /** On a phone, the header's session title (§8): it opens the Games sheet. */
   const gamesButton = () => (
-    <button class="games-open" data-testid="games-open" aria-haspopup="dialog" aria-expanded={games()} onClick={() => setGames(!games())}>
+    <button
+      ref={(el) => (gamesOpenEl = el)}
+      class="games-open"
+      data-testid="games-open"
+      aria-haspopup="dialog"
+      aria-expanded={games()}
+      onClick={() => (games() ? closeGames(true) : (restoreGamesFocus = true, setGames(true)))}
+    >
       <span class="games-title">{s.title() || "Games"}</span>
       <span class="games-count">{s.tabs().length}</span>
     </button>
   );
   /** The phone's Games sheet (§8): the tab list, Add game, and each tab's menu. No gesture: a
    * tab is moved with Move left and Move right. */
-  const gamesSheet = () => (
-    <section class="games-sheet" data-testid="games-sheet" role="dialog" aria-label="Games" onKeyDown={(e) => e.key === "Escape" && !renaming() && setGames(false)}>
-      <header class="games-sheet-head">
-        <b>Games</b>
-        <button class="btn ghost" data-testid="games-close" aria-label="Close" onClick={() => setGames(false)}>
-          ×
-        </button>
-      </header>
-      <ul class="games-list" role="tablist">
-        <For each={s.tabs()}>
-          {(t) => (
-            <li
-              class="games-row"
-              classList={{ on: t.id === active(), unavailable: unavailable(t) }}
-              data-testid="games-row"
-              data-tab={t.id}
-              data-key={keyOf(t)}
-              ref={(el) => watch(el, t)}
-            >
-              <div
-                class="games-pick"
-                role="tab"
-                tabIndex={0}
-                aria-selected={t.id === active()}
-                aria-label={`Game tab, ${t.name}`}
-                title={hover(t)}
-                data-testid="games-pick"
-                onClick={() => renaming() !== t.id && pick(t.id)}
-                onKeyDown={(e) => e.key === "Enter" && e.target === e.currentTarget && pick(t.id)}
+  const gamesSheet = () => {
+    const opener =
+      document.activeElement instanceof HTMLElement && document.activeElement !== document.body
+        ? document.activeElement
+        : gamesOpenEl;
+    let sheetEl!: HTMLElement;
+    onMount(() => {
+      gamesSheetEl = sheetEl;
+      sheetEl.focus();
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key !== "Escape" || e.defaultPrevented || renaming() || menu() || modalOpen()) return;
+        e.preventDefault();
+        e.stopPropagation();
+        closeGames(true);
+      };
+      window.addEventListener("keydown", onKey);
+      onCleanup(() => window.removeEventListener("keydown", onKey));
+    });
+    onCleanup(() => {
+      if (gamesSheetEl === sheetEl) gamesSheetEl = undefined;
+      if (!restoreGamesFocus || adding() || sharing() || modalOpen()) return;
+      const back = opener?.isConnected ? opener : gamesOpenEl?.isConnected ? gamesOpenEl : undefined;
+      back?.focus();
+    });
+    return (
+      <section
+        ref={sheetEl}
+        class="games-sheet"
+        data-testid="games-sheet"
+        role="dialog"
+        aria-label="Games"
+        tabIndex={-1}
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && !renaming() && !menu()) {
+            e.preventDefault();
+            e.stopPropagation();
+            closeGames(true);
+          }
+        }}
+      >
+        <header class="games-sheet-head">
+          <b>Games</b>
+          <button class="btn ghost" data-testid="games-close" aria-label="Close" onClick={() => closeGames(true)}>
+            ×
+          </button>
+        </header>
+        <ul class="games-list" role="tablist">
+          <For each={s.tabs()}>
+            {(t) => (
+              <li
+                class="games-row"
+                classList={{ on: t.id === active(), unavailable: unavailable(t) }}
+                data-testid="games-row"
+                data-tab={t.id}
+                data-key={keyOf(t)}
+                ref={(el) => watch(el, t)}
               >
-                <span class="game-main">
-                  {nameEdit(t)}
-                  {sub(t)}
-                </span>
-                {dots(t)}
-                <Show when={unsent().has(t.board) && t.board !== openBoard()}>
-                  <span class="game-unsent" role="img" data-testid="tab-unsent" title="Not sent" aria-label="Not sent" />
+                <div
+                  class="games-pick"
+                  role="tab"
+                  tabIndex={0}
+                  aria-selected={t.id === active()}
+                  aria-label={`Game tab, ${t.name}`}
+                  title={hover(t)}
+                  data-testid="games-pick"
+                  onClick={() => renaming() !== t.id && pick(t.id)}
+                  onKeyDown={(e) => e.key === "Enter" && e.target === e.currentTarget && pick(t.id)}
+                >
+                  <span class="game-main">
+                    {nameEdit(t)}
+                    {sub(t)}
+                  </span>
+                  {dots(t)}
+                  <Show when={unsent().has(t.board) && t.board !== openBoard()}>
+                    <span class="game-unsent" role="img" data-testid="tab-unsent" title="Not sent" aria-label="Not sent" />
+                  </Show>
+                </div>
+                <Show when={s.canEdit()}>
+                  <button class="btn ghost games-menu" data-testid="games-menu" aria-label="More" aria-haspopup="menu" onClick={(e) => openMenu(e, t)}>
+                    ⋯
+                  </button>
                 </Show>
-              </div>
-              <Show when={s.canEdit()}>
-                <button class="btn ghost games-menu" data-testid="games-menu" aria-label="More" aria-haspopup="menu" onClick={(e) => openMenu(e, t)}>
-                  ⋯
-                </button>
-              </Show>
-            </li>
-          )}
-        </For>
-      </ul>
-      <Show when={!s.tabs().length}>
-        <div class="session-empty muted">No games</div>
-      </Show>
-      <Show when={s.canEdit()}>
-        <button
-          class="btn games-add"
-          data-testid="games-add"
-          onClick={() => {
-            setGames(false);
-            setAdding(true);
-          }}
-        >
-          + Add game
-        </button>
-      </Show>
-    </section>
-  );
+              </li>
+            )}
+          </For>
+        </ul>
+        <Show when={!s.tabs().length}>
+          <div class="session-empty muted">No games</div>
+        </Show>
+        <Show when={s.canEdit()}>
+          <button
+            class="btn games-add"
+            data-testid="games-add"
+            onClick={() => {
+              closeGames(false);
+              setAdding(true);
+            }}
+          >
+            + Add game
+          </button>
+        </Show>
+      </section>
+    );
+  };
   const inSession = (): Omit<InSession, "via" | "opened" | "left" | "shown"> => ({
     id: p.session,
     name: () => s.title(),
@@ -714,6 +788,7 @@ export function SessionView(p: { session: string; token: string; tab: string | u
     share,
     strip,
     games: gamesButton,
+    closeGames: () => closeGames(false),
     canEdit: () => s.canEdit(),
     follow: follow.board,
     me: setMe,

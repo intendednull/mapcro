@@ -202,6 +202,8 @@ export interface InSession {
   left: (board: string, unsent: number | undefined) => void;
   /** On a phone, the header's session title: it opens the Games sheet (sessions.md §8). */
   games: () => JSX.Element;
+  /** Dismiss the phone Games sheet on mode, scene, sheet, or layout switches. */
+  closeGames: () => void;
   /** What this board shows of its match, for the strip's details (§8): no request for the open tab. */
   shown: (s: { match: string | undefined; tier: "replay" | "summary" | undefined; job: JobState | undefined; duration: number | undefined }) => void;
   /** The session's "Open in app" (its mapcro:// link, on this tab), where the app's download shows. */
@@ -1145,6 +1147,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     setDragDoor(undefined);
     setErasingDoors(new Set<number>());
     cancelObjHealthDrag();
+    inSession?.closeGames();
   });
   // Cancel doorway placement/drag on scene switch (remaining guards live below after `phone`/`phoneEdit`).
   /** Give up the keyboard focus a control holds, so the board's own keys work (operator,
@@ -1164,19 +1167,30 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       if (e.key === "Escape") leaveControl();
       if (typing(e)) return;
       if (e.key === "Escape") {
-        const hasOverlay =
+        const hasPopup =
           e.defaultPrevented ||
           modalOpen() ||
           !!dialog() ||
           !!heroPick() ||
+          !!document.querySelector(".ctx-menu, .more-menu, .clear-pop, details.map-layers[open]:not(.p-sheet *), details.pl-source[open], [data-testid=games-sheet]");
+        const hasOverlay =
+          hasPopup ||
           !!placingDoor() ||
           !!skullRecap() ||
           heroesShown().length > 0 ||
           !!player.openBuild() ||
           player.allBuilds() ||
           !!phoneSheet() ||
-          sceneDrawer() ||
-          !!document.querySelector(".ctx-menu, .more-menu, .clear-pop, details.map-layers[open], details.pl-source[open]");
+          sceneDrawer();
+        if (!hasPopup) {
+          if (sceneDrawer()) {
+            e.preventDefault();
+            setSceneDrawer(false);
+          } else if (phoneSheet()) {
+            e.preventDefault();
+            setPhoneSheet(undefined);
+          }
+        }
         setOpenComment(undefined);
         setSelection(new Set<RecordId>());
         setObjSelection(new Set<string>());
@@ -1325,12 +1339,32 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   });
   const dockBuild = () => batch(() => { setPhoneSheet(undefined); player.setAllBuilds(false); player.setOpenBuild(lastBuild()); });
   // A build opened (a portrait, a token, or following) closes the other sheet: one at a time.
-  createEffect(on(() => player.openBuild() || player.allBuilds(), (b) => b && setPhoneSheet(undefined), { defer: true }));
-  createEffect(on(inPlayer, () => setPhoneSheet(undefined), { defer: true }));
+  createEffect(on(() => player.openBuild() || player.allBuilds(), (b) => {
+    if (b) {
+      setPhoneSheet(undefined);
+      inSession?.closeGames();
+    }
+  }, { defer: true }));
+  createEffect(on(phoneSheet, (sh) => sh && inSession?.closeGames(), { defer: true }));
+  createEffect(on(inPlayer, () => {
+    setPhoneSheet(undefined);
+    setSceneDrawer(false);
+    inSession?.closeGames();
+  }, { defer: true }));
   const [phone, setPhone] = createSignal(mq.matches);
   const onMq = () => setPhone(mq.matches);
   mq.addEventListener("change", onMq);
-  onCleanup(() => mq.removeEventListener("change", onMq));
+  onCleanup(() => {
+    mq.removeEventListener("change", onMq);
+    inSession?.closeGames();
+  });
+  createEffect(() => {
+    if (!phone()) {
+      setPhoneSheet(undefined);
+      setSceneDrawer(false);
+      inSession?.closeGames();
+    }
+  });
   // Sheets sit on the transport (one row or two, by orientation) and stop at the roster: live.
   let phoneEl: HTMLDivElement | undefined;
   createEffect(() => {
@@ -1472,6 +1506,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const calloutList = createMemo(() => calloutOrder(state.rowsIn<Callout>("Callout", scene()?.id)));
 
   const [sceneDrawer, setSceneDrawer] = createSignal(false);
+  createEffect(on(sceneDrawer, (d) => d && inSession?.closeGames(), { defer: true }));
   /** This tab is from another build than the server's (see core/reload.ts). */
   const outdated = () => {
     const c = state.connection();
@@ -1563,17 +1598,45 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     </Show>
   );
   /** A phone sheet: edge to edge on the transport, a title and a close. */
-  const PhoneSheet = (q: { title: string; testid: string; children: JSX.Element }) => (
-    <section class="p-sheet" data-testid={q.testid} aria-label={q.title}>
-      <header class="p-sheet-head">
-        <b>{q.title}</b>
-        <Show when={!docked()}>
-          <button class="btn ghost" data-testid="p-sheet-close" aria-label="Close" onClick={() => setPhoneSheet(undefined)}>×</button>
-        </Show>
-      </header>
-      <div class="p-sheet-body">{q.children}</div>
-    </section>
-  );
+  const PhoneSheet = (q: { title: string; testid: string; children: JSX.Element }) => {
+    let el!: HTMLElement;
+    const isDocked = untrack(docked);
+    const opener =
+      !isDocked && document.activeElement instanceof HTMLElement && document.activeElement !== document.body
+        ? document.activeElement
+        : undefined;
+    onMount(() => {
+      if (!docked()) el.focus();
+    });
+    onCleanup(() => {
+      if (isDocked || modalOpen() || dialog() || heroPick() || sceneDrawer() || phoneSheet()) return;
+      if (opener?.isConnected) opener.focus();
+    });
+    return (
+      <section
+        ref={el}
+        class="p-sheet"
+        data-testid={q.testid}
+        aria-label={q.title}
+        tabIndex={-1}
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && !docked() && !modalOpen()) {
+            e.preventDefault();
+            e.stopPropagation();
+            setPhoneSheet(undefined);
+          }
+        }}
+      >
+        <header class="p-sheet-head">
+          <b>{q.title}</b>
+          <Show when={!docked()}>
+            <button class="btn ghost" data-testid="p-sheet-close" aria-label="Close" onClick={() => setPhoneSheet(undefined)}>×</button>
+          </Show>
+        </header>
+        <div class="p-sheet-body">{q.children}</div>
+      </section>
+    );
+  };
   const PlayerSheets = () => (
     <>
       <Show when={inPlayer() && landscape()}>

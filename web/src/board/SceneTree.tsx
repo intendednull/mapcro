@@ -139,9 +139,18 @@ export function SceneTree(p: {
       e.preventDefault();
     };
     if (!p.drawer) window.addEventListener("keydown", key);
-    onCleanup(() => window.removeEventListener("keydown", key));
+    if (p.drawer) navEl.focus();
+    onCleanup(() => {
+      window.removeEventListener("keydown", key);
+      if (p.drawer && opener?.isConnected) opener.focus();
+    });
   });
 
+  let navEl!: HTMLElement;
+  const opener =
+    p.drawer && document.activeElement instanceof HTMLElement && document.activeElement !== document.body
+      ? document.activeElement
+      : undefined;
   const here = (id: RecordId) => p.state.peerList().filter((x) => x.state?.scene === id);
   const [dragging, setDragging] = createSignal<RecordId>();
   const [drop, setDrop] = createSignal<Drop>();
@@ -155,7 +164,20 @@ export function SceneTree(p: {
   const [renaming, setRenaming] = createSignal<RecordId>();
 
   return (
-    <nav class={cx("scenes", folded() && "folded", p.drawer && "drawer")} data-testid="scene-tree" aria-label="Scenes">
+    <nav
+      ref={navEl}
+      class={cx("scenes", folded() && "folded", p.drawer && "drawer")}
+      data-testid="scene-tree"
+      aria-label="Scenes"
+      tabIndex={p.drawer ? -1 : undefined}
+      onKeyDown={(e) => {
+        if (p.drawer && e.key === "Escape" && !renaming()) {
+          e.preventDefault();
+          e.stopPropagation();
+          p.onClose?.();
+        }
+      }}
+    >
       <div class="scenes-head">
         <Show when={!folded()}>
           <span class="scenes-title">Scenes</span>
@@ -282,7 +304,12 @@ export function SceneTree(p: {
                       label="Scene name"
                       testid="scene-row-name"
                       bindOpen={(o) => (openName = o)}
-                      onEditing={(on) => !on && setRenaming(undefined)}
+                      onEditing={(on) => {
+                        if (!on) {
+                          setRenaming(undefined);
+                          if (p.drawer) queueMicrotask(() => navEl?.isConnected && (!document.activeElement || document.activeElement === document.body) && navEl.focus());
+                        }
+                      }}
                       onCommit={(t) => {
                         if (t.trim() !== (isUnnamed(s().scene.name) ? "" : s().scene.name)) p.state.edit([{ Set: { id: s().id, value: { SceneName: t.trim() } } }]);
                       }}

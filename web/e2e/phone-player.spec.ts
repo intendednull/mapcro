@@ -901,3 +901,163 @@ test("tablet 1024×768 touch header fits with presenter active and Full replay l
   await follower.context().close();
   await presenter.context().close();
 });
+
+test("touch Session Player .p-top fits with match + presenting peer across edge viewports and games-sheet handles Escape & mode switches (Pass 007 #1, #2, #3)", async ({ browser }) => {
+  const links = [await newBoardUrl(server, "Match 129738985"), await newBoardUrl(server, "Game 2")];
+  const [, board, token] = /\/b\/([^#]+)#(.+)$/.exec(links[0]!)!;
+  const r = await fetch(`${server.url}/api/sessions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title: "Match 129738985", board, board_token: token }),
+  });
+  const s = (await r.json()) as { session: string; owner_token: string };
+  const url = `${server.url}/s/${s.session}#${s.owner_token}`;
+
+  const presenter = await (await browser.newContext({ viewport: { width: 1500, height: 900 } })).newPage();
+  await presenter.goto(url);
+  await presenter.locator("#join-name").fill("Coach A");
+  await presenter.keyboard.press("Enter");
+  await presenter.getByTestId("add-game").click();
+  await presenter.getByTestId("add-paste").fill(links[1]!);
+  await presenter.getByTestId("add-paste-go").click();
+  await expect(presenter.getByTestId("game-tab")).toHaveCount(2);
+  await presenter.getByTestId("game-tab").first().click();
+  await open(presenter, "129009001");
+  await scrubTo(presenter, 20);
+
+  // A peer follows Coach A so Coach A is actively presenting in the session.
+  const follower = await (await browser.newContext({ viewport: { width: 1500, height: 900 } })).newPage();
+  await follower.goto(url);
+  await follower.locator("#join-name").fill("Coach B");
+  await follower.keyboard.press("Enter");
+  await follower.getByTestId("follow-Coach A").click();
+  await expect(follower.getByTestId("follow-chip")).toContainText("Following Coach A");
+
+  const viewports = [
+    { width: 615, height: 344 },
+    { width: 667, height: 375 },
+    { width: 844, height: 390 },
+    { width: 344, height: 615 },
+    { width: 360, height: 800 },
+    { width: 390, height: 844 },
+    { width: 768, height: 1024 },
+    { width: 1024, height: 768 },
+  ] as const;
+
+  const ctx = await phoneContext(browser, viewports[0]);
+  const phone = await ctx.newPage();
+  await phone.goto(url);
+  await phone.locator("#join-name").fill("Touch");
+  await phone.keyboard.press("Enter");
+  await expect(phone.getByTestId("match-tier")).toHaveText("Full replay");
+  await expect(phone.getByTestId("follow-presenter")).toBeVisible();
+
+  for (const vp of viewports) {
+    await phone.setViewportSize(vp);
+    await expect(phone.getByTestId("games-open")).toBeVisible();
+    await expect(phone.getByTestId("follow-presenter")).toBeVisible();
+
+    const m = await phone.evaluate(() => {
+      const top = document.querySelector<HTMLElement>(".p-top")!;
+      const games = document.querySelector<HTMLElement>("[data-testid=games-open]")!.getBoundingClientRect();
+      const follow = document.querySelector<HTMLElement>("[data-testid=follow-presenter]")!.getBoundingClientRect();
+      const tierEl = document.querySelector<HTMLElement>("[data-testid=match-tier]")!;
+      const tierRect = tierEl.getBoundingClientRect();
+      const tierVisible = tierRect.width > 0 && tierRect.height > 0 && getComputedStyle(tierEl.parentElement!).display !== "none";
+      return {
+        topSw: top.scrollWidth,
+        topCw: top.clientWidth,
+        docSw: document.documentElement.scrollWidth,
+        iw: innerWidth,
+        games: { left: games.left, right: games.right, width: games.width, height: games.height },
+        follow: { left: follow.left, right: follow.right, width: follow.width, height: follow.height },
+        tier: { visible: tierVisible, width: tierRect.width, sw: tierEl.scrollWidth, cw: tierEl.clientWidth },
+      };
+    });
+
+    expect(m.topSw, `${vp.width}×${vp.height} .p-top scrollWidth <= clientWidth`).toBeLessThanOrEqual(m.topCw);
+    expect(m.docSw, `${vp.width}×${vp.height} doc scrollWidth <= innerWidth`).toBeLessThanOrEqual(m.iw);
+    expect(m.games.left, `${vp.width}×${vp.height} games-open left`).toBeGreaterThanOrEqual(0);
+    expect(m.games.right, `${vp.width}×${vp.height} games-open right`).toBeLessThanOrEqual(vp.width);
+    expect(m.games.width, `${vp.width}×${vp.height} games-open width`).toBeGreaterThanOrEqual(43.9);
+    expect(m.follow.left, `${vp.width}×${vp.height} follow-presenter left`).toBeGreaterThanOrEqual(0);
+    expect(m.follow.right, `${vp.width}×${vp.height} follow-presenter right`).toBeLessThanOrEqual(vp.width);
+    expect(m.follow.width, `${vp.width}×${vp.height} follow-presenter width`).toBeGreaterThanOrEqual(43.9);
+
+    const shortNarrowLandscape = vp.width > vp.height && vp.height <= 500 && vp.width <= 700;
+    if (shortNarrowLandscape) {
+      expect(m.tier.visible, `${vp.width}×${vp.height} hides match-tier gracefully in compact dock header`).toBe(false);
+    } else {
+      expect(m.tier.visible, `${vp.width}×${vp.height} match-tier visible`).toBe(true);
+      expect(m.tier.sw, `${vp.width}×${vp.height} match-tier untruncated`).toBeLessThanOrEqual(m.tier.cw);
+      expect(m.tier.width, `${vp.width}×${vp.height} match-tier width not crushed`).toBeGreaterThanOrEqual(70);
+    }
+    await checkPhoneLayout(phone);
+  }
+
+  // Also verify active following state ("Stop" button) at 615×344, 360×800, and 1024×768.
+  for (const vp of [{ width: 615, height: 344 }, { width: 360, height: 800 }, { width: 1024, height: 768 }] as const) {
+    await phone.setViewportSize(vp);
+    await phone.getByTestId("follow-presenter").tap();
+    await expect(phone.getByTestId("stop-following")).toBeVisible();
+    expect(await phone.locator(".p-top").evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
+    const stopBox = (await phone.getByTestId("stop-following").boundingBox())!;
+    expect(stopBox.x).toBeGreaterThanOrEqual(0);
+    expect(stopBox.x + stopBox.width).toBeLessThanOrEqual(vp.width);
+    await checkPhoneLayout(phone);
+    await phone.getByTestId("stop-following").tap();
+    await expect(phone.getByTestId("follow-presenter")).toBeVisible();
+  }
+
+  // Finding #2: games-sheet focus on open, immediate Escape close + focus restore, and auto-close on mode switch.
+  await phone.setViewportSize({ width: 390, height: 844 });
+  await phone.getByTestId("games-open").tap();
+  const sheet = phone.getByTestId("games-sheet");
+  await expect(sheet).toBeVisible();
+  expect(await sheet.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+  await phone.keyboard.press("Escape");
+  await expect(sheet).toHaveCount(0);
+  expect(await phone.evaluate(() => document.activeElement?.getAttribute("data-testid"))).toBe("games-open");
+
+  // Sibling touch sheets (Map layers, More, Scenes drawer) also focus on open and close on immediate Escape.
+  await phone.getByTestId("phone-layers").tap();
+  await expect(phone.getByTestId("phone-layers-sheet")).toBeVisible();
+  expect(await phone.getByTestId("phone-layers-sheet").evaluate((el) => el.contains(document.activeElement))).toBe(true);
+  await phone.keyboard.press("Escape");
+  await expect(phone.getByTestId("phone-layers-sheet")).toHaveCount(0);
+
+  await phone.getByTestId("phone-more").tap();
+  await expect(phone.getByTestId("phone-more-sheet")).toBeVisible();
+  expect(await phone.getByTestId("phone-more-sheet").evaluate((el) => el.contains(document.activeElement))).toBe(true);
+  await phone.keyboard.press("Escape");
+  await expect(phone.getByTestId("phone-more-sheet")).toHaveCount(0);
+
+  await phone.getByTestId("phone-more").tap();
+  await phone.getByTestId("scene-drawer").tap();
+  await expect(phone.getByTestId("scene-tree")).toBeVisible();
+  expect(await phone.getByTestId("scene-tree").evaluate((el) => el.contains(document.activeElement))).toBe(true);
+  await phone.keyboard.press("Escape");
+  await expect(phone.getByTestId("scene-tree")).toHaveCount(0);
+
+  // Switching mode (Player -> Scene via dock-scenes at 1024×768, and followed presenter Scene -> Player) automatically closes games-sheet.
+  await phone.setViewportSize({ width: 1024, height: 768 });
+  await phone.getByTestId("games-open").tap();
+  await expect(sheet).toBeVisible();
+  await phone.getByTestId("dock-scenes").tap();
+  await expect(sheet).toHaveCount(0);
+  await phone.getByTestId("scene-card").first().tap();
+  await expect(phone.getByTestId("player")).toHaveAttribute("data-state", "scene");
+
+  await phone.getByTestId("follow-presenter").tap();
+  await expect(phone.getByTestId("player")).toHaveAttribute("data-state", "match");
+  await phone.getByTestId("games-open").tap();
+  await expect(sheet).toBeVisible();
+  await revealControls(presenter, "mode-sandbox");
+  await presenter.getByTestId("mode-sandbox").click();
+  await expect(phone.getByTestId("player")).toHaveAttribute("data-state", "scene");
+  await expect(sheet).toHaveCount(0);
+
+  await ctx.close();
+  await follower.context().close();
+  await presenter.context().close();
+});

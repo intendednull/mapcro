@@ -6,6 +6,7 @@
 
 import { expect, test } from "./fixtures";
 import { dragToken, joinNew, tokenAt } from "./helpers";
+import { phoneContext } from "./phone-layout";
 import { Server, newBoardUrl } from "./server";
 import { activeBoard, boardOf, tabNames, tabParam, tabs, threeTabs as three } from "./session-helpers";
 
@@ -222,4 +223,60 @@ test("Ready.kind: a session's token on a board page, or a board's on a session p
   await page.goto(`${server.url}/s/${s.session}#${s.owner_token}`);
   await expect(page.getByTestId("session-empty")).toHaveText("No games");
   await expect(page.getByTestId("add-game")).toBeVisible();
+});
+
+test("touch Games sheet focuses on open, closes on Escape, and auto-closes across tab, mode, and layout switches (Pass 007 #2)", async ({ browser }) => {
+  const { page, a, b } = await threeTabs(browser);
+  const url = page.url();
+  const ctx = await phoneContext(browser, { width: 390, height: 844 });
+  const phone = await ctx.newPage();
+  await phone.goto(url);
+  await phone.locator("#join-name").fill("Mobile");
+  await phone.keyboard.press("Enter");
+  await expect(phone.getByTestId("board")).toHaveAttribute("data-layout", "phone");
+
+  const openBtn = phone.getByTestId("games-open");
+  const sheet = phone.getByTestId("games-sheet");
+
+  // Opening games-sheet moves focus inside the dialog so immediate Escape dismisses it and restores focus.
+  await openBtn.tap();
+  await expect(sheet).toBeVisible();
+  expect(await sheet.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+  await phone.keyboard.press("Escape");
+  await expect(sheet).toHaveCount(0);
+  expect(await phone.evaluate(() => document.activeElement?.getAttribute("data-testid"))).toBe("games-open");
+
+  // Switching board/tab (picking a row or peer removing the active tab) closes games-sheet.
+  await openBtn.tap();
+  await expect(sheet).toBeVisible();
+  await sheet.getByTestId("games-row").nth(0).getByTestId("games-pick").tap();
+  await expect(sheet).toHaveCount(0);
+  await expect.poll(() => activeBoard(phone)).toBe(boardOf(a));
+
+  await openBtn.tap();
+  await expect(sheet).toBeVisible();
+  await tabs(page).nth(0).getByTestId("tab-remove").click();
+  await expect.poll(() => activeBoard(phone)).toBe(boardOf(b));
+  await expect(sheet).toHaveCount(0);
+
+  // Switching mode (Scene -> Player via followed presenter) auto-closes games-sheet.
+  await tabs(page).nth(0).click();
+  await expect.poll(() => activeBoard(page)).toBe(boardOf(b));
+  const witness = await joinNew(browser, page.url(), "Witness");
+  await witness.getByTestId("follow-Coach").click();
+  await phone.getByTestId("follow-presenter").tap();
+  await openBtn.tap();
+  await expect(sheet).toBeVisible();
+  await page.getByTestId("mode-player").click();
+  await expect(phone.locator(".phone.phone-player")).toBeVisible();
+  await expect(sheet).toHaveCount(0);
+
+  // Leaving touch sheet layout (resizing above the touch sheet breakpoint) auto-closes games-sheet.
+  await openBtn.tap();
+  await expect(sheet).toBeVisible();
+  await phone.setViewportSize({ width: 1500, height: 900 });
+  await expect(phone.getByTestId("game-strip")).toBeVisible();
+  await expect(sheet).toHaveCount(0);
+
+  await ctx.close();
 });
