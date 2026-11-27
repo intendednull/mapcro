@@ -5,6 +5,7 @@ import { followable } from "../core/session";
 import type { PeerPresence } from "../gen/PeerPresence";
 import type { Viewport } from "../gen/Viewport";
 import { FIT_VIEW, MARGIN, type Viewpoint, viewToWorld, worldToView } from "../map/transform";
+import { slotKey } from "../match/timeline";
 
 export interface ViewRect {
   x: number;
@@ -16,6 +17,10 @@ export const FIT: ViewRect = { ...FIT_VIEW };
 export const MIN_W = 160; // the deepest zoom: about 6×
 /** The widest view: the map and its notes margin all round. */
 export const MAX_W = 1000 + 2 * MARGIN;
+/** Default zoom width when starting hero camera tracking from a wide view (2.5× zoom). */
+export const TRACK_DEFAULT_W = 400;
+/** Starting hero tracking when wider than this zooms in to `TRACK_DEFAULT_W`; narrower keeps current zoom. */
+export const TRACK_ZOOM_THRESHOLD_W = 480;
 
 /** Anyone with edit rights can be followed; view-only people can't (the server stamps roles).
  * In a session's tab, the session's role counts too (core/session.ts). */
@@ -141,4 +146,18 @@ export function fromViewport(p: Viewport | null, vp: Viewpoint): ViewRect {
   const w = (1000 * 1000) / p.zoom;
   const c = worldToView(p.center, vp);
   return clampView({ w, x: c.x - w / 2, y: c.y - w / 2 });
+}
+
+/** View centred on a world position at view width `w`, clamped to the board. */
+export function centerViewOnWorld(pos: { x: number; y: number }, w: number, vp: Viewpoint = "amber"): ViewRect {
+  const cw = Math.max(MIN_W, Math.min(MAX_W, w));
+  const c = worldToView(pos, vp);
+  return clampView({ x: c.x - cw / 2, y: c.y - cw / 2, w: cw });
+}
+
+/** Normalize a DOM `data-slot` value (e.g. `"Amber-0"` or `"amber-0"`) to canonical `slotKey`. */
+export function normalizeSlotKey(raw: string | null | undefined): string | undefined {
+  if (!raw) return undefined;
+  const m = /^(amber|sapphire)-(\d+)$/i.exec(raw.trim());
+  return m ? slotKey(m[1]!.toLowerCase(), Number(m[2]!)) : undefined;
 }

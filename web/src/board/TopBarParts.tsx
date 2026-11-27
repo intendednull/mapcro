@@ -103,17 +103,19 @@ export function PortraitSlot(
     unseen: boolean;
     /** Low health: the badge takes the critical card. */
     low?: boolean | undefined;
+    /** Camera is currently tracking this hero. */
+    tracked?: boolean | undefined;
     class?: string | false;
     /** The souls tab (`.tb-souls`): a button in Player, an editor in a scene. */
     souls: JSX.Element;
     children?: JSX.Element;
   } & Omit<JSX.HTMLAttributes<HTMLDivElement>, "class" | "children">,
 ) {
-  const [p, rest] = splitProps(props, ["team", "side", "roster", "art", "hero", "dead", "unseen", "low", "class", "souls", "children"]);
+  const [p, rest] = splitProps(props, ["team", "side", "roster", "art", "hero", "dead", "unseen", "low", "tracked", "class", "souls", "children"]);
   return (
     <div
       {...rest}
-      class={cx("tb-player", p.team.toLowerCase(), p.side, hasCard(p.art, p.hero) && "card-art", p.dead && "dead", p.unseen && "unseen", p.low && "health-low", p.class)}
+      class={cx("tb-player", p.team.toLowerCase(), p.side, hasCard(p.art, p.hero) && "card-art", p.dead && "dead", p.unseen && "unseen", p.low && "health-low", p.tracked && "tracked", p.class)}
       data-slot={`${p.team}-${p.roster.slot}`}
     >
       {p.souls}

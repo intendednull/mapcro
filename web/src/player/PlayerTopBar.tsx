@@ -50,6 +50,10 @@ export function PlayerTopBar(p: {
   compact?: boolean;
   /** A click on a hero's portrait focuses it on the map at t (Board's focusHero). */
   onFocus?: (team: string, slot: number) => void;
+  /** Currently camera-tracked hero slot key ("amber-0"). */
+  trackedHero?: () => string | undefined;
+  /** Double-click / double-tap on a hero's portrait toggles camera tracking. */
+  onTrackHero?: (slotKey: string) => void;
   /** A build-order row: seek the replay there. */
   onSeek?: (t: number) => void;
 }) {
@@ -58,6 +62,28 @@ export function PlayerTopBar(p: {
   // clicks are the scene bar's too (board/buildPanels.ts).
   const { openBuild, allBuilds, tabHeld } = p.host;
   const { popover, expanded, close: closeBuilds, toggleAll, toggle: toggleBuild, only: onlyBuild } = buildPanels(p.host, () => el);
+  // Double-click / double-tap portrait toggles camera tracking, suppresses duplicate 2nd ping,
+  // and closes BuildColumn if click 1 just opened it (spec §2.1).
+  let lastPortraitTap: { key: string; t: number; wasBuildOpen: boolean } | undefined;
+  const clickPortrait = (e: MouseEvent, team: "Amber" | "Sapphire", slotNum: number) => {
+    const key = slotKey(team, slotNum);
+    const now = performance.now();
+    const isDouble =
+      !e.shiftKey &&
+      lastPortraitTap?.key === key &&
+      now - lastPortraitTap.t < 350;
+    if (isDouble) {
+      const openedOnFirst = !lastPortraitTap!.wasBuildOpen && expanded(key);
+      lastPortraitTap = undefined;
+      if (openedOnFirst) closeBuilds();
+      p.onTrackHero?.(key);
+      return;
+    }
+    const wasBuildOpen = expanded(key);
+    lastPortraitTap = e.shiftKey ? undefined : { key, t: now, wasBuildOpen };
+    toggleBuild(key);
+    p.onFocus?.(team, slotNum);
+  };
   // The replay build's stat table (calculated stats) and the investment ladder's (match/stats.ts).
   const build = () => p.host.tl()?.build;
   const [statTable] = createResource(() => tableKeyFor(p.art.stats, build()) ?? false, key => loadStatTable(p.art.stats, key || null));
@@ -127,6 +153,7 @@ export function PlayerTopBar(p: {
               unseen={unseen()}
               // Low health swaps in the critical card (m_strIconHeroCardCritical), as the HUD does.
               low={low()}
+              tracked={p.trackedHero?.() === key}
               class={expanded(key) && "build-open"}
               data-hero={x()?.hero_id ?? ""}
               data-alive={x() ? String(!dead()) : "unknown"}
@@ -148,7 +175,7 @@ export function PlayerTopBar(p: {
                 <EyeIcon off />
               </span></Show>
               <Show when={x()}>
-                <button class="tb-focus" data-testid="focus-hero" title={`Inspect ${hero()?.name ?? label()}`} aria-label={`Inspect ${label()}${hero() ? `, ${hero()!.name}` : ""}`} aria-expanded={expanded(key)} aria-controls={`build-${t}-${s.slot.slot}`} onClick={() => { toggleBuild(key); p.onFocus?.(t, s.slot.slot); }} />
+                <button class="tb-focus" data-testid="focus-hero" title={`Inspect ${hero()?.name ?? label()}`} aria-label={`Inspect ${label()}${hero() ? `, ${hero()!.name}` : ""}`} aria-expanded={expanded(key)} aria-controls={`build-${t}-${s.slot.slot}`} onClick={(e) => clickPortrait(e, t, s.slot.slot)} />
               </Show>
               <Show when={dead() && x()?.respawn != null && respawn() != null}>
                 <span class="tb-respawn" data-testid="tb-respawn" data-respawn={Math.ceil(x()!.respawn!)} aria-label={`${label()} respawn, ${Math.ceil(x()!.respawn!)} s`}>
@@ -236,7 +263,8 @@ export function PlayerTopBar(p: {
             const x = barSlot(h);
             const dead = () => !!x()?.dead;
             const respawn = () => (dead() && x()?.respawn != null ? Math.ceil(x()!.respawn!) : null);
-            return <div class={cx(`tb-player ${t.toLowerCase()}`, dead() && "dead")} data-slot={`${t}-${s.slot.slot}`}>
+            const tracked = () => p.trackedHero?.() === key;
+            return <div class={cx(`tb-player ${t.toLowerCase()}`, dead() && "dead", tracked() && "tracked")} data-slot={`${t}-${s.slot.slot}`}>
               <HeroBadge art={p.art} slot={s.slot} hero={hero()} />
               <span class="phone-souls" data-testid="souls" data-souls={x()?.souls ?? "untracked"}>
                 <Show when={x()?.souls != null} fallback={"–"}><Souls n={x()!.souls!} /></Show>
@@ -244,8 +272,8 @@ export function PlayerTopBar(p: {
               <Show when={respawn() != null}>
                 <span class="phone-respawn" data-testid="tb-respawn" data-respawn={respawn()!}>{respawn()}</span>
               </Show>
-              <button class="phone-hero" data-testid="focus-hero" aria-label={`${hero()?.name ?? "Hero"} build`} aria-expanded={expanded(key)}
-                onClick={() => { toggleBuild(key); p.onFocus?.(t, s.slot.slot); }} />
+              <button class={cx("phone-hero", tracked() && "tracked")} data-slot={`${t}-${s.slot.slot}`} data-testid="focus-hero" aria-label={`${hero()?.name ?? "Hero"} build`} aria-expanded={expanded(key)}
+                onClick={(e) => clickPortrait(e, t, s.slot.slot)} />
             </div>;
           }}</For>
           <span class={`phone-total ${t.toLowerCase()}`} data-testid="team-souls" data-souls={known(t) ? total(t) : "untracked"}>

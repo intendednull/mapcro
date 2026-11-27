@@ -532,3 +532,14 @@
   .board-app .tb-host :is(.tb-build-resists, .tb-build-power) { font-size: 7px; gap: 1.5px; letter-spacing: -0.04em; }
   .board-app .tb-host .tb-build-abilities { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 3px; }
 }
+
+/* Camera-tracked hero portrait accent (spec #16) */
+.tb-player.tracked .tb-disc {
+  box-shadow: 0 0 0 calc(2.5 * var(--u)) var(--accent), 0 0 calc(8 * var(--u)) color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.phone-team .tb-player.tracked,
+.phone-hero.tracked {
+  outline: 1.5px solid var(--accent);
+  outline-offset: -1.5px;
+  border-radius: 8px;
+}

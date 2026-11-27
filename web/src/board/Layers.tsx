@@ -93,8 +93,8 @@ export function Layers(p: {
   laneEdges?: (lane: string) => { amber: number; sapphire: number } | undefined;
   /** Zoom scale (view width / 1000): tokens, tags and cursors keep their screen size. */
   k: number;
-  /** Select tool on empty map: pan by this much (view units). */
-  onPan: (dx: number, dy: number) => void;
+  /** Select tool on empty map: pan by this much (view units). `fromPinch` is true for 2-finger pinch drift. */
+  onPan: (dx: number, dy: number, fromPinch?: boolean) => void;
   /** Wheel: zoom about a point (view units); factor > 1 zooms out. */
   onZoom: (at: Pt, factor: number) => void;
   /** Phone: callouts as numbered pins, their text listed under the map. */
@@ -131,6 +131,16 @@ export function Layers(p: {
   focused?: () => { slot: string; n: number } | undefined;
   /** Player: a hero token's single click opens its panel (player/HeroCard.tsx). */
   onOpenHero?: (team: string, slot: number, token?: Element) => void;
+  /** Currently camera-tracked hero slot key ("amber-0"). */
+  trackedHero?: () => string | undefined;
+  /** Double-click / double-tap on a hero token toggles camera tracking. */
+  onTrackHero?: (slot: string) => void;
+  /** Player: whether a hero's HeroCard is already open. */
+  isCardOpen?: (slot: string) => boolean;
+  /** Player: close a hero's HeroCard. */
+  onCloseCard?: (slot: string) => void;
+  /** Scenes: notify Board while locally dragging hero token(s) and when dropped. */
+  onDragHero?: (dragging: Set<string> | undefined, dropped?: Set<string>) => void;
   /** A scene: a right click (no drag) on a hero's token opens its menu there (feedback #53). */
   onHeroMenu?: (player: RecordId, at: { x: number; y: number }, fromToken?: boolean) => void;
   /** Manual Doorman doorway placement state (two-step placement & link-second-door preview). */
@@ -433,6 +443,7 @@ export function Layers(p: {
   /** Pan by dragging: middle or right button anywhere, Space+drag, or a viewer's Look drag. */
   /** Pointers whose gesture is a pan: a second finger turns one into a pinch at any age. */
   const panning = new Set<number>();
+  let tokenTap: ((tok: Element, e: PointerEvent) => void) | undefined;
   const pan = (e: PointerEvent, onClick?: (at: Pt) => void) => {
     const svg = p.svg()!;
     panning.add(e.pointerId);
@@ -441,18 +452,24 @@ export function Layers(p: {
     const perPx = svg.viewBox.baseVal.width / svg.getBoundingClientRect().width;
     const at = svgPoint(svg, e);
     const first = { x: e.clientX, y: e.clientY };
+    const slop = e.pointerType === "touch" ? 10 : 4;
     let last = first;
     let far = 0;
+    let moved = false;
     track(
       e,
       (_, ev) => {
         far = Math.max(far, Math.hypot(ev.clientX - first.x, ev.clientY - first.y));
+        if (!moved) {
+          if (far < slop) return;
+          moved = true;
+        }
         p.onPan((ev.clientX - last.x) * perPx, (ev.clientY - last.y) * perPx);
         last = { x: ev.clientX, y: ev.clientY };
       },
       (_, ok) => {
         panning.delete(e.pointerId);
-        if (ok && far < (e.pointerType === "touch" ? 10 : 4)) onClick?.(at);
+        if (ok && !moved) onClick?.(at);
       },
     );
   };
@@ -943,7 +960,8 @@ export function Layers(p: {
       if ((e.target as Element).closest?.(".pl-skull[data-recap]")) return;
       if (!editor()) {
         if (onComment) return; // the comment handles its own click
-        pan(e); // Look: dragging the map pans
+        const tok = (e.target as Element).closest?.('.tok[data-slot]:not([data-fading="out"])') ?? undefined;
+        pan(e, tok ? () => tokenTap?.(tok, e) : undefined); // Look: dragging the map pans; tapping a token opens/tracks it
         return;
       }
       // Heroes, callouts and lane splits handle their own presses (Solid delegates those
@@ -1191,7 +1209,7 @@ export function Layers(p: {
       svg.removeEventListener("pointermove", trackHover);
       svg.removeEventListener("pointerleave", untrackHover);
     });
-    const untouch = touchGestures(svg, { onPan: (dx, dy) => p.onPan(dx, dy), onZoom: (at, k) => p.onZoom(at, k), isPan: (id) => panning.has(id), toView: (x, y) => svgPoint(svg, { clientX: x, clientY: y }) });
+    const untouch = touchGestures(svg, { onPan: (dx, dy, fromPinch) => p.onPan(dx, dy, fromPinch), onZoom: (at, k) => p.onZoom(at, k), isPan: (id) => panning.has(id), toView: (x, y) => svgPoint(svg, { clientX: x, clientY: y }) });
     onCleanup(untouch);
     svg.addEventListener("pointerdown", down);
     svg.addEventListener("pointermove", cursor);
@@ -1386,7 +1404,28 @@ export function Layers(p: {
           />
         )}
       </Show>
-      <Tokens editing={p.editing} state={st} art={p.art} vp={p.vp} scene={p.tokenScene ?? p.scene} tool={p.tool} k={p.k} svg={p.svg} selection={p.selection} setSelection={p.setSelection} onPress={clearObjects} frame={p.frame} focused={p.focused} onOpen={p.onOpenHero} />
+      <Tokens
+        editing={p.editing}
+        state={st}
+        art={p.art}
+        vp={p.vp}
+        scene={p.tokenScene ?? p.scene}
+        tool={p.tool}
+        k={p.k}
+        svg={p.svg}
+        selection={p.selection}
+        setSelection={p.setSelection}
+        onPress={clearObjects}
+        frame={p.frame}
+        focused={p.focused}
+        onOpen={p.onOpenHero}
+        trackedHero={p.trackedHero}
+        onTrackHero={p.onTrackHero}
+        isCardOpen={p.isCardOpen}
+        onCloseCard={p.onCloseCard}
+        onDragHero={p.onDragHero}
+        bindTap={(f) => (tokenTap = f)}
+      />
       <For each={othersPicks()}>
         {(x) => (
           <g class="picks" data-picks={x.peer.state!.name} style={{ "pointer-events": "none" }}>

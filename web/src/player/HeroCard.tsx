@@ -10,6 +10,7 @@
 // to click, so its panel can't open; one that leaves sight while open turns limited.
 
 import { Show, createMemo, createResource, onCleanup, onMount } from "solid-js";
+import { cx } from "../ui/cx";
 import type { Art } from "../map/pack";
 import { slotPlaceholder } from "../board/roster";
 import { slotKey } from "../match/save";
@@ -43,6 +44,12 @@ export function HeroCard(p: {
   /** Its stacking order among the open panels, and whether it is at the front (Escape's). */
   z: number;
   front: boolean;
+  /** Whether camera tracking is currently locked onto this hero. */
+  tracked?: boolean | undefined;
+  /** Toggle camera tracking for this hero. */
+  onTrack?: (() => void) | undefined;
+  /** Phone layout: starting tracking from the card auto-closes the card so the map stays unobstructed. */
+  phone?: boolean | undefined;
 }) {
   const player = createMemo(() => p.timeline.players.find((q) => q.team === p.open.team && q.slot === p.open.slot));
   const hero = () => p.art.heroes.get(player()?.hero_id ?? -1);
@@ -91,6 +98,27 @@ export function HeroCard(p: {
             <Show when={hero()?.portrait}>{(src) => <img src={src()} alt="" />}</Show>
             {/* The column below names the player and the hero. */}
             <span />
+            <Show when={p.onTrack}>
+              <Hover tip={() => <TagTip text={p.tracked ? "Stop tracking" : "Track hero"} />}>
+                <button
+                  type="button"
+                  class={cx("btn icon small hero-panel-track", p.tracked && "active")}
+                  data-testid="hero-card-track"
+                  aria-label={p.tracked ? "Stop tracking" : "Track hero"}
+                  aria-pressed={!!p.tracked}
+                  onClick={() => {
+                    const starting = !p.tracked;
+                    p.onTrack!();
+                    if (starting && p.phone) p.onClose();
+                  }}
+                >
+                  <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="12" cy="12" r="5" />
+                    <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+                  </svg>
+                </button>
+              </Hover>
+            </Show>
             <Hover tip={() => <TagTip text="Close (Esc)" />}><button type="button" class="btn small" data-testid="hero-card-close" aria-label="Close" onClick={() => p.onClose()}>×</button></Hover>
           </div>
           <BuildColumn limited={limited()} view={view} art={p.art} hero={hero()} name={name()} id={`hero-card-${pl().team}-${pl().slot}`} stats={stats.latest} ladder={ladder.latest} onSeek={p.onSeek} />

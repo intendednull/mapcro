@@ -662,6 +662,21 @@ svg[data-tool="select"] .pl-skull[data-recap] { pointer-events: auto; cursor: po
 .vision-mark > i { width: 8px; height: 8px; border-radius: 50%; background: var(--team-c); }
 .vision-mark small { color: var(--muted); font-size: 11px; }
 .vision-mark small::before { content: "· "; }
+/* Dismissible camera-tracking pill (spec #16): floats inside .map-controls on desktop and over .p-map on phone. */
+.track-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  color: var(--text);
+}
+.track-chip:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel));
+}
+.track-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--accent); }
+.track-dot[data-team="amber"] { background: var(--amber); }
+.track-dot[data-team="sapphire"] { background: var(--sapphire); }
+.p-track-chip { position: absolute; left: 8px; bottom: 8px; z-index: 25; pointer-events: auto; }
 .map-controls summary, .pl-source summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
 .map-controls summary::-webkit-details-marker, .pl-source summary::-webkit-details-marker { display: none; }
 .map-layers { position: relative; }

@@ -117,6 +117,18 @@ export function Tokens(p: {
    * Player's hero panel (player/HeroCard.tsx). */
   /** A token clicked under a match preview: its slot, and the token (its panel opens beside it, #48). */
   onOpen?: ((team: string, slot: number, token?: Element) => void) | undefined;
+  /** Currently camera-tracked hero slot key ("amber-0"). */
+  trackedHero?: (() => string | undefined) | undefined;
+  /** Double-click / double-tap on a token toggles camera tracking for that hero. */
+  onTrackHero?: ((slot: string) => void) | undefined;
+  /** Player: whether a hero's HeroCard is already open (so tap 2 only closes cards opened by tap 1). */
+  isCardOpen?: ((slot: string) => boolean) | undefined;
+  /** Player: close a hero's HeroCard (when tap 1 opened it and tap 2 starts tracking). */
+  onCloseCard?: ((slot: string) => void) | undefined;
+  /** Scenes: notify Board while locally dragging hero token(s) and when dropped, to suspend/re-center camera tracking. */
+  onDragHero?: ((dragging: Set<string> | undefined, dropped?: Set<string>) => void) | undefined;
+  /** Hands Layers a stationary-tap handler for view-only / phone Look mode (where Layers pans on pointerdown). */
+  bindTap?: ((tap: ((tok: Element, e: PointerEvent) => void) | undefined) => void) | undefined;
 }) {
   const [drag, setDrag] = createSignal<Drag | undefined>();
   const slots = createMemo(() => new Map(p.state.roster().map((s) => [s.id, s.slot])));
@@ -153,17 +165,78 @@ export function Tokens(p: {
   const live = () => p.frame.player();
   const editable = () => p.tool === "select" && (p.state.canEdit() && p.editing !== false) && !live();
 
+  // Double-tap timestamp for minimap hero tokens (spec §2.2: pointer capture on <svg> in Scenes
+  // prevents native DOM `dblclick` on <g class="tok">).
+  let lastTokTap: { key: string; t: number; openedCard: boolean } | undefined;
+  const DOUBLE_TAP_MS = 400;
+  createEffect(on([() => p.scene, live], () => { lastTokTap = undefined; }, { defer: true }));
+
+  const handleStationaryTap = (slot: Slot["slot"], tok: Element | undefined, shiftKey: boolean) => {
+    if (p.tool === "erase" || tok?.getAttribute("data-fading") === "out") {
+      lastTokTap = undefined;
+      return;
+    }
+    const k = slotKey(slot.team, slot.slot);
+    const now = performance.now();
+    if (live()) {
+      if (shiftKey) {
+        lastTokTap = undefined;
+        p.onOpen?.(slot.team.toLowerCase(), slot.slot, tok);
+        return;
+      }
+      if (lastTokTap && lastTokTap.key === k && now - lastTokTap.t < DOUBLE_TAP_MS) {
+        const opened = lastTokTap.openedCard;
+        lastTokTap = undefined;
+        if (opened) p.onCloseCard?.(k);
+        p.onTrackHero?.(k);
+        return;
+      }
+      const wasOpen = p.isCardOpen?.(k) ?? false;
+      p.onOpen?.(slot.team.toLowerCase(), slot.slot, tok);
+      lastTokTap = { key: k, t: now, openedCard: !wasOpen };
+      return;
+    }
+    if (shiftKey) {
+      lastTokTap = undefined;
+      return;
+    }
+    if (lastTokTap && lastTokTap.key === k && now - lastTokTap.t < DOUBLE_TAP_MS) {
+      lastTokTap = undefined;
+      p.onTrackHero?.(k);
+    } else {
+      lastTokTap = { key: k, t: now, openedCard: false };
+    }
+  };
+
+  if (p.bindTap) {
+    const bind = p.bindTap;
+    bind((tok, e) => {
+      if (e.button !== 0 || p.tool === "erase") {
+        lastTokTap = undefined;
+        return;
+      }
+      const pid = tok.getAttribute("data-player");
+      const pl = pid ? players().find((x) => x.id === pid) : undefined;
+      const slot = pl && slots().get(pl.state.slot);
+      if (slot) handleStationaryTap(slot, tok, e.shiftKey);
+      else lastTokTap = undefined;
+    });
+    onCleanup(() => bind(undefined));
+  }
+
   /** A click under a match preview: press and release within a few px, the map's own pan aside. */
   const click = (pl: Player, e: PointerEvent) => {
     const slot = slots().get(pl.state.slot);
-    if (!slot || !p.onOpen) return;
+    if (!slot || (!p.onOpen && !p.onTrackHero)) return;
     const from = { x: e.clientX, y: e.clientY };
     const tok = (e.target as Element | null)?.closest(".tok") ?? undefined;
     const up = (ev: PointerEvent) => {
       if (ev.pointerId !== e.pointerId) return;
       window.removeEventListener("pointerup", up, true);
       window.removeEventListener("pointercancel", up, true);
-      if (ev.type === "pointerup" && Math.hypot(ev.clientX - from.x, ev.clientY - from.y) < 6) p.onOpen!(slot.team.toLowerCase(), slot.slot, tok);
+      if (ev.type === "pointerup" && Math.hypot(ev.clientX - from.x, ev.clientY - from.y) < 6) {
+        handleStationaryTap(slot, tok, e.shiftKey);
+      }
     };
     window.addEventListener("pointerup", up, true);
     window.addEventListener("pointercancel", up, true);
@@ -179,6 +252,7 @@ export function Tokens(p: {
     p.onPress?.();
     const sel = p.selection();
     if (e.shiftKey) {
+      lastTokTap = undefined;
       // Shift-click adds a hero to the selection, or takes it out.
       const next = new Set(sel);
       if (next.has(pl.id)) next.delete(pl.id);
@@ -192,6 +266,17 @@ export function Tokens(p: {
       const from = posOf(id);
       return from ? [{ id, from }] : [];
     });
+    const dragKeys = new Set(
+      group.flatMap((g) => {
+        const rec = players().find((x) => x.id === g.id);
+        const sl = rec && slots().get(rec.state.slot);
+        return sl ? [slotKey(sl.team, sl.slot)] : [];
+      }),
+    );
+    const tok = (e.target as Element | null)?.closest(".tok") ?? undefined;
+    const pressedSlot = slots().get(pl.state.slot);
+    const fromClient = { x: e.clientX, y: e.clientY };
+    const slop = e.pointerType === "touch" ? 6 : 4;
     capture(svg, e.pointerId);
     const start = clampToMap(viewToWorld(svgPoint(svg, e), p.vp));
     setDrag({ player: pl.id, pointer: e.pointerId, group, start, delta: { x: 0, y: 0 }, moved: false });
@@ -199,6 +284,11 @@ export function Tokens(p: {
     const move = (ev: PointerEvent) => {
       const d = drag();
       if (!d || ev.pointerId !== d.pointer) return;
+      if (!d.moved && Math.hypot(ev.clientX - fromClient.x, ev.clientY - fromClient.y) < slop) return;
+      if (!d.moved) {
+        lastTokTap = undefined;
+        p.onDragHero?.(dragKeys);
+      }
       const at = clampToMap(viewToWorld(svgPoint(svg, ev), p.vp));
       const delta = { x: at.x - d.start.x, y: at.y - d.start.y };
       setDrag({ ...d, delta, moved: true });
@@ -211,11 +301,16 @@ export function Tokens(p: {
       svg.removeEventListener("pointermove", move);
       svg.removeEventListener("pointerup", up);
       svg.removeEventListener("pointercancel", up);
+      const dropped = ev.type === "pointerup" && d.moved;
       // The whole group lands as one transaction: one undo step.
-      if (ev.type === "pointerup" && d.moved)
+      if (dropped)
         p.state.edit(d.group.map((g) => ({ Set: { id: g.id, value: { PlayerPos: moved(g.from, d.delta) } } })));
       setDrag(undefined);
       p.state.presence({ drag: null, drag_group: [], focus: null });
+      if (d.moved) p.onDragHero?.(undefined, dropped ? dragKeys : undefined);
+      if (ev.type === "pointerup" && !d.moved && pressedSlot) {
+        handleStationaryTap(pressedSlot, tok, e.shiftKey);
+      }
     };
     svg.addEventListener("pointermove", move);
     svg.addEventListener("pointerup", up);
@@ -333,6 +428,7 @@ export function Tokens(p: {
           const flipped = smoothed(target, FLIP_MS, () => p.scene);
           const shown = () => flipped() ?? target();
           const selected = () => p.selection().has(pl().id);
+          const tracked = () => p.trackedHero?.() === slotKey(slot().team, slot().slot);
           const at = () => worldToView(shown(), p.vp);
           const home = () => worldToView(pl().state.pos, p.vp);
           const r = () => TOKEN_R * p.k;
@@ -408,7 +504,7 @@ export function Tokens(p: {
                 )}
               </Show>
               <g
-                class={cx("tok", team(), !alive() && "dead", !visible() && "ghost", selected() && "selected", (!!remoteDrag() || !!mine()) && "preview", !!mine() && "dragging")}
+                class={cx("tok", team(), !alive() && "dead", !visible() && "ghost", selected() && "selected", tracked() && "tracked", (!!remoteDrag() || !!mine()) && "preview", !!mine() && "dragging")}
                 transform={`translate(${at().x} ${at().y})`}
                 data-slot={`${slot().team}-${slot().slot}`}
                 data-player={pl().id}
@@ -436,6 +532,9 @@ export function Tokens(p: {
                   });
                 }}
               >
+                <Show when={tracked()}>
+                  <circle class="tok-track-ring" r={r() + 5.5 * p.k} />
+                </Show>
                 <Show when={selected()}>
                   <circle class="sel" r={r() + 5 * p.k} />
                 </Show>

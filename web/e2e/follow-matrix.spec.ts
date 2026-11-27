@@ -211,7 +211,7 @@ const at41 = async (a: Page, b: Page) => {
   await expect(b.getByTestId("match-clock")).toContainText("0:41 /");
 };
 const openInspect = async (p: Page) => {
-  if ((await inspected(p).count()) === 0) await p.locator('.tb-player[data-slot="Amber-0"] [data-testid=focus-hero]').click();
+  if ((await inspected(p).count()) === 0) await p.locator('.tb-player[data-slot="Amber-0"] [data-testid=souls-banner]').click();
   await expect(inspected(p)).toHaveCount(1);
 };
 /** A hero's token on the map, by its panel's slot key ("amber-0"). */
@@ -478,7 +478,7 @@ const ROWS: Row[] = [
     read: (p) => p.locator(".tb-player:has([data-testid=hero-build])").evaluateAll((els) => (els.length === 1 ? (els[0]!.getAttribute("data-slot") ?? "") : "none")),
     set: async (p, v) => {
       if (v !== "none") return openInspect(p);
-      if ((await inspected(p).count()) > 0) await p.locator('.tb-player[data-slot="Amber-0"] [data-testid=focus-hero]').click();
+      if ((await inspected(p).count()) > 0) await p.locator('.tb-player[data-slot="Amber-0"] [data-testid=souls-banner]').click();
     },
     own: "none",
     theirs: "Amber-0",
@@ -877,7 +877,7 @@ test("a build opened again opens with Effects and Build order closed", async ({ 
   await openInspect(a);
   await inspected(a).getByTestId("active-effects").locator(":scope > summary").click();
   await expect.poll(() => popover(a)).toBe("effects");
-  await a.locator('.tb-player[data-slot="Amber-0"] [data-testid=focus-hero]').click();
+  await a.locator('.tb-player[data-slot="Amber-0"] [data-testid=souls-banner]').click();
   await expect(inspected(a)).toHaveCount(0);
   await openInspect(a);
   await expect.poll(() => popover(a)).toBe("none");

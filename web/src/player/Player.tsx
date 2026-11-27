@@ -685,6 +685,7 @@ export function MapControls(p: {
   heals: boolean; crates: boolean;
   toggleHeals: () => void; toggleCrates: () => void;
   flip: () => void;
+  trackChip?: JSX.Element;
   phone?: boolean;
 }) {
   const h = p.host;
@@ -798,6 +799,7 @@ export function MapControls(p: {
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 2v11M2 10l3 3 3-3M11 14V3M8 6l3-3 3 3" /></svg>
       Flip map
     </button>
+    {p.trackChip}
     <VisionMark host={h} canVision={() => feat().vision} />
   </div>;
 }
