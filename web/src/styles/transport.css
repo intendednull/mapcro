@@ -104,7 +104,7 @@
 .board-app .dock > .pl-bar:has(> .pl-transport) > .pl-source { grid-area: src; justify-self: start; min-width: 0; max-width: 100%; }
 .board-app .dock .pl-transport > .pl-keys { grid-area: keys; gap: 12px; }
 .board-app .dock .pl-transport > .pl-scrub { grid-area: lane; }
-.board-app .dock .pl-transport > .pl-tail { grid-area: tail; justify-self: end; }
+.board-app .dock .pl-transport > .pl-tail { grid-area: tail; justify-self: end; min-width: 0; }
 
 .board-app .dock .pl-bar .pl-source > summary { height: 44px; max-width: 100%; box-sizing: border-box; overflow: hidden; padding: 0 14px; font-size: 13px; border-radius: 12px; color: var(--muted); }
 .board-app .dock .pl-keys .pl-play { width: 56px; min-width: 56px; height: 56px; box-shadow: 0 0 0 4px color-mix(in srgb, var(--brass) 14%, transparent), 0 2px 10px #0006; }
@@ -128,10 +128,22 @@
 .board-app .dock .pl-transport [data-testid=match-save] { height: 44px; padding: 0 16px; font-size: 13px; border-radius: 12px; }
 .board-app .dock .pl-transport [data-testid=match-reset] { height: 44px; padding: 0 12px; font-size: 13px; border-radius: 12px; }
 [data-testid=match-save].dirty { border-color: var(--accent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent); }
-.save-dirty-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-right: 6px; flex: none; }
+.save-dirty-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
+
+@container dock (width < 1040px) {
+  .board-app .dock > .pl-bar:has(> .pl-transport) { column-gap: 8px; padding-inline: 12px; }
+  .board-app .dock > .pl-bar:has(> .pl-transport) .pl-source .pl-head { left: 12px; }
+  .board-app .dock .pl-transport > .pl-keys { gap: 8px; }
+  .board-app .dock .pl-transport > .pl-tail { gap: 6px; }
+  .board-app .dock .pl-transport .match-clock { padding: 0 7px; font-size: 13.5px; }
+  .board-app .dock .match-clock .clock-of { font-size: 11px; }
+  .board-app .dock .pl-transport .pl-save-group { gap: 4px; }
+  .board-app .dock .pl-transport [data-testid=match-save] { padding: 0 10px; gap: 5px; font-size: 12px; }
+  .board-app .dock .pl-transport [data-testid=match-reset] { padding: 0 8px; font-size: 12px; }
+}
 
 /* Too narrow for one row: the keys take a centred row of their own, the rest goes under them. */
-@container dock (width < 840px) {
+@container dock (width < 880px) {
   .board-app .stage > .dock > .pl-bar[data-state=match] { min-height: 187px; }
   .board-app .dock > .pl-bar:has(> .pl-transport) {
     grid-template-columns: minmax(0, 1fr) auto;
@@ -210,16 +222,26 @@
   .board-app .dock .pl-keys .pl-step { width: min(32px, 16.5cqi); min-width: 0; height: min(32px, 16.5cqi); }
   .board-app .dock .pl-bar .pl-source > summary, .board-app .dock .pl-transport [data-testid=match-save], .board-app .dock .pl-transport [data-testid=match-reset] { height: 36px; }
   .board-app .dock .pl-transport .match-clock { height: 36px; font-size: 15px; line-height: 34px; }
-  @container dock (width < 840px) {
+  @container dock (width < 1040px) {
+    .board-app .dock .pl-transport .match-clock { font-size: 13.5px; }
+  }
+  @container dock (width < 880px) {
     .board-app .dock .pl-transport > .pl-keys { margin-bottom: 6px; }
   }
   /* Wide enough for the source, the keys and the clock on one row at these sizes. */
-  @container dock (720px <= width < 840px) {
+  @container dock (800px <= width < 880px) {
     .board-app .dock > .pl-bar:has(> .pl-transport) {
       grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
       grid-template-areas: "scene scene scene" "up up up" "note note note" "lane lane lane" "src keys tail";
     }
     .board-app .dock .pl-transport > .pl-keys { margin-bottom: 0; }
+  }
+  @container dock (720px <= width < 800px) {
+    .board-app .dock > .pl-bar:has(> .pl-transport):not(:has([data-testid=match-reset])) {
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      grid-template-areas: "scene scene scene" "up up up" "note note note" "lane lane lane" "src keys tail";
+    }
+    .board-app .dock > .pl-bar:has(> .pl-transport):not(:has([data-testid=match-reset])) .pl-transport > .pl-keys { margin-bottom: 0; }
   }
   @container dock (width < 480px) {
     .board-app .dock .pl-keys .pl-play.resume { width: min(44px, 23cqi); }

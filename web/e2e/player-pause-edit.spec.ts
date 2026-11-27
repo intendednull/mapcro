@@ -712,3 +712,165 @@ test("split ink + doorway Erase in paused Player preserves live-ink undo after P
   await p.keyboard.press("Control+z");
   await expect(p.locator(".ink")).toHaveCount(1);
 });
+
+test("desktop transport bar has zero overlap and zero overflow across viewports with paused Reset and dirty Save as scene (Pass 008 Finding #1)", async ({ browser }) => {
+  const url = await newBoardUrl(server, "Pause Edit Transport Fit");
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const p = await ctx.newPage();
+  await p.goto(url);
+  await p.locator("#join-name").fill("Coach");
+  await p.keyboard.press("Enter");
+  await expect(p.getByTestId("join-card")).toBeHidden();
+
+  await openReplay(p);
+  await scrubTo(p, 20);
+
+  const viewports = [
+    [1024, 600],
+    [1280, 600],
+    [1280, 800],
+    [1366, 650],
+    [1366, 768],
+    [1400, 900],
+    [1440, 900],
+    [1520, 900],
+    [1920, 1080],
+  ] as const;
+
+  const clocks = [
+    ["15:55", " / 25:14"],
+    ["1:05:12", " / 1:10:00"],
+  ] as const;
+
+  const auditTransport = async (w: number, h: number, dirty: boolean, clockLabel: string) => {
+    const res = await p.evaluate(({ w, h, dirty }) => {
+      const bar = document.querySelector<HTMLElement>('[data-testid="player"]')!;
+      const stage = document.querySelector<HTMLElement>(".stage")!;
+      const br = bar.getBoundingClientRect();
+      const sr = stage.getBoundingClientRect();
+      const selectors = [
+        [".pl-source > summary", "pl-source"],
+        ['[data-testid="match-time"]', "match-time"],
+        ['[data-testid="speed-down"]', "speed-down"],
+        ['[data-testid="match-back"]', "match-back"],
+        ['[data-testid="match-play"]', "match-play"],
+        ['[data-testid="match-forward"]', "match-forward"],
+        ['[data-testid="speed-up"]', "speed-up"],
+        ['[data-testid="match-clock"]', "match-clock"],
+        ...(dirty ? ([['[data-testid="match-reset"]', "match-reset"]] as const) : []),
+        ['[data-testid="match-save"]', "match-save"],
+      ] as const;
+
+      const items = selectors.map(([sel, id]) => {
+        const el = bar.querySelector<HTMLElement>(sel)!;
+        const r = el.getBoundingClientRect();
+        return {
+          id,
+          tag: el.tagName,
+          left: r.left,
+          right: r.right,
+          top: r.top,
+          bottom: r.bottom,
+          width: r.width,
+          height: r.height,
+          sw: el.scrollWidth,
+          cw: el.clientWidth,
+        };
+      });
+
+      const issues: string[] = [];
+      if (bar.scrollWidth > bar.clientWidth + 1) issues.push(`bar overflow (${bar.scrollWidth} > ${bar.clientWidth})`);
+      if (document.documentElement.scrollWidth > w) issues.push(`doc overflowX (${document.documentElement.scrollWidth} > ${w})`);
+      if (document.documentElement.scrollHeight > h) issues.push(`doc overflowY (${document.documentElement.scrollHeight} > ${h})`);
+
+      for (const it of items) {
+        if (it.left < Math.max(br.left, sr.left) - 0.5 || it.right > Math.min(br.right, sr.right, w) + 0.5) {
+          issues.push(`${it.id} horizontal out-of-bounds (${Math.round(it.left)}..${Math.round(it.right)})`);
+        }
+        if (it.top < Math.max(br.top, sr.top) - 0.5 || it.bottom > Math.min(br.bottom, sr.bottom, h) + 0.5) {
+          issues.push(`${it.id} vertical out-of-bounds (${Math.round(it.top)}..${Math.round(it.bottom)})`);
+        }
+        if (it.tag !== "INPUT" && it.sw > it.cw + 1) {
+          issues.push(`${it.id} clipped (${it.sw} > ${it.cw})`);
+        }
+      }
+
+      for (const el of [...bar.querySelectorAll<HTMLElement>("button:not(.pl-mark, .pl-tick), select, input:not([type=file]), .pl-source > summary, .match-clock, .match-tier, .pl-scene-label")].filter((e) => e.checkVisibility())) {
+        const r = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        if (!hit || !(el === hit || el.contains(hit))) {
+          issues.push(`${el.dataset.testid ?? el.className} covered by ${hit?.className || hit?.tagName}`);
+        }
+      }
+
+      for (let i = 0; i < items.length; i++) {
+        for (let j = i + 1; j < items.length; j++) {
+          const a = items[i]!;
+          const b = items[j]!;
+          const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+          const oy = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+          if (ox > 0.5 && oy > 0.5) {
+            issues.push(`${a.id} overlaps ${b.id} by ${Math.round(ox)}×${Math.round(oy)}px`);
+          }
+        }
+      }
+
+      const src = items.find((x) => x.id === "pl-source")!;
+      const speedDown = items.find((x) => x.id === "speed-down")!;
+      const play = items.find((x) => x.id === "match-play")!;
+      const speedUp = items.find((x) => x.id === "speed-up")!;
+      const clock = items.find((x) => x.id === "match-clock")!;
+      const save = items.find((x) => x.id === "match-save")!;
+      const reset = items.find((x) => x.id === "match-reset");
+      const playCenterOffset = Math.abs((play.left + play.width / 2) - (br.left + br.width / 2));
+      if (playCenterOffset > 1) issues.push(`match-play off center by ${playCenterOffset.toFixed(2)}px`);
+
+      const singleRow = Math.abs((speedUp.top + speedUp.height / 2) - (clock.top + clock.height / 2)) <= 4;
+      const gap = Math.round(clock.left - speedUp.right);
+      const srcTailGap = Math.round(clock.left - src.right);
+      return {
+        issues,
+        singleRow,
+        gap,
+        srcTailGap,
+        barW: Math.round(br.width),
+        barH: Math.round(br.height),
+        srcW: Math.round(src.width),
+        keysW: Math.round(speedUp.right - speedDown.left),
+        clockW: Math.round(clock.width),
+        resetW: reset ? Math.round(reset.width) : 0,
+        saveW: Math.round(save.width),
+        tailW: Math.round(save.right - clock.left),
+      };
+    }, { w, h, dirty });
+
+    expect(res.issues, `${w}×${h} dirty=${dirty} clock=${clockLabel}`).toEqual([]);
+    if (w >= 1440) {
+      expect(res.singleRow, `${w}×${h} stays single-row`).toBe(true);
+      expect(res.gap, `${w}×${h} clearance between speed-up and match-clock`).toBeGreaterThanOrEqual(8);
+    }
+    return res;
+  };
+
+  for (const dirty of [false, true] as const) {
+    if (dirty) {
+      await p.setViewportSize({ width: 1440, height: 900 });
+      await dragToken(p, "Amber-0", 0.58, 0.42);
+      await expect(p.getByTestId("match-reset")).toBeVisible();
+      await expect(p.getByTestId("match-save")).toHaveClass(/dirty/);
+      await expect(p.getByTestId("match-save")).toContainText("Save as scene");
+    }
+    for (const [w, h] of viewports) {
+      await p.setViewportSize({ width: w, height: h });
+      for (const [now, of] of clocks) {
+        await p.getByTestId("match-clock").evaluate((el, [nowText, ofText]) => {
+          el.querySelector(".clock-now")!.textContent = nowText;
+          el.querySelector(".clock-of")!.textContent = ofText;
+        }, [now, of] as const);
+        await auditTransport(w, h, dirty, `${now}${of}`);
+      }
+    }
+  }
+
+  await ctx.close();
+});
