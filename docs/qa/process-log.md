@@ -161,3 +161,23 @@ Pass 006 (`passes/2026-11-24-pass-006-r3-tooltips-100pct-deep.md`, Neon medium a
 ### Feedback loop triggered
 - **Cycle 2 complete:** All 70 web-testable Feature Map rows are now `deep`; only `FM-072` (desktop-app-only) and `FM-141` (protocol/release-feed gated) remain `auto-only`.
 - Open non-blocking backlog items from Cycle 2 Passes 005–006: Pass 005 Finding #1 (`FM-130` `ux-rough` Phone Session Scene vertical fold with match loaded, route to Argon) and Pass 006 Finding #1 (`FM-091` `bug-minor` raw `&amp;` entity in tooltip text).
+
+---
+
+## 2026-11-26 — Cycle 3 / Pass 007: Doorman Doorways R1+R2, Batches 1–3 & Touch/Stress Hunt (71/71 = 100% `deep`)
+
+### Pass 007 evaluation
+Pass 007 (`passes/2026-11-26-pass-007-cycle3-doorways-batches-stress.md`, Neon high against live prod `50c3041` + pack `6864-upgrades` with standard 6v6 replays `142815246` and `129738985`) ran on `tools/qa-browser/` v1.6 and passed **9/9 Goal 1 live checks** (Doorman doorways R1+R2 in Player & Scenes, Vision + `Last seen`, `Save scene`, `.mapcro` v7 `rows: 42` export + TD-162 matchless Landing UI import, full manual CRUD via `hero-menu`/`map-menu`/`door-menu`/`Select` drag/`Erase` + hover-`D`/undo-redo/reload, 2-user concurrent `Op::SetIf`, Phone `390×844` `44×44` `.pl-hit`; short-landscape elapsed-only clock `7ad68f3` across `615×344`/`667×375`/`844×390`; all Batches 1–3 fixes including `FM-091` Apollo `Riposte` T3 entity decoding, immediate scene-switch note save, follower teleporter pair hover, `TD-13` rift trooper hover priority, HeroPicker `takenBy` match names, `--me` top-bar rings, Sessions `TD-59` & `TD-153`, `TD-100` Patron Stage 2 independent of Health toggle, and Argon #8 Feedback context from saved scene) plus **2/3 Goal 2 stress charters clean** (parallel two-user rapid race stress converged with 100% bit-for-bit DOM parity; mixed multi-step undo/redo + full page reload recovery passed with 0 orphans/errors).
+- **Feature Map updated:** Added **`FM-057`** (Doorman doorways R1+R2 at `deep`) and updated 23 touched rows → **73 total rows: 71/71 web-testable rows = 100% `deep`**, `0` `smoke`, `2` `auto-only`, `0` `unmapped`.
+- **3 new findings caught during Goal 2 touch edge-viewport stress (`360×800`, `390×844`, `615×344`, `1024×768` `--touch`):**
+  1. **`bug-minor` (`FM-131`, `FM-112`, `FM-100`):** Short-landscape phone (`615×344 --touch`) Session Player `.p-top` overflows horizontally by `+73 px`, clipping `games-open` (`r: 628 > 615`) and pushing `Follow` (`follow-presenter`, `l: 648..708`) completely off-screen when a peer is presenting.
+  2. **`bug-minor` (`FM-015`, `FM-100`, `FM-130`):** Touch Session `Games` sheet (`[data-testid="games-sheet"]`, `role="dialog"`) never moves focus inside itself on open (`activeElement` stays `BODY`), rendering its `Escape` dismiss handler (`SessionView.tsx:644`) unreachable dead code; sheet stays stuck open across `Player → Scene` mode switches until `×` is tapped.
+  3. **`ux-rough` (`FM-131`, `FM-070`, `FM-132`):** Session Player `.p-top` crushes `match-tier` (`"Full replay"`) to `"F..."` / `"F.."` at `360×800 --touch` (plus presenter name `"C."`) and `1024×768 --touch` when the `Follow` chip is shown.
+- **v1.6 upgrades validated:** `resize <tab> <WxH>` worked cleanly across all 6 touch viewport resizes, and invoking `qa-browser.mjs` directly with system `node` after initial `start` enabled fast parallel two-user race testing.
+
+### Proposed upgrades for `tools/qa-browser/` v1.7+ (from Pass 007 Meta-Notes)
+1. **`click-at <tab> <x> <y>` & `rclick-at <tab> <x> <y>`:** Real `page.mouse.click` at viewport coordinates for map-canvas interactions (doorway placement, empty-map `map-menu`, comment placement) without synthetic `PointerEvent` capture failures or zoom workarounds.
+2. **`scrub <tab> <seconds|mm:ss>`:** Built-in range-slider setter returning the updated `match-clock` text.
+3. **`audit-layout <tab>`:** One-shot horizontal/vertical overflow & off-screen interactive element check (filtering horizontally scrollable `.events-chips` rows) so `.p-top` / `.pl-bar` clips surface automatically on every viewport sweep.
+4. **`offline <tab> on|off`:** Exposes Playwright `context.setOffline()` for Charter C offline-queue & durable reconnect exploratory passes.
+5. **Playbook false-positive guardrail:** Scope main-map DOM queries under `[data-testid="map"]` so `.mm-host.lite` scene-row hover thumbnails never masquerade as stale main-map objectives.
