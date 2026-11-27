@@ -1238,7 +1238,10 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
             </Show>
             <button class="btn ghost" data-testid="phone-match" onClick={() => {
               setPhoneSheet(undefined);
-              if (!inPlayer()) player.setMode("player");
+              if (!inPlayer()) {
+                stopFollowing("switched to Player");
+                player.setMode("player");
+              }
               const openSource = () => {
                 const d = phoneEl?.querySelector<HTMLDetailsElement>(".pl-source");
                 if (d) d.open = true;

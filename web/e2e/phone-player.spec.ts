@@ -695,6 +695,19 @@ for (const [width, height] of [[344, 615], [360, 800], [390, 844], [768, 1024], 
       expect(await p.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
     }
     await checkPhoneLayout(p);
+
+    // Tapping Edit on a match-saved Scene keeps .p-tools on one row and still fits the viewport.
+    await p.getByTestId("phone-edit").tap();
+    await expect(p.getByTestId("tool-draw")).toBeVisible();
+    await expect(p.locator(".p-rail")).toHaveCount(0);
+    expect(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    if (!landscape && height >= 800) {
+      expect(await p.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
+    }
+    await checkPhoneLayout(p);
+    await p.getByTestId("phone-edit").tap();
+    await expect(p.getByTestId("tool-draw")).toHaveCount(0);
+
     await saver.context().close();
     await ctx.close();
   });
@@ -802,6 +815,17 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 800 }
     await checkPhoneLayout(phone);
     await phone.getByTestId("p-sheet-close").tap();
     await expect(phone.getByTestId("phone-events-sheet")).toHaveCount(0);
+
+    // More -> Match from Scene switches to Player and opens .pl-source[open].
+    await phone.getByTestId("phone-more").tap();
+    await expect(phone.getByTestId("phone-more-sheet")).toBeVisible();
+    await phone.getByTestId("phone-match").tap();
+    await expect(phone.getByTestId("player")).toHaveAttribute("data-state", "match");
+    await expect(phone.locator(".pl-source[open]")).toBeVisible();
+    await phone.getByTestId("phone-more").tap();
+    await phone.getByTestId("scene-drawer").tap();
+    await phone.getByTestId("scene-card").first().tap();
+    await expect(phone.getByTestId("player")).toHaveAttribute("data-state", "scene");
 
     // Back to <time> returns to Player at the held timestamp.
     await expect(phone.getByTestId("mode-player")).toContainText("Back to 0:20");

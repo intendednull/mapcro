@@ -1108,13 +1108,17 @@ kbd {
 .phone .p-title h1 .clock { display: inline; font-size: inherit; margin-right: 6px; }
 /* The board's map is square, as everywhere (the art is drawn at 100% x 100%: a 50dvh-tall pane
    stretched it, 3:1 in landscape): the full width, or most of the height where that is less. */
-.phone:not(.phone-player) .p-map { width: min(100%, 70dvh, max(50dvh, calc(100dvh - 456px))); margin-inline: auto; }
+.phone:not(.phone-player) .p-map { width: min(100%, 70dvh, max(50dvh, calc(100dvh - 355px))); margin-inline: auto; }
+.phone:not(.phone-player):has(> .pl-bar) .p-map { width: min(100%, 70dvh, max(50dvh, calc(100dvh - 456px))); }
 .phone .p-map > .mm-host { width: 100%; height: 100%; }
 .phone .p-map-wrap > .map-controls { gap: 4px; margin: 0 0 4px; }
 .phone .p-map-wrap > .map-controls .btn { padding: 0 8px; }
 .phone .p-map-wrap > .map-controls .pl-vision { flex: 1 1 0; min-width: 0; }
 .phone .p-tools { margin-top: 4px; padding: 2px; gap: 4px; }
 .phone .p-tools, .phone .palette, .phone .ink-palette { flex-wrap: wrap; max-width: 100%; }
+.phone:not(.phone-player):has(> .pl-bar) .p-tools { justify-content: flex-start; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; touch-action: pan-x; }
+.phone:not(.phone-player):has(> .pl-bar) .p-tools > * { flex: none; }
+.phone:not(.phone-player):has(> .pl-bar) .p-tools :is(.palette, .ink-palette) { flex-wrap: nowrap; }
 .phone .map-layers-pop { max-width: calc(100vw - 24px); max-height: 45dvh; overflow-y: auto; }
 .phone:not(.phone-player) > .pl-bar { margin-top: auto; padding-bottom: 4px; }
 .phone .p-nav { padding: 4px 8px; }
@@ -1291,7 +1295,7 @@ kbd {
 .p-more .viewonly { align-self: flex-start; font-size: 12px; }
 
 @media (orientation: landscape) {
-  .phone:not(.phone-player) .p-map { width: min(100%, 65dvh); }
+  .phone:not(.phone-player) .p-map, .phone:not(.phone-player):has(> .pl-bar) .p-map { width: min(100%, 65dvh); }
   .phone .tb-host, .phone-roster { width: min(560px, calc(100% - 16px)); align-self: center; }
   /* Landscape: two panes over a one-row transport. */
   .phone.phone-player {
