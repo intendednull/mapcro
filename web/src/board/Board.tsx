@@ -30,7 +30,7 @@ import { createPlayerHost, playbackPresence } from "../player/host";
 import type { JobState } from "../player/api";
 import { tierOf } from "../match/timeline";
 import { ReplayPrompt } from "../player/ReplayPrompt";
-import { MarkerTips, TeleporterLink } from "../player/Camps";
+import { MarkerTips, TeleporterLink, objHealthScrubLabel } from "../player/Camps";
 import { markerStates } from "../player/markerStates";
 import { HoverLabels, hoverFromWire, hoverWire, localHover, setRemoteHover } from "../map/HoverLabel";
 import { UrnMark } from "../player/Urn";
@@ -48,7 +48,7 @@ import { MoreMenu, type MoreRow } from "./MoreMenu";
 import { openInAppHref } from "../core/applink";
 import { WINDOWS_APP_PORTABLE_URL, appUpdate, desktopAppLinks } from "../player/desktop";
 import { downloadBoard } from "../core/boardfile";
-import { Layers, calloutOrder } from "./Layers";
+import { type DragObjHealth, Layers, calloutOrder } from "./Layers";
 import { TOKEN_R, type TokenFrame } from "./Tokens";
 import { FRESH_BOARD, randomRosterOps, sceneMatchName } from "./roster";
 import { fromScene, sceneRecords } from "../mapstate/scene";
@@ -59,7 +59,7 @@ import type { More } from "../gen/More";
 import type { SceneState } from "../gen/SceneState";
 import { HeroPicker } from "./HeroPicker";
 import { defaultSplit, project, shiftEdges } from "../map/lanes";
-import { FIT_VIEW, clampToDisc, viewToWorld, worldToMap, worldToView } from "../map/transform";
+import { FIT_VIEW, clampToDisc, mapToView, viewToWorld, worldToMap, worldToView } from "../map/transform";
 import type { WorldPos } from "../gen/WorldPos";
 import { slotKey } from "../match/save";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
@@ -752,6 +752,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const [placingDoor, setPlacingDoor] = createSignal<PlacingDoor | undefined>();
   const [dragDoor, setDragDoor] = createSignal<DragDoor | undefined>();
   const [erasingDoors, setErasingDoors] = createSignal<Set<number>>(new Set());
+  const [dragObjHealth, setDragObjHealth] = createSignal<DragObjHealth | undefined>();
   const startPlaceDoorway = (team: "amber" | "sapphire", fromPos?: WorldPos) => {
     if (!state.canEdit() || inPlayer() || (phone() && !phoneEdit())) return;
     let door1: WorldPos | undefined;
@@ -802,6 +803,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     setPlacingDoor(undefined);
     setDragDoor(undefined);
     setErasingDoors(new Set<number>());
+    setDragObjHealth(undefined);
   });
   // Cancel doorway placement/drag on scene switch (remaining guards live below after `phone`/`phoneEdit`).
   /** Give up the keyboard focus a control holds, so the board's own keys work (operator,
@@ -1009,6 +1011,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       setPlacingDoor(undefined);
       setDragDoor(undefined);
       setErasingDoors(new Set<number>());
+      setDragObjHealth(undefined);
     }
   });
   // Cancel doorway placement/drag on tool switch, Player mode, phone view mode, lost edit access, or vanished/changed target.
@@ -1029,6 +1032,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     if (inPlayer() || !state.canEdit() || (phone() && !phoneEdit())) {
       setDragDoor(undefined);
       setErasingDoors(new Set<number>());
+      setDragObjHealth(undefined);
       return;
     }
     const dr = dragDoor();
@@ -1447,6 +1451,27 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const markerKeys = createMemo(() => p.art.model.markers.map((m) => m.key));
   const marks = markerStates({ ms: mapState, player: inPlayer, health: player.showHealth }, markerKeys);
   const markerStatus = marks.status;
+  const shownObjStatus = (k: string): ObjectiveStatus | undefined => {
+    const d = dragObjHealth();
+    if (d && d.key === k) return d.pct === 0 ? "Destroyed" : d.stage === 2 ? "Stage2" : "Active";
+    return markerStatus(k);
+  };
+  const shownObjHealth = (k: string): number | undefined => {
+    const d = dragObjHealth();
+    if (d && d.key === k) return d.pct > 0 ? d.pct : undefined;
+    return marks.health(k);
+  };
+  const scrubHover = (k: number) => {
+    const d = dragObjHealth();
+    if (!d) return undefined;
+    const m = p.art.model.markers.find((x) => x.key === d.key);
+    if (!m) return undefined;
+    const at = mapToView(m.at, viewpoint());
+    return {
+      ref: { kind: "marker" as const, id: m.key },
+      spot: { x: at.x, y: at.y, gap: 32 * k, text: objHealthScrubLabel(m.kind, d.pct, d.stage) },
+    };
+  };
   const mapControls = () => (<MapControls host={player} ms={mapState} heals={heals()} crates={crates()}
               toggleHeals={() => player.setShowHeals(!heals())}
               toggleCrates={() => player.setShowCrates(!crates())}
@@ -1506,9 +1531,10 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
                 onContextMenu: (e: MouseEvent) => e.preventDefault(),
               } as never}
               overlayClass={!state.canEdit() && "readonly"}
-              status={markerStatus}
-              // Replay tier, Health on: each objective's icon filled to its health (operator, 2026-11-08).
-              health={marks.health}
+              status={shownObjStatus}
+              // Replay tier or scene obj_health, Health on (or live vertical scrub): each objective's icon filled to its health.
+              health={shownObjHealth}
+              adjusting={(k) => dragObjHealth()?.key === k}
               waveT={splitOf}
               laneEdges={(k) => laneEdges().get(k)?.()}
               camp={marks.camp}
@@ -1557,6 +1583,11 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
                 setDragDoor={setDragDoor}
                 erasingDoors={erasingDoors}
                 setErasingDoors={setErasingDoors}
+                dragObjHealth={dragObjHealth}
+                setDragObjHealth={setDragObjHealth}
+                onEditObjHealth={() => {
+                  if (!player.showHealth()) player.setShowHealth(true);
+                }}
                 svg={overlay}
                 objectives={objectives}
                 markerStatus={markerStatus}
@@ -1597,7 +1628,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
               <Show when={inPlayer()}>
                 <EventPings host={player} art={p.art} vp={viewpoint()} />
               </Show>
-              <HoverLabels k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
+              <HoverLabels k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} override={() => scrubHover(Math.min(1, view().w / 1000) * (phone ? 1.4 : 1))} />
             </MapView>
             {phone && panelsView()}
           </div>

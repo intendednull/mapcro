@@ -109,6 +109,7 @@ export const SIGNALS: Record<string, Entries> = {
     placingDoor: ["local", "a gesture in progress: manual Doorman doorway placement"],
     dragDoor: ["local", "a gesture in progress: local door drag preview (doorman-doors.md Amendment #2)"],
     erasingDoors: ["local", "a gesture in progress: doorways being scrubbed by Erase"],
+    dragObjHealth: ["local", "a gesture in progress: local objective health vertical scrub preview (objective-health-edit.md §3.2)"],
     openComment: ["wired", "focus"],
     allOpen: ["personal", "the Comments toggle, per board on this device"],
     objSelection: ["local", "your selection: presence shows it as yours (picked)"],

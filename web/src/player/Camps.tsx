@@ -86,12 +86,21 @@ export function urnItemTip(u: UrnNow, t: number): string {
 export const URN_HOVER = "soul-urn";
 
 /** Objectives with health, by marker kind: what their label calls them. */
-const HEALTH_NAME: Partial<Record<Marker["kind"], string>> = { t1: "Guardian", t2: "Walker", barracks: "Base guardian", shrine: "Shrine", t3: "Patron", midboss: "Mid-Boss" };
+export const HEALTH_NAME: Partial<Record<Marker["kind"], string>> = { t1: "Guardian", t2: "Walker", barracks: "Base guardian", shrine: "Shrine", t3: "Patron", midboss: "Mid-Boss" };
 
 /** "Walker 62%": an objective with health and its health now, rounded; `undefined` unknown. */
 export function healthTip(kind: Marker["kind"], pct: number | undefined): string | undefined {
   const name = HEALTH_NAME[kind];
   return name && pct !== undefined ? `${name} ${Math.round(Math.max(0, Math.min(100, pct)))}%` : undefined;
+}
+
+/** Live scrub pill during vertical health drag (objective-health-edit.md §3.2; spec §4b short tags). */
+export function objHealthScrubLabel(kind: Marker["kind"], pct: number, stage?: 1 | 2): string {
+  const name = HEALTH_NAME[kind] ?? "Objective";
+  const rounded = Math.round(Math.max(0, Math.min(100, pct)));
+  if (rounded === 0) return kind === "midboss" ? `${name} · Cleared` : `${name} · Destroyed`;
+  if (kind === "t3" && stage === 2) return `${name} (Weakened) · ${rounded}%`;
+  return `${name} · ${rounded}%`;
 }
 
 /** What a marker's hover reads of the frame at t. */

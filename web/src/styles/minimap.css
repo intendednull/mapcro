@@ -107,7 +107,16 @@
 @property --hp { syntax: "<percentage>"; inherits: true; initial-value: 100%; }
 .mk[data-health] { transition: --hp var(--value-ease-ms) var(--ease-out-expo); }
 .mk > .hp-fill, .mk > .hp-core { transition: clip-path var(--value-ease-ms) var(--ease-out-expo); }
+/* Never ease what the user is moving (spec §4a; objective-health-edit.md §3.2). */
+.mk[data-adjusting="true"],
+.mk[data-adjusting="true"] > .hp-fill,
+.mk[data-adjusting="true"] > .hp-core { transition: none; }
 .mk[data-health] > .fb.hp-fb, .mk.stage2[data-health] > .fb.hp-core-fb { background: linear-gradient(to top, var(--c) var(--hp), color-mix(in srgb, var(--c) 22%, #000) var(--hp)); }
+
+/* Live vertical scrub dial on an objective marker (objective-health-edit.md §3.2). */
+.obj-hp-dial { pointer-events: none; }
+.obj-hp-dial-bg { fill: none; stroke: #0b1714cc; stroke-width: 4.5; vector-effect: non-scaling-stroke; }
+.obj-hp-dial-arc { fill: none; stroke: var(--c, var(--accent)); stroke-width: 3; stroke-linecap: round; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 3px #000c); }
 
 /* The Patron in stage 2: its shield (the arch) is down, the core fights on. */
 .mk.stage2 .st1 { display: none; }

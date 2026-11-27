@@ -2,14 +2,17 @@
 
 import { LIMITS } from "../gen/limits";
 import type { More } from "../gen/More";
+import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { Op } from "../gen/Op";
 import type { RecordId } from "../gen/RecordId";
 import { ROWS } from "../gen/rows";
 import type { WorldPos } from "../gen/WorldPos";
+import type { Marker } from "../map/model";
 import { clampToMap } from "../map/transform";
 import type { DoorNow } from "../match/timeline";
 import { BUILD_KEYS, WRITTEN, captured, moreBytes } from "./build";
-import { MAX_DOORS, decodeDoors, encodeDoors } from "./codec";
+import { MAX_DOORS, decodeCamps, decodeDoors, decodeObjHealth, encodeDoors, encodeObjHealth, isHealthKind } from "./codec";
+import type { FrameMarkers } from "./frame";
 
 /**
  * A pick of `hero` for a slot (`null`: no hero), from the hero picker.
@@ -318,4 +321,186 @@ export function clearTeamDoorsOps(ctx: SceneDoorContext, team: DoorTeam): Op[] {
   const next = cur.filter((d) => d.team !== team);
   if (next.length === cur.length) return [];
   return writeDoorsOps(ctx, next);
+}
+
+// ---- Objective health manual Scene edits (docs/specs/objective-health-edit.md §1.3) ----
+
+export type ObjHealthEntry = { pct: number; stage?: number };
+
+export interface SceneObjHealthContext {
+  scene: RecordId;
+  state: { id: RecordId; more: More | undefined } | undefined;
+  objectives: ReadonlyMap<string, { id: RecordId; status: ObjectiveStatus }>;
+  markers: FrameMarkers;
+  mint: () => RecordId;
+  /** Effective marker status (`ObjectiveState ?? baseline detail`), if already computed by the caller. */
+  shownStatus?: (key: string) => ObjectiveStatus | undefined;
+  written?: number;
+}
+
+const OBJ_HEALTH_ROWS = ROWS.obj_health.index + 1;
+
+const currentObjHealth = (
+  state: { more: More | undefined } | undefined,
+  markers: FrameMarkers,
+): Map<string, ObjHealthEntry | null> =>
+  captured(state?.more).obj_health ? decodeObjHealth(state?.more?.obj_health, markers) : new Map();
+
+function writeObjHealthOpsInternal(
+  ctx: Pick<SceneObjHealthContext, "scene" | "state" | "markers" | "mint" | "written">,
+  nextHealth: ReadonlyMap<string, ObjHealthEntry | null>,
+): { ops: Op[]; ok: boolean } {
+  const written = ctx.written ?? WRITTEN;
+  if (ROWS.obj_health.index >= written) return { ops: [], ok: true };
+  const res = encodeObjHealth(nextHealth, ctx.markers);
+  if (res.overflow) return { ops: [], ok: false };
+  const encoded = res.ints;
+  if (!ctx.state) {
+    if (encoded.length === 0) return { ops: [], ok: true };
+    const more: More = { rows: OBJ_HEALTH_ROWS, has_obj_health: true, obj_health: encoded };
+    if (moreBytes(more) > LIMITS.max_more_bytes) return { ops: [], ok: false };
+    return {
+      ops: [
+        {
+          Create: {
+            id: ctx.mint(),
+            record: { SceneState: { scene: ctx.scene, more } },
+          },
+        },
+      ],
+      ok: true,
+    };
+  }
+  const have = ctx.state.more ?? {};
+  const curRows = typeof have.rows === "number" && Number.isInteger(have.rows) ? have.rows : 0;
+  const needBumpRows = curRows < OBJ_HEALTH_ROWS;
+  const hadKey = have.obj_health !== undefined;
+  const wasCaptured = captured(have).obj_health;
+  if (encoded.length === 0 && !wasCaptured) return { ops: [], ok: true };
+  if (wasCaptured && !needBumpRows && sameDoorInts(have.obj_health, encoded)) return { ops: [], ok: true };
+  const ops: Op[] = [];
+  const expectVal = hadKey ? have.obj_health! : null;
+  // Emit clears first so raising `rows` never activates dormant `has_*` flags and stays within per-op caps.
+  if (needBumpRows) {
+    if (curRows === 0 && have.has_builds === true) {
+      ops.push({ Set: { id: ctx.state.id, value: { More: { key: "has_builds", value: null } } } });
+    }
+    for (const [flag, last] of DORMANT_FLAG_ROWS) {
+      if (flag !== "has_obj_health" && have[flag] === true && ROWS[last].index >= curRows) {
+        ops.push({ Set: { id: ctx.state.id, value: { More: { key: flag, value: null } } } });
+      }
+    }
+  }
+  // Write `obj_health` with `SetIf` on the observed value so concurrent peer edits are skipped
+  // instead of silently clobbering another coach's change.
+  if (encoded.length === 0) {
+    if (hadKey) {
+      ops.push({
+        SetIf: {
+          id: ctx.state.id,
+          expect: { More: { key: "obj_health", value: expectVal } },
+          value: { More: { key: "obj_health", value: null } },
+        },
+      });
+    }
+  } else if (!sameDoorInts(have.obj_health, encoded)) {
+    ops.push({
+      SetIf: {
+        id: ctx.state.id,
+        expect: { More: { key: "obj_health", value: expectVal } },
+        value: { More: { key: "obj_health", value: encoded } },
+      },
+    });
+  }
+  if (have.has_obj_health !== true) ops.push({ Set: { id: ctx.state.id, value: { More: { key: "has_obj_health", value: true } } } });
+  if (needBumpRows) ops.push({ Set: { id: ctx.state.id, value: { More: { key: "rows", value: OBJ_HEALTH_ROWS } } } });
+  // Preflight every intermediate `SceneState.more` state against `max_more_bytes` (matching server validation).
+  const sim: More = { ...have };
+  for (const op of ops) {
+    const mv = "Set" in op ? op.Set.value : "SetIf" in op ? op.SetIf.value : undefined;
+    if (mv && "More" in mv) {
+      if (mv.More.value === null) delete sim[mv.More.key];
+      else sim[mv.More.key] = mv.More.value;
+      if (moreBytes(sim) > LIMITS.max_more_bytes) return { ops: [], ok: false };
+    }
+  }
+  return { ops, ok: true };
+}
+
+/** Write a scene's `obj_health` map (preserving untouched `-1` unknown entries via `null`). */
+export function writeObjHealthOps(
+  ctx: Pick<SceneObjHealthContext, "scene" | "state" | "markers" | "mint" | "written">,
+  nextHealth: ReadonlyMap<string, ObjHealthEntry | null>,
+): Op[] {
+  return writeObjHealthOpsInternal(ctx, nextHealth).ops;
+}
+
+/** Clear stored `obj_health` triples for `keys` (e.g. when 1-click toggling an objective or Patron stage). */
+export function clearObjHealthOps(
+  ctx: Pick<SceneObjHealthContext, "scene" | "state" | "markers" | "mint" | "written">,
+  keys: Iterable<string>,
+): Op[] {
+  if (!ctx.state || !captured(ctx.state.more).obj_health) return [];
+  const cur = decodeObjHealth(ctx.state.more?.obj_health, ctx.markers);
+  let changed = false;
+  for (const k of keys) {
+    if (cur.delete(k)) changed = true;
+  }
+  if (!changed) return [];
+  return writeObjHealthOps(ctx, cur);
+}
+
+/**
+ * Set an objective's health (`0..100`, with optional Patron `stage: 1 | 2`) in one atomic transaction,
+ * coordinating `ObjectiveState` (`Active` / `Stage2` / `Destroyed`, including Mid-Boss cleared/revive)
+ * with `SceneState.more.obj_health`.
+ */
+export function setObjectiveHealthOps(
+  ctx: SceneObjHealthContext,
+  marker: Pick<Marker, "key" | "kind">,
+  pct: number,
+  explicitStage?: 1 | 2,
+): Op[] {
+  if (!isHealthKind(marker.kind)) return [];
+  const nextPct = Math.max(0, Math.min(100, Math.round(pct)));
+  const curHealth = currentObjHealth(ctx.state, ctx.markers);
+  const curObj = ctx.objectives.get(marker.key);
+  let curStatus: ObjectiveStatus | undefined;
+  if (ctx.shownStatus) {
+    curStatus = ctx.shownStatus(marker.key);
+  } else if (curObj !== undefined) {
+    curStatus = curObj.status;
+  } else if (marker.kind === "midboss" && captured(ctx.state?.more).camps) {
+    const camp = decodeCamps(ctx.state?.more?.camps, 0, ctx.markers).get(marker.key);
+    if (camp && camp.state !== "alive") curStatus = "Destroyed";
+  } else if (marker.kind === "t3" && curHealth.get(marker.key)?.stage === 2) {
+    curStatus = "Stage2";
+  }
+  const effBefore: ObjectiveStatus = curStatus ?? "Active";
+  const stage: 1 | 2 | undefined = marker.kind === "t3" ? (explicitStage ?? (curStatus === "Stage2" ? 2 : 1)) : undefined;
+  const targetStatus: ObjectiveStatus = nextPct === 0 ? "Destroyed" : stage === 2 ? "Stage2" : "Active";
+
+  const nextHealth = new Map(curHealth);
+  if (nextPct === 0) {
+    nextHealth.delete(marker.key);
+  } else if (marker.kind === "t3") {
+    if (nextPct === 100 && stage === 1) nextHealth.delete(marker.key);
+    else nextHealth.set(marker.key, { pct: nextPct, stage: stage! });
+  } else {
+    if (nextPct === 100) nextHealth.delete(marker.key);
+    else nextHealth.set(marker.key, { pct: nextPct });
+  }
+
+  const statusOps: Op[] = [];
+  if (curObj) {
+    if (curObj.status !== targetStatus) {
+      statusOps.push({ Set: { id: curObj.id, value: { ObjectiveStatus: targetStatus } } });
+    }
+  } else if (effBefore !== targetStatus && (targetStatus !== "Active" || effBefore === "Destroyed")) {
+    statusOps.push({ Create: { id: ctx.mint(), record: { ObjectiveState: { scene: ctx.scene, key: marker.key, status: targetStatus } } } });
+  }
+
+  const healthRes = writeObjHealthOpsInternal(ctx, nextHealth);
+  if (!healthRes.ok) return [];
+  return [...statusOps, ...healthRes.ops];
 }
