@@ -9,7 +9,7 @@ import { type Me, colorOf, commentsOpen, setCommentsOpen, hasJoined, inkOn, load
 import type { RecordId } from "../gen/RecordId";
 import { MapView } from "../map/MapView";
 import type { Art } from "../map/pack";
-import type { Viewpoint } from "../map/transform";
+import type { Pt, Viewpoint } from "../map/transform";
 import { Wordmark } from "../ui/Wordmark";
 import { DeadLink } from "../ui/DeadLink";
 import { formatClock, parseClock } from "../core/clock";
@@ -21,7 +21,25 @@ import { createBoardState } from "./state";
 import { resetBoardModules, resetVisit } from "./reset";
 import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { PeerPresence } from "../gen/PeerPresence";
-import { FIT, type FollowTarget, type ViewRect, clampView, fromViewport, locate, presenters, sideOf, startFollow, toViewport, zoomAt } from "./follow";
+import {
+  FIT,
+  type FollowTarget,
+  MAX_W,
+  MIN_W,
+  TRACK_DEFAULT_W,
+  TRACK_ZOOM_THRESHOLD_W,
+  type ViewRect,
+  centerViewOnWorld,
+  clampView,
+  fromViewport,
+  locate,
+  normalizeSlotKey,
+  presenters,
+  sideOf,
+  startFollow,
+  toViewport,
+  zoomAt,
+} from "./follow";
 import { CloneDialog, JUST_CLONED } from "./CloneDialog";
 import { type MapState, fromTimeline } from "../mapstate/state";
 import { playerPlace } from "../mapstate/shown";
@@ -50,7 +68,8 @@ import { WINDOWS_APP_PORTABLE_URL, appUpdate, desktopAppLinks } from "../player/
 import { downloadBoard } from "../core/boardfile";
 import { Layers, calloutOrder } from "./Layers";
 import { TOKEN_R, type TokenFrame } from "./Tokens";
-import { FRESH_BOARD, randomRosterOps, sceneMatchName } from "./roster";
+import { FRESH_BOARD, randomRosterOps, sceneMatchName, slotPlaceholder } from "./roster";
+import { modalOpen } from "../ui/modal";
 import { fromScene, sceneRecords } from "../mapstate/scene";
 import { decodeEdges } from "../mapstate/codec";
 import { clearTeamDoorsOps, pickHeroOps, resolveDoorIndex } from "../mapstate/edit";
@@ -294,6 +313,26 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   // ---- view and follow (spec §8): following mirrors a presenter's scene and viewport; any
   // change you make to what you see stops it, and following again is one click ----
   const [view, setView] = createSignal<ViewRect>(remembered?.view ? clampView(remembered.view) : FIT);
+  /** Camera-tracked hero slot key ("amber-0"), driving the presenter's viewport (spec #16). */
+  const [trackedHero, setTrackedHero] = createSignal<string | undefined>();
+  let trackGlide: { from: ViewRect; targetW: number; t0: number; duration: number } | undefined;
+  let trackRaf = 0;
+  let trackPendingZoom = false;
+  let lastTrackedViewPt: Pt | undefined;
+  let lastTrackedKey: string | undefined;
+  let lastTrackedVp: Viewpoint | undefined;
+  let localDraggingSlots: Set<string> | undefined;
+  const stopTracking = () => {
+    cancelAnimationFrame(trackRaf);
+    trackRaf = 0;
+    trackGlide = undefined;
+    trackPendingZoom = false;
+    lastTrackedViewPt = undefined;
+    lastTrackedKey = undefined;
+    lastTrackedVp = undefined;
+    setTrackedHero(undefined);
+  };
+  onCleanup(() => cancelAnimationFrame(trackRaf));
   if (inSession) {
     // A remembered scene that's gone takes its viewport and side with it: the board opens on
     // its first scene, fitted, as it would cold (§4.2). Checked once, when the board has caught
@@ -358,6 +397,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const nameOfPeer = (x: PeerPresence | undefined) => x?.state?.name || "them";
   /** `was`: their presence when last seen ("Follow again"), shown while they're looked for. */
   const follow = (peer: number, seat?: number, was?: PeerPresence, wasJoin?: number) => {
+    stopTracking();
     const joins = state.joined().n;
     const begun = startFollow(peer, seat, state.peerList(), joins, wasJoin ?? joins, state.myPeer(), Date.now());
     target = begun.target;
@@ -539,7 +579,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     const w = heroAt(team, n);
     if (!w) return;
     const v = view();
-    if (following() === undefined && v.w < FIT_VIEW.w - 0.5) {
+    if (following() === undefined && trackedHero() === undefined && v.w < FIT_VIEW.w - 0.5) {
       const c = worldToView(w, viewpoint());
       glideView({ x: c.x - v.w / 2, y: c.y - v.w / 2, w: v.w });
     }
@@ -625,6 +665,237 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const mapState = (): MapState => (inPlayer() ? matchState : sceneState);
   /** What the hero tokens draw: the frame and the viewer's choices over it. */
   const tokenFrame: TokenFrame = { ms: mapState, player: inPlayer, shown: player.shown, smooth: () => inPlayer() && player.continuous() };
+
+  // ---- hero camera tracking (spec #16): smooth entry/re-sight glide + synchronous lock, free
+  // zooming without breaking tracking, strict FOW anti-leak via playerPlace ----
+  const remoteTrackedPos = (key: string): WorldPos | undefined => {
+    const sc = scene()?.id;
+    if (!sc) return undefined;
+    const slot = state.roster().find((s) => slotKey(s.slot.team, s.slot.slot) === key);
+    if (!slot) return undefined;
+    const pl = state.playersIn(sc).find((x) => x.state.slot === slot.id);
+    if (!pl) return undefined;
+    for (const peer of state.peerList()) {
+      const s = peer.state;
+      if (!s?.drag || s.scene !== sc) continue;
+      if (s.drag.id === pl.id) return s.drag.pos;
+      if (s.drag_group?.includes(pl.id)) {
+        const lead = state.records[s.drag.id];
+        const from = lead && "PlayerState" in lead.record ? lead.record.PlayerState.pos : undefined;
+        if (from) return clampToDisc({ x: pl.state.pos.x + (s.drag.pos.x - from.x), y: pl.state.pos.y + (s.drag.pos.y - from.y) });
+      }
+    }
+    return undefined;
+  };
+  /** World position of the tracked hero. In Player, strictly from `playerPlace` (zero FOW leak). */
+  const trackedWorldPos = createMemo((): WorldPos | undefined => {
+    const key = trackedHero();
+    if (!key) return undefined;
+    if (inPlayer()) return playerPlace(matchState, key, player.shown());
+    return remoteTrackedPos(key) ?? sceneState.hero(key).last() ?? undefined;
+  });
+  const isTrackable = (key: string): boolean => (inPlayer() ? matchState.hero(key).present() : sceneState.hero(key).last() != null);
+  const stepTrackGlide = (now: number) => {
+    trackRaf = 0;
+    const g = trackGlide;
+    const key = untrack(trackedHero);
+    if (!g || !key) {
+      trackGlide = undefined;
+      return;
+    }
+    if (localDraggingSlots?.has(key)) {
+      trackGlide = undefined;
+      return;
+    }
+    const pos = untrack(trackedWorldPos);
+    if (!pos) {
+      trackGlide = undefined;
+      return;
+    }
+    const vp = untrack(viewpoint);
+    const k = Math.min(1, (now - g.t0) / g.duration);
+    const e = 1 - (1 - k) ** 3;
+    const goal = centerViewOnWorld(pos, g.targetW, vp);
+    setView(
+      clampView({
+        x: g.from.x + (goal.x - g.from.x) * e,
+        y: g.from.y + (goal.y - g.from.y) * e,
+        w: g.from.w + (goal.w - g.from.w) * e,
+      }),
+    );
+    if (k < 1) {
+      trackRaf = requestAnimationFrame(stepTrackGlide);
+    } else {
+      trackGlide = undefined;
+      setView(goal);
+    }
+  };
+  const scheduleTrackGlide = () => {
+    if (!trackRaf) trackRaf = requestAnimationFrame(stepTrackGlide);
+  };
+  const startTrackHero = (key: string) => {
+    if (!isTrackable(key)) return;
+    cancelAnimationFrame(gliding);
+    if (following() !== undefined) stopFollowing("tracked a hero");
+    const v = untrack(view);
+    const vp = untrack(viewpoint);
+    const pos = inPlayer()
+      ? untrack(() => playerPlace(matchState, key, player.shown()))
+      : untrack(() => remoteTrackedPos(key) ?? sceneState.hero(key).last() ?? undefined);
+    const targetW = v.w > TRACK_ZOOM_THRESHOLD_W ? TRACK_DEFAULT_W : v.w;
+    cancelAnimationFrame(trackRaf);
+    trackRaf = 0;
+    lastTrackedKey = key;
+    lastTrackedVp = vp;
+    if (pos) {
+      trackPendingZoom = false;
+      lastTrackedViewPt = worldToView(pos, vp);
+      trackGlide = { from: v, targetW, t0: performance.now(), duration: GLIDE_MS };
+    } else {
+      // Armed while hidden in FOW (Last seen OFF) or dead: hold camera without leaking position.
+      trackPendingZoom = v.w > TRACK_ZOOM_THRESHOLD_W;
+      lastTrackedViewPt = undefined;
+      trackGlide = undefined;
+    }
+    setTrackedHero(key);
+    if (trackGlide) scheduleTrackGlide();
+  };
+  const toggleTrackHero = (key: string) => {
+    if (trackedHero() === key) stopTracking();
+    else startTrackHero(key);
+  };
+  createEffect(() => {
+    const key = trackedHero();
+    if (!key) return;
+    const pos = trackedWorldPos();
+    const vp = viewpoint();
+    if (localDraggingSlots?.has(key)) return;
+    if (!pos) {
+      if (trackGlide) {
+        cancelAnimationFrame(trackRaf);
+        trackRaf = 0;
+        trackGlide = undefined;
+      }
+      return;
+    }
+    const newC = worldToView(pos, vp);
+    const prevC = lastTrackedViewPt;
+    const switchedKey = lastTrackedKey !== key;
+    const vpChanged = lastTrackedVp !== undefined && lastTrackedVp !== vp;
+    lastTrackedKey = key;
+    lastTrackedVp = vp;
+    lastTrackedViewPt = newC;
+
+    if (vpChanged) {
+      const targetW = trackGlide ? trackGlide.targetW : untrack(view).w;
+      cancelAnimationFrame(trackRaf);
+      trackRaf = 0;
+      trackGlide = undefined;
+      setView(centerViewOnWorld(pos, targetW, vp));
+      return;
+    }
+    if (trackGlide) {
+      scheduleTrackGlide();
+      return;
+    }
+    const cur = untrack(view);
+    const curCenter = { x: cur.x + cur.w / 2, y: cur.y + cur.w / 2 };
+    const jumpDist = prevC
+      ? Math.hypot(newC.x - prevC.x, newC.y - prevC.y)
+      : Math.hypot(newC.x - curCenter.x, newC.y - curCenter.y);
+    if (switchedKey || prevC === undefined || jumpDist > 40) {
+      const targetW = trackPendingZoom && cur.w > TRACK_ZOOM_THRESHOLD_W ? TRACK_DEFAULT_W : cur.w;
+      trackPendingZoom = false;
+      trackGlide = { from: cur, targetW, t0: performance.now(), duration: GLIDE_MS };
+      scheduleTrackGlide();
+      return;
+    }
+    setView(centerViewOnWorld(pos, cur.w, vp));
+  });
+  // Cancel tracking in Scenes when switching to a scene where the tracked hero is unplaced.
+  createEffect(() => {
+    const key = trackedHero();
+    if (!key || inPlayer()) return;
+    scene()?.id;
+    if (!sceneState.hero(key).last()) stopTracking();
+  });
+  const onDragHero = (dragging: Set<string> | undefined, dropped?: Set<string>) => {
+    localDraggingSlots = dragging;
+    const key = untrack(trackedHero);
+    if (!dragging && key && dropped?.has(key)) {
+      const pos = untrack(trackedWorldPos);
+      if (pos) {
+        const cur = untrack(view);
+        const vp = untrack(viewpoint);
+        lastTrackedViewPt = worldToView(pos, vp);
+        cancelAnimationFrame(trackRaf);
+        trackRaf = 0;
+        trackGlide = { from: cur, targetW: cur.w, t0: performance.now(), duration: 200 };
+        scheduleTrackGlide();
+      }
+    }
+  };
+  const handlePan = (dx: number, dy: number, fromPinch?: boolean) => {
+    if (fromPinch && untrack(trackedHero)) return;
+    if (!fromPinch && untrack(trackedHero)) stopTracking();
+    userView({ ...view(), x: view().x - dx, y: view().y - dy }, "panned the map");
+  };
+  const handleZoom = (at: Pt, factor: number) => {
+    cancelAnimationFrame(gliding);
+    stopFollowing("zoomed the map");
+    const key = untrack(trackedHero);
+    if (!key) {
+      setView(zoomAt(untrack(view), at, factor));
+      return;
+    }
+    trackPendingZoom = false;
+    const cur = untrack(view);
+    const nextW = Math.max(MIN_W, Math.min(MAX_W, cur.w * factor));
+    const pos = untrack(trackedWorldPos);
+    if (pos) {
+      if (trackGlide) {
+        trackGlide = { ...trackGlide, from: { ...trackGlide.from, w: nextW }, targetW: nextW };
+        stepTrackGlide(performance.now());
+      } else {
+        setView(centerViewOnWorld(pos, nextW, untrack(viewpoint)));
+      }
+    } else {
+      cancelAnimationFrame(trackRaf);
+      trackRaf = 0;
+      trackGlide = undefined;
+      setView(zoomAt(cur, { x: cur.x + cur.w / 2, y: cur.y + cur.w / 2 }, factor));
+    }
+  };
+  const trackedHeroInfo = createMemo(() => {
+    const key = trackedHero();
+    if (!key) return undefined;
+    const team = key.startsWith("amber") ? "amber" : "sapphire";
+    const slotNum = Number(key.split("-")[1]);
+    const h = mapState().hero(key);
+    const heroId = h.hero();
+    const hero = heroId != null ? p.art.heroes.get(heroId) : undefined;
+    const rosterSlot = state.roster().find((s) => slotKey(s.slot.team, s.slot.slot) === key);
+    const fallbackLabel = h.name() || rosterSlot?.slot.name.trim() || slotPlaceholder(team === "amber" ? "Amber" : "Sapphire", slotNum);
+    return { key, team, label: hero?.name ?? fallbackLabel };
+  });
+  const trackChip = () => (
+    <Show when={trackedHeroInfo()}>
+      {(info) => (
+        <button
+          type="button"
+          class="btn small track-chip"
+          data-testid="track-chip"
+          data-slot={info().key}
+          onClick={() => stopTracking()}
+          aria-label={`Stop tracking ${info().label}`}
+        >
+          <span class="track-dot" data-team={info().team} />
+          <span>Tracking {info().label}</span>
+          <span aria-hidden="true">×</span>
+        </button>
+      )}
+    </Show>
+  );
   /** The presenters in this board's room; and with them the session's on other tabs, whom the
    * chip offers too (sessions.md §9.3: a late joiner follows, and lands on the presenter's tab). */
   const presentersHere = createMemo(() => presenters(state.peerList(), state.myPeer(), followingHere()));
@@ -645,16 +916,54 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     return i < 0 ? "" : `scene ${i + 1}/${state.scenes().length}`;
   };
   onMount(() => {
+    let mouseClient: { x: number; y: number } | undefined;
+    const onPointerMove = (e: PointerEvent) => {
+      mouseClient = { x: e.clientX, y: e.clientY };
+    };
+    const matchSlotEl = (el: Element | null | undefined): string | undefined => {
+      if (!el) return undefined;
+      const tok = el.closest?.('.tok[data-slot]:not([data-fading="out"])');
+      if (tok) return normalizeSlotKey(tok.getAttribute("data-slot"));
+      const portrait = el.closest?.(".tb-player[data-slot], .phone-hero[data-slot]");
+      if (portrait) return normalizeSlotKey(portrait.getAttribute("data-slot"));
+      return undefined;
+    };
+    const hoveredHeroSlot = (): string | undefined => {
+      if (mouseClient) {
+        for (const el of document.elementsFromPoint(mouseClient.x, mouseClient.y)) {
+          if (el.closest?.(".hero-panel, .skull-recap, .ctx-menu, .dialog, .scrim, .tb-build-column")) return undefined;
+          const slot = matchSlotEl(el);
+          if (slot) return slot;
+        }
+      }
+      return matchSlotEl(document.querySelector('.tok[data-slot]:not([data-fading="out"]):hover, .tb-player[data-slot]:hover, .phone-hero[data-slot]:hover'));
+    };
     const key = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
-      if (e.key.toLowerCase() === "f" && !e.ctrlKey && !e.metaKey && !e.altKey && following() === undefined) {
-        const lead = presenterList()[0];
-        if (lead) followPresenter(lead.peer);
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      if (e.defaultPrevented || e.repeat || modalOpen()) return;
+      if (e.key.toLowerCase() === "f" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        const slot = hoveredHeroSlot();
+        if (slot && isTrackable(slot)) {
+          e.preventDefault();
+          toggleTrackHero(slot);
+          return;
+        }
+        if (following() === undefined) {
+          const lead = presenterList()[0];
+          if (lead) {
+            e.preventDefault();
+            followPresenter(lead.peer);
+          }
+        }
       }
     };
+    window.addEventListener("pointermove", onPointerMove, true);
     window.addEventListener("keydown", key);
-    onCleanup(() => window.removeEventListener("keydown", key));
+    onCleanup(() => {
+      window.removeEventListener("pointermove", onPointerMove, true);
+      window.removeEventListener("keydown", key);
+    });
   });
 
   onMount(() => {
@@ -821,9 +1130,26 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       if (e.key === "Escape") leaveControl();
       if (typing(e)) return;
       if (e.key === "Escape") {
+        const hasOverlay =
+          e.defaultPrevented ||
+          modalOpen() ||
+          !!dialog() ||
+          !!heroPick() ||
+          !!placingDoor() ||
+          !!skullRecap() ||
+          heroesShown().length > 0 ||
+          !!player.openBuild() ||
+          player.allBuilds() ||
+          !!phoneSheet() ||
+          sceneDrawer() ||
+          !!document.querySelector(".ctx-menu, .more-menu, .clear-pop, details.map-layers[open], details.pl-source[open]");
         setOpenComment(undefined);
         setSelection(new Set<RecordId>());
         setObjSelection(new Set<string>());
+        if (!hasOverlay && trackedHero() !== undefined) {
+          e.preventDefault();
+          stopTracking();
+        }
       }
       if (e.code === "Space") {
         e.preventDefault();
@@ -1283,8 +1609,8 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
         </h1>
       </div>
       </Show>
-      <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} ms={matchState} art={p.art} vp={viewpoint()} compact onFocus={focusHero} onSeek={seekMatch} />}>
-        <TopBar state={state} host={player} art={p.art} vp={viewpoint()} scene={scene()?.id} ms={sceneState} compact readOnly onPickHero={setHeroPick} onFocus={focusHero} />
+      <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} ms={matchState} art={p.art} vp={viewpoint()} compact onFocus={focusHero} trackedHero={trackedHero} onTrackHero={toggleTrackHero} onSeek={seekMatch} />}>
+        <TopBar state={state} host={player} art={p.art} vp={viewpoint()} scene={scene()?.id} ms={sceneState} compact readOnly onPickHero={setHeroPick} onFocus={focusHero} trackedHero={trackedHero} onTrackHero={toggleTrackHero} />
       </Show>
       <div class="p-map-wrap">
         <Show when={!inPlayer()}>{mapControls()}</Show>
@@ -1451,6 +1777,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
               toggleHeals={() => player.setShowHeals(!heals())}
               toggleCrates={() => player.setShowCrates(!crates())}
               flip={flipSide}
+              trackChip={phone() ? undefined : trackChip()}
               phone={phone()} />);
   /** The death recap and the hero panels (#35, #37): placed relative to the pane they are in
    * (panelPlace.ts `movable`, their offset parent). On a desktop that is the board area round
@@ -1480,6 +1807,9 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
                     onPress={() => player.raiseHeroPanel(slot)}
                     z={heroZ(slot)}
                     front={heroesShown().at(-1)?.slot === slot}
+                    tracked={trackedHero() === slot}
+                    onTrack={() => toggleTrackHero(slot)}
+                    phone={phone()}
                   />
                 )}
               </For>
@@ -1550,6 +1880,11 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
                 bindPing={(f) => (pingAt = f)}
                 focused={focused}
                 onOpenHero={openHero}
+                trackedHero={trackedHero}
+                onTrackHero={toggleTrackHero}
+                isCardOpen={(slot) => player.heroPanels().some((h) => h.slot === slot)}
+                onCloseCard={(slot) => player.closeHeroPanel(slot)}
+                onDragHero={onDragHero}
                 onHeroMenu={(id, at, fromToken) => heroMenu?.(id, at, fromToken)}
                 placingDoor={placingDoor}
                 setPlacingDoor={setPlacingDoor}
@@ -1579,8 +1914,8 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
                 openComment={openComment}
                 setOpenComment={setOpenComment}
                 compactCallouts={phone}
-                onPan={(dx, dy) => userView({ ...view(), x: view().x - dx, y: view().y - dy }, "panned the map")}
-                onZoom={(at, factor) => userView(zoomAt(view(), at, factor), "zoomed the map")}
+                onPan={handlePan}
+                onZoom={handleZoom}
               />
               <Show when={inPlayer() || mapState().has("rifts")}>
                 <RiftRings art={p.art} vp={viewpoint()} frame={tokenFrame} mk={Math.min(1, view().w / 1000)} />
@@ -1600,6 +1935,9 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
               <HoverLabels k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
             </MapView>
             {phone && panelsView()}
+            <Show when={phone && trackedHeroInfo()}>
+              <div class="p-track-chip">{trackChip()}</div>
+            </Show>
           </div>
   );
   // The desktop header's right side (spec §4b, The board header): at most 5 avatars (3 at 1440 px
@@ -1787,8 +2125,8 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
               </h1>
             </div>
           </div>
-          <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} ms={matchState} art={p.art} vp={viewpoint()} onFocus={focusHero} onSeek={seekMatch} />}>
-            <TopBar state={state} host={player} art={p.art} vp={viewpoint()} scene={scene()?.id} ms={sceneState} onPickHero={setHeroPick} onFocus={focusHero} bindMenu={(f) => (heroMenu = f)} onPlaceDoorway={startPlaceDoorway} onClearDoorways={clearTeamDoorways} />
+          <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} ms={matchState} art={p.art} vp={viewpoint()} onFocus={focusHero} trackedHero={trackedHero} onTrackHero={toggleTrackHero} onSeek={seekMatch} />}>
+            <TopBar state={state} host={player} art={p.art} vp={viewpoint()} scene={scene()?.id} ms={sceneState} onPickHero={setHeroPick} onFocus={focusHero} trackedHero={trackedHero} onTrackHero={toggleTrackHero} bindMenu={(f) => (heroMenu = f)} onPlaceDoorway={startPlaceDoorway} onClearDoorways={clearTeamDoorways} />
           </Show>
           {/* The map takes all the room left, as the largest square that fits. */}
           <div class="mapfit" ref={measureBoard} data-testid="board-area">

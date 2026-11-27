@@ -201,6 +201,10 @@
 .hero-panel-head { display: flex; align-items: center; gap: 8px; padding: 6px 6px 0 8px; font-size: 13px; }
 .hero-panel-head img { width: 24px; height: 24px; }
 .hero-panel-head span { flex: 1; }
+.hero-panel-track { width: 24px; height: 24px; padding: 0; }
+.hero-panel-track .ico { width: 14px; height: 14px; }
+.hero-panel-track.active { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--raised)); }
+.phone .hero-panel-track { width: auto; height: auto; }
 /* The Tab column's parts in flow, at the panel's reading sizes (#34): the top bar's Tab column
    keeps the HUD's scale. Text no smaller than 11 px; a centred column on one spacing step
    (4, 8, 12 px): K/D/A in three fixed columns, the investment bars a group under them, both on

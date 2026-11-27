@@ -100,6 +100,7 @@ export const SIGNALS: Record<string, Entries> = {
     seenProblems: ["local", "messages"],
     justCloned: ["local", "a message"],
     view: ["wired", "view"],
+    trackedHero: ["wired", "view: drives the presenter's viewport, which followers mirror through view"],
     following: ["wired", "following"],
     followedNow: ["wired", "following: the presenter's presence, or the last seen while they reconnect"],
     recheck: ["local", "a timer: looks for a reconnecting presenter again"],

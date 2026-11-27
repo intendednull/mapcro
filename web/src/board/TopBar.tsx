@@ -126,6 +126,10 @@ export function TopBar(p: {
   onPickHero?: (slot: RecordId) => void;
   /** A click on a hero's portrait focuses it on the map (Board's focusHero). */
   onFocus?: (team: string, slot: number) => void;
+  /** Currently camera-tracked hero slot key ("amber-0"). */
+  trackedHero?: () => string | undefined;
+  /** Double-click on a portrait or `hero-menu-track` toggles camera tracking. */
+  onTrackHero?: (slotKey: string) => void;
   /** Hands the board the hero menu, to open from a token's right click on the map (feedback
    * #53); `undefined` once this bar is gone. */
   bindMenu?: (open: ((player: RecordId, at: { x: number; y: number }, fromToken?: boolean) => void) | undefined) => void;
@@ -165,6 +169,28 @@ export function TopBar(p: {
   const hasBuilds = () => !p.compact && snap().builds;
   let el: HTMLDivElement | undefined;
   const panels = buildPanels(p.host, () => el, hasBuilds);
+  // Double-click / double-tap portrait toggles camera tracking, suppresses duplicate 2nd ping,
+  // and closes BuildColumn if click 1 just opened it (spec §2.1).
+  let lastPortraitTap: { key: string; t: number; wasBuildOpen: boolean } | undefined;
+  const clickPortrait = (e: MouseEvent, team: "Amber" | "Sapphire", slotNum: number, hasBuild: boolean) => {
+    const key = slotKey(team, slotNum);
+    const now = performance.now();
+    const isDouble =
+      !e.shiftKey &&
+      lastPortraitTap?.key === key &&
+      now - lastPortraitTap.t < 350;
+    if (isDouble) {
+      const openedOnFirst = hasBuild && !lastPortraitTap!.wasBuildOpen && panels.expanded(key);
+      lastPortraitTap = undefined;
+      if (openedOnFirst) panels.close();
+      p.onTrackHero?.(key);
+      return;
+    }
+    const wasBuildOpen = hasBuild && panels.expanded(key);
+    lastPortraitTap = e.shiftKey ? undefined : { key, t: now, wasBuildOpen };
+    if (hasBuild) panels.toggle(key);
+    p.onFocus?.(team, slotNum);
+  };
   // The snapshot's patch: its stat table (calculated stats) and investment ladder, as Player's.
   const patch = () => snap().patch;
   const [statTable] = createResource(() => (hasBuilds() && tableKeyFor(p.art.stats, patch())) || false, (key) => loadStatTable(p.art.stats, key || null));
@@ -294,6 +320,7 @@ export function TopBar(p: {
               hero={hero()}
               dead={!h.alive()}
               unseen={dimmed()}
+              tracked={p.trackedHero?.() === key}
               class={open() && "build-open"}
               title={portraitTitle(label(), hero())}
               onContextMenu={(e) => openMenu(e, slot, player, portraitTitle(label(), hero()))}
@@ -329,11 +356,7 @@ export function TopBar(p: {
                   aria-label={`${has() ? "Inspect" : "Show"} ${label()}${hero() ? `, ${hero()!.name}` : ""}`}
                   aria-expanded={has() ? open() : undefined}
                   aria-controls={has() ? `build-${t}-${slot.slot.slot}` : undefined}
-                  onClick={() => {
-                    // As Player's portrait: its build, and the hero shown on the map.
-                    if (has()) panels.toggle(key);
-                    p.onFocus?.(t, slot.slot.slot);
-                  }}
+                  onClick={(e) => clickPortrait(e, t, slot.slot.slot, has())}
                 />
               </Show>
               <Show when={editable()}>
@@ -478,6 +501,16 @@ export function TopBar(p: {
         },
       },
     ];
+    if (pl().state.placed && p.onTrackHero) {
+      const slotK = slotKey(m.slot.slot.team, m.slot.slot.slot);
+      items.push({
+        get label() {
+          return p.trackedHero?.() === slotK ? "Stop tracking" : "Track hero";
+        },
+        testid: "hero-menu-track",
+        run: () => p.onTrackHero!(slotK),
+      });
+    }
     if (heroIn(m) == null && p.onFocus) items.push({ label: "Show on the map", testid: "hero-menu-focus", run: () => p.onFocus!(m.slot.slot.team, m.slot.slot.slot) });
     items.push({ label: "Rename…", testid: "hero-menu-rename", run: () => rename(m.slot.id) });
     if (p.onPickHero) items.push({ label: heroIn(m) != null ? "Change hero…" : "Pick hero…", testid: "hero-menu-hero", run: () => p.onPickHero!(m.slot.id) });

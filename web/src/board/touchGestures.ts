@@ -19,8 +19,8 @@ type Finger = { x: number; y: number; x0: number; y0: number; t0: number; target
 export function touchGestures(
   svg: SVGSVGElement,
   q: {
-    /** View units, as the map's pan: positive moves the content right/down. */
-    onPan: (dx: number, dy: number) => void;
+    /** View units, as the map's pan: positive moves the content right/down. `fromPinch` is true during a 2-finger pinch. */
+    onPan: (dx: number, dy: number, fromPinch?: boolean) => void;
     /** About a point in view units; factor > 1 zooms out. */
     onZoom: (at: Pt, factor: number) => void;
     /** This pointer's gesture is a pan (nothing to commit). */
@@ -97,7 +97,7 @@ export function touchGestures(
     const d = Math.hypot(a.x - b.x, a.y - b.y);
     swallow(e);
     const perPx = svg.viewBox.baseVal.width / svg.getBoundingClientRect().width;
-    if (mid.x !== mid0.x || mid.y !== mid0.y) q.onPan((mid.x - mid0.x) * perPx, (mid.y - mid0.y) * perPx);
+    if (mid.x !== mid0.x || mid.y !== mid0.y) q.onPan((mid.x - mid0.x) * perPx, (mid.y - mid0.y) * perPx, true);
     if (d > 0 && d0 > 0 && d !== d0) q.onZoom(q.toView(mid.x, mid.y), d0 / d);
   };
 
