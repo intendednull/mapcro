@@ -171,11 +171,17 @@ export function SceneTree(p: {
       aria-label="Scenes"
       tabIndex={p.drawer ? -1 : undefined}
       onKeyDown={(e) => {
-        if (p.drawer && e.key === "Escape" && !renaming()) {
+        if (!p.drawer || e.key !== "Escape" || renaming()) return;
+        const t = e.target as HTMLElement | null;
+        if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) {
           e.preventDefault();
           e.stopPropagation();
-          p.onClose?.();
+          navEl.focus();
+          return;
         }
+        e.preventDefault();
+        e.stopPropagation();
+        p.onClose?.();
       }}
     >
       <div class="scenes-head">

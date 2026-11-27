@@ -685,7 +685,19 @@ export function SessionView(p: { session: string; token: string; tab: string | u
       gamesSheetEl = sheetEl;
       sheetEl.focus();
       const onKey = (e: KeyboardEvent) => {
-        if (e.key !== "Escape" || e.defaultPrevented || renaming() || menu() || modalOpen()) return;
+        if (
+          e.key !== "Escape" ||
+          e.defaultPrevented ||
+          renaming() ||
+          menu() ||
+          modalOpen() ||
+          document.querySelector(
+            ".ctx-menu, .more-menu, .clear-pop, details.map-layers[open]:not(.p-sheet *), details.pl-source[open], [data-testid=skull-recap]",
+          )
+        )
+          return;
+        const t = e.target as HTMLElement | null;
+        if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
         e.preventDefault();
         e.stopPropagation();
         closeGames(true);
@@ -707,13 +719,6 @@ export function SessionView(p: { session: string; token: string; tab: string | u
         role="dialog"
         aria-label="Games"
         tabIndex={-1}
-        onKeyDown={(e) => {
-          if (e.key === "Escape" && !renaming() && !menu()) {
-            e.preventDefault();
-            e.stopPropagation();
-            closeGames(true);
-          }
-        }}
       >
         <header class="games-sheet-head">
           <b>Games</b>

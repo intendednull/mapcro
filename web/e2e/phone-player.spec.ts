@@ -1009,6 +1009,38 @@ test("touch Session Player .p-top fits with match + presenting peer across edge 
     await expect(phone.getByTestId("follow-presenter")).toBeVisible();
   }
 
+  // At 615×344 WITHOUT a presenter (Session Player with match + no presenter), both games-open and match-tier remain visible and unclipped.
+  await phone.setViewportSize({ width: 615, height: 344 });
+  await follower.getByTestId("stop-following").click();
+  await expect(phone.getByTestId("follow-presenter")).toHaveCount(0);
+  await expect(phone.getByTestId("games-open")).toBeVisible();
+  await expect(phone.getByTestId("match-tier")).toBeVisible();
+  expect(await phone.locator(".p-top").evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
+  const noPresTier = (await phone.getByTestId("match-tier").boundingBox())!;
+  expect(noPresTier.x).toBeGreaterThanOrEqual(0);
+  expect(noPresTier.x + noPresTier.width).toBeLessThanOrEqual(615);
+  expect(noPresTier.width).toBeGreaterThanOrEqual(40);
+  await checkPhoneLayout(phone);
+
+  // Resume presenter and verify non-Session Player at 615×344 WITH presenter keeps match-tier visible and unclipped.
+  await follower.getByTestId("follow-Coach A").click();
+  await expect(phone.getByTestId("follow-presenter")).toBeVisible();
+  const boardPhone = await ctx.newPage();
+  await boardPhone.setViewportSize({ width: 615, height: 344 });
+  await boardPhone.goto(links[0]!);
+  await boardPhone.locator("#join-name").fill("BoardTouch");
+  await boardPhone.keyboard.press("Enter");
+  await expect(boardPhone.getByTestId("games-open")).toHaveCount(0);
+  await expect(boardPhone.getByTestId("match-tier")).toBeVisible();
+  await expect(boardPhone.getByTestId("follow-presenter")).toBeVisible();
+  expect(await boardPhone.locator(".p-top").evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
+  const boardTier = (await boardPhone.getByTestId("match-tier").boundingBox())!;
+  expect(boardTier.x).toBeGreaterThanOrEqual(0);
+  expect(boardTier.x + boardTier.width).toBeLessThanOrEqual(615);
+  expect(boardTier.width).toBeGreaterThanOrEqual(40);
+  await checkPhoneLayout(boardPhone);
+  await boardPhone.close();
+
   // Finding #2: games-sheet focus on open, immediate Escape close + focus restore, and auto-close on mode switch.
   await phone.setViewportSize({ width: 390, height: 844 });
   await phone.getByTestId("games-open").tap();
@@ -1018,6 +1050,34 @@ test("touch Session Player .p-top fits with match + presenting peer across edge 
   await phone.keyboard.press("Escape");
   await expect(sheet).toHaveCount(0);
   expect(await phone.evaluate(() => document.activeElement?.getAttribute("data-testid"))).toBe("games-open");
+
+  // Two-overlay Escape: when skull-recap and games-sheet are both open,
+  // first Escape closes only skull-recap, and second Escape closes games-sheet.
+  await scrubTo(phone, 31);
+  await phone.getByTestId("death-skull").tap();
+  await expect(phone.getByTestId("skull-recap")).toBeVisible();
+  await phone.getByTestId("games-open").tap();
+  await expect(sheet).toBeVisible();
+  await expect(phone.getByTestId("skull-recap")).toBeVisible();
+  await phone.keyboard.press("Escape");
+  await expect(phone.getByTestId("skull-recap")).toHaveCount(0);
+  await expect(sheet).toBeVisible();
+  await phone.keyboard.press("Escape");
+  await expect(sheet).toHaveCount(0);
+
+  // Pressing Escape inside Events search input inside PhoneSheet blurs the input without closing the sheet; second Escape closes the sheet.
+  await phone.getByTestId("phone-events").tap();
+  const eventsSheet = phone.getByTestId("phone-events-sheet");
+  await expect(eventsSheet).toBeVisible();
+  const searchInput = phone.getByTestId("events-search");
+  await searchInput.click();
+  await searchInput.fill("kill");
+  expect(await phone.evaluate(() => document.activeElement?.getAttribute("data-testid"))).toBe("events-search");
+  await phone.keyboard.press("Escape");
+  await expect(eventsSheet).toBeVisible();
+  expect(await phone.evaluate(() => document.activeElement?.getAttribute("data-testid"))).toBe("phone-events-sheet");
+  await phone.keyboard.press("Escape");
+  await expect(eventsSheet).toHaveCount(0);
 
   // Sibling touch sheets (Map layers, More, Scenes drawer) also focus on open and close on immediate Escape.
   await phone.getByTestId("phone-layers").tap();
@@ -1039,8 +1099,13 @@ test("touch Session Player .p-top fits with match + presenting peer across edge 
   await phone.keyboard.press("Escape");
   await expect(phone.getByTestId("scene-tree")).toHaveCount(0);
 
-  // Switching mode (Player -> Scene via dock-scenes at 1024×768, and followed presenter Scene -> Player) automatically closes games-sheet.
+  // Tapping dock-events or dock-scenes at 1024×768 landscape automatically closes games-sheet.
   await phone.setViewportSize({ width: 1024, height: 768 });
+  await phone.getByTestId("games-open").tap();
+  await expect(sheet).toBeVisible();
+  await phone.getByTestId("dock-events").tap();
+  await expect(sheet).toHaveCount(0);
+
   await phone.getByTestId("games-open").tap();
   await expect(sheet).toBeVisible();
   await phone.getByTestId("dock-scenes").tap();

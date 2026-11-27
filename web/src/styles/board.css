@@ -1242,13 +1242,13 @@ kbd {
 @media (max-width: 700px), (orientation: landscape) and (max-width: 1100px) {
   .phone.phone-player > .p-top:has(.games-open):has(.p-follow) { gap: 4px; padding: 0 6px; }
   .phone.phone-player > .p-top:has(.games-open):has(.p-follow) > .wordmark { display: none; }
-  .phone.phone-player > .p-top:has(.games-open):has(.p-follow) > .games-open { max-width: 92px; padding: 0 8px; gap: 4px; }
+  .phone.phone-player > .p-top:has(.p-follow) > .games-open { max-width: 92px; padding: 0 8px; gap: 4px; }
   .phone.phone-player > .p-top:has(.games-open):has(.p-follow) .pl-tier { padding: 2px 8px; }
   .phone.phone-player > .p-top:has(.games-open):has(.p-follow) > .p-follow { gap: 4px; padding: 0 4px 0 8px; }
   .phone.phone-player > .p-top:has(.games-open):has(.p-follow) > .p-follow button { padding: 0 8px; }
 }
 @media (max-width: 350px) {
-  .phone.phone-player > .p-top:has(.games-open):has(.p-follow) > .games-open { max-width: 82px; padding: 0 6px; }
+  .phone.phone-player > .p-top:has(.p-follow) > .games-open { max-width: 82px; padding: 0 6px; }
 }
 
 /* The match source opens from More, as a sheet on the transport. */
@@ -1418,8 +1418,11 @@ html:has(.phone) :is(input:not([type=range], [type=checkbox], [type=radio]), tex
     max-width: calc(100vw - 100dvh + var(--transport-h, 52px) - 174px);
   }
   .phone.phone-player > .p-top > .wordmark,
-  .phone.phone-player > .p-top:has(.games-open, .p-follow) > .pl-tier-wrap { display: none; }
-  .phone.phone-player > .p-top > .games-open { max-width: none; padding: 0 6px; gap: 4px; }
+  .phone.phone-player > .p-top:has(.games-open):has(.p-follow) > .pl-tier-wrap { display: none; }
+  .phone.phone-player > .p-top > .pl-tier-wrap { flex: 0 1 auto; }
+  .phone.phone-player > .p-top .pl-tier { padding: 2px 6px; }
+  .phone.phone-player > .p-top > .games-open,
+  .phone.phone-player > .p-top:has(.p-follow) > .games-open { max-width: 68px; padding: 0 6px; gap: 4px; }
   .phone.phone-player > .p-top > .games-open .games-count { padding: 0 5px; }
   .phone.phone-player > .p-top .save:is(.saved, .syncing) { max-width: 22px; padding: 0 4px; overflow: hidden; }
   .phone.phone-player > .p-top > .p-follow { height: 44px; gap: 4px; padding: 0; border: 0; background: transparent; flex: none; }

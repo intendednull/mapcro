@@ -1185,9 +1185,11 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
         if (!hasPopup) {
           if (sceneDrawer()) {
             e.preventDefault();
+            e.stopImmediatePropagation();
             setSceneDrawer(false);
           } else if (phoneSheet()) {
             e.preventDefault();
+            e.stopImmediatePropagation();
             setPhoneSheet(undefined);
           }
         }
@@ -1323,6 +1325,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const docked = () => inPlayer() && !phoneSheet() && landscape() && !player.openBuild() && !player.allBuilds() && !player.tabHeld();
   const sheet = () => phoneSheet() ?? (docked() ? "events" : undefined);
   const openSheet = (k: "events" | "layers" | "more") => {
+    inSession?.closeGames();
     if (phoneSheet() === k) return setPhoneSheet(undefined);
     setPhoneSheet(k);
     if (player.openBuild()) player.setOpenBuild(undefined);
@@ -1334,10 +1337,18 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   /** Landscape's dock tab: Events (the default), a build, or the scene list. */
   const dockEvents = () => batch(() => {
     setPhoneSheet(undefined);
+    setSceneDrawer(false);
+    inSession?.closeGames();
     if (player.openBuild()) player.setOpenBuild(undefined);
     if (player.allBuilds()) player.setAllBuilds(false);
   });
-  const dockBuild = () => batch(() => { setPhoneSheet(undefined); player.setAllBuilds(false); player.setOpenBuild(lastBuild()); });
+  const dockBuild = () => batch(() => {
+    setPhoneSheet(undefined);
+    setSceneDrawer(false);
+    inSession?.closeGames();
+    player.setAllBuilds(false);
+    player.setOpenBuild(lastBuild());
+  });
   // A build opened (a portrait, a token, or following) closes the other sheet: one at a time.
   createEffect(on(() => player.openBuild() || player.allBuilds(), (b) => {
     if (b) {
@@ -1346,6 +1357,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     }
   }, { defer: true }));
   createEffect(on(phoneSheet, (sh) => sh && inSession?.closeGames(), { defer: true }));
+  createEffect(on(() => heroPick() || dialog(), (d) => d && inSession?.closeGames(), { defer: true }));
   createEffect(on(inPlayer, () => {
     setPhoneSheet(undefined);
     setSceneDrawer(false);
@@ -1620,11 +1632,17 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
         aria-label={q.title}
         tabIndex={-1}
         onKeyDown={(e) => {
-          if (e.key === "Escape" && !docked() && !modalOpen()) {
+          if (e.key !== "Escape" || docked() || modalOpen()) return;
+          const t = e.target as HTMLElement | null;
+          if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) {
             e.preventDefault();
             e.stopPropagation();
-            setPhoneSheet(undefined);
+            el.focus();
+            return;
           }
+          e.preventDefault();
+          e.stopPropagation();
+          setPhoneSheet(undefined);
         }}
       >
         <header class="p-sheet-head">
@@ -1643,10 +1661,10 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
         <nav class="p-dock-tabs" role="tablist" aria-label="Panel">
           <button class="btn ghost" role="tab" data-testid="dock-events" aria-selected={sheet() === "events"} onClick={dockEvents}>Events</button>
           <button class="btn ghost" role="tab" data-testid="dock-build" aria-selected={!!player.openBuild()} disabled={!lastBuild()} onClick={dockBuild}>Build</button>
-          <button class="btn ghost" role="tab" data-testid="dock-scenes" aria-selected={sceneDrawer()} onClick={() => setSceneDrawer(true)}>Scenes</button>
+          <button class="btn ghost" role="tab" data-testid="dock-scenes" aria-selected={sceneDrawer()} onClick={() => { inSession?.closeGames(); setSceneDrawer(true); }}>Scenes</button>
           {/* Tab's stand-in on a tablet: the same all-builds state as the roster's toggle. */}
           <button class="btn ghost phone-all" data-testid="dock-all-builds" aria-pressed={player.allBuilds() || player.tabHeld()}
-            onClick={() => batch(() => { setPhoneSheet(undefined); player.setOpenBuild(undefined); player.setAllBuilds(!player.allBuilds()); player.setBuildPopover("none"); })}>All builds</button>
+            onClick={() => batch(() => { setPhoneSheet(undefined); setSceneDrawer(false); inSession?.closeGames(); player.setOpenBuild(undefined); player.setAllBuilds(!player.allBuilds()); player.setBuildPopover("none"); })}>All builds</button>
         </nav>
       </Show>
       <Show when={sheet() === "events"}>
