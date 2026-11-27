@@ -946,7 +946,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const onWide = () => setLandscape(wide.matches);
   wide.addEventListener("change", onWide);
   onCleanup(() => wide.removeEventListener("change", onWide));
-  const docked = () => !phoneSheet() && landscape() && !player.openBuild() && !player.allBuilds() && !player.tabHeld();
+  const docked = () => inPlayer() && !phoneSheet() && landscape() && !player.openBuild() && !player.allBuilds() && !player.tabHeld();
   const sheet = () => phoneSheet() ?? (docked() ? "events" : undefined);
   const openSheet = (k: "events" | "layers" | "more") => {
     if (phoneSheet() === k) return setPhoneSheet(undefined);
@@ -966,6 +966,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const dockBuild = () => batch(() => { setPhoneSheet(undefined); player.setAllBuilds(false); player.setOpenBuild(lastBuild()); });
   // A build opened (a portrait, a token, or following) closes the other sheet: one at a time.
   createEffect(on(() => player.openBuild() || player.allBuilds(), (b) => b && setPhoneSheet(undefined), { defer: true }));
+  createEffect(on(inPlayer, () => setPhoneSheet(undefined), { defer: true }));
   const [phone, setPhone] = createSignal(mq.matches);
   const onMq = () => setPhone(mq.matches);
   mq.addEventListener("change", onMq);
@@ -974,6 +975,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   let phoneEl: HTMLDivElement | undefined;
   createEffect(() => {
     if (!phone() || !(inPlayer() || player.matchId())) return;
+    const playing = inPlayer();
     landscape();
     let ro: ResizeObserver | undefined;
     const frame = requestAnimationFrame(() => {
@@ -981,17 +983,20 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       if (!bar || !phoneEl) return;
       const root = phoneEl;
       // The sheets stop at the roster's foot, so a second portrait swaps the hero in place.
-      const roster = root.querySelector<HTMLElement>(".phone-roster");
+      const roster = root.querySelector<HTMLElement>(".phone-roster, .tb-host");
+      const nav = root.querySelector<HTMLElement>(".p-nav");
       // On the root element: the game tooltip floats outside the board.
       const html = document.documentElement.style;
       ro = new ResizeObserver(() => {
-        html.setProperty("--transport-h", `${bar.offsetHeight}px`);
+        const navH = !playing && nav ? nav.offsetHeight : 0;
+        html.setProperty("--transport-h", `${bar.offsetHeight + navH}px`);
         // Landscape: under the dock's tab row.
         const foot = root.querySelector<HTMLElement>(".p-dock-tabs") ?? roster;
         if (foot) html.setProperty("--sheet-top", `${Math.round(foot.getBoundingClientRect().bottom)}px`);
       });
       ro.observe(bar);
       if (roster) ro.observe(roster);
+      if (nav) ro.observe(nav);
       const tabs = root.querySelector<HTMLElement>(".p-dock-tabs");
       if (tabs) ro.observe(tabs);
     });
@@ -1164,7 +1169,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     </Show>
   );
   /** Player's phone transport, row 2's end: Events, Map layers, More; or the tool rail. */
-  const rail = () => phoneEdit() || tool() === "laser";
+  const rail = () => inPlayer() && (phoneEdit() || tool() === "laser");
   const phoneTail = () => (
     <Show when={!rail()} fallback={
       <div class="p-rail" role="toolbar" aria-label="Tools">
@@ -1205,7 +1210,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   );
   const PlayerSheets = () => (
     <>
-      <Show when={landscape()}>
+      <Show when={inPlayer() && landscape()}>
         <nav class="p-dock-tabs" role="tablist" aria-label="Panel">
           <button class="btn ghost" role="tab" data-testid="dock-events" aria-selected={sheet() === "events"} onClick={dockEvents}>Events</button>
           <button class="btn ghost" role="tab" data-testid="dock-build" aria-selected={!!player.openBuild()} disabled={!lastBuild()} onClick={dockBuild}>Build</button>
@@ -1226,16 +1231,29 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       <Show when={phoneSheet() === "more"}>
         <PhoneSheet title="More" testid="phone-more-sheet">
           <div class="p-more">
-            <span class="viewonly" data-testid="role-chip">
-              {state.canEdit() ? "Can edit" : "View only"} · {teamName(viewpoint() === "sapphire" ? "sapphire" : "amber")} side
-            </span>
-            <button class="btn ghost" data-testid="phone-match" onClick={() => { setPhoneSheet(undefined); const d = phoneEl?.querySelector<HTMLDetailsElement>(".pl-source"); if (d) d.open = true; }}>Match</button>
-            <button class="btn ghost" data-testid="scene-drawer" onClick={() => { setPhoneSheet(undefined); setSceneDrawer(true); }}>Scenes</button>
-            <button class="btn ghost" data-testid="phone-laser" onClick={() => { setPhoneSheet(undefined); setTool("laser"); }}>Laser</button>
-            <Show when={state.canEdit()}>
-              <button class="btn ghost" data-testid="phone-edit" aria-pressed={phoneEdit()} onClick={() => { setPhoneSheet(undefined); setPhoneEdit(true); }}>Edit</button>
+            <Show when={inPlayer()}>
+              <span class="viewonly" data-testid="role-chip">
+                {state.canEdit() ? "Can edit" : "View only"} · {teamName(viewpoint() === "sapphire" ? "sapphire" : "amber")} side
+              </span>
             </Show>
-            <FeedbackButton variant="bar" match={feedbackMatch} />
+            <button class="btn ghost" data-testid="phone-match" onClick={() => {
+              setPhoneSheet(undefined);
+              if (!inPlayer()) player.setMode("player");
+              const openSource = () => {
+                const d = phoneEl?.querySelector<HTMLDetailsElement>(".pl-source");
+                if (d) d.open = true;
+              };
+              openSource();
+              requestAnimationFrame(openSource);
+            }}>Match</button>
+            <Show when={inPlayer()}>
+              <button class="btn ghost" data-testid="scene-drawer" onClick={() => { setPhoneSheet(undefined); setSceneDrawer(true); }}>Scenes</button>
+              <button class="btn ghost" data-testid="phone-laser" onClick={() => { setPhoneSheet(undefined); setTool("laser"); }}>Laser</button>
+              <Show when={state.canEdit()}>
+                <button class="btn ghost" data-testid="phone-edit" aria-pressed={phoneEdit()} onClick={() => { setPhoneSheet(undefined); setPhoneEdit(true); }}>Edit</button>
+              </Show>
+              <FeedbackButton variant="bar" match={feedbackMatch} />
+            </Show>
           </div>
         </PhoneSheet>
       </Show>
@@ -1287,7 +1305,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
         <TopBar state={state} host={player} art={p.art} vp={viewpoint()} scene={scene()?.id} ms={sceneState} compact readOnly onPickHero={setHeroPick} onFocus={focusHero} />
       </Show>
       <div class="p-map-wrap">
-        <Show when={!inPlayer()}>{mapControls()}</Show>
+        <Show when={!inPlayer() && !player.matchId()}>{mapControls()}</Show>
         {mapBox(true)}
         {/* Not over the join card (it would take the focus from your name). */}
         <Show when={joined()}>
@@ -1330,8 +1348,8 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
           {note()!.text}
         </p>
       </Show>
-      {playerBar(phoneTail())}
-      <Show when={inPlayer()}><PlayerSheets /></Show>
+      <Show when={inPlayer() || player.matchId()}>{playerBar(phoneTail())}</Show>
+      <Show when={inPlayer() || !!player.matchId()}><PlayerSheets /></Show>
       <Show when={!inPlayer()}>
       <nav class="p-nav" onPointerDown={swipe}>
         <div class="row">
@@ -1344,10 +1362,13 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
           <button class="btn" data-testid="p-next" disabled={sceneIndex() >= state.scenes().length - 1} onClick={() => flipBy(1)}>
             Next
           </button>
+          <button class="btn ghost p-scenes" data-testid="scene-drawer" onClick={() => setSceneDrawer(true)}>
+            Scenes
+          </button>
+          <Show when={!player.matchId()}>
+            <PlayerSwitch host={player} state={state} onSwitch={() => stopFollowing("switched to Player")} />
+          </Show>
         </div>
-        <button class="btn ghost p-scenes" data-testid="scene-drawer" onClick={() => setSceneDrawer(true)}>
-          Scenes
-        </button>
       </nav>
       </Show>
       <Show when={sceneDrawer()}>

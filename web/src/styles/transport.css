@@ -239,7 +239,11 @@
 .phone .pl-bar > * { grid-column: 1 / -1; }
 /* A scene from the match: its row heads the same bar. */
 .phone .pl-bar.scene { grid-template-areas: "scene scene scene" "scrub scrub scrub" "before keys after"; }
-.phone .pl-bar > .pl-scene-row { grid-area: scene; }
+.phone .pl-bar.scene:not(:has(> .pl-transport)) { grid-template-areas: "scene scene scene" "before keys after"; }
+.phone .pl-bar > .pl-scene-row { grid-area: scene; flex-wrap: nowrap; gap: 6px; min-width: 0; }
+.phone .pl-scene-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.phone .pl-scene-row > .spacer { flex: 1 1 0; min-width: 0; }
+.phone .pl-scene-row > .btn { flex: none; padding: 0 8px; }
 .phone .pl-transport > .pl-keys { grid-area: keys; gap: 8px; }
 .phone .pl-transport > .pl-scrub { --trk: 8px; --thumb: 24px; grid-area: scrub; height: 44px; margin-left: calc(var(--clock-w) + 8px); touch-action: none; }
 .phone .match-range { height: 44px; }
@@ -273,6 +277,8 @@
 @media (orientation: portrait) and (max-width: 480px) {
   .phone .pl-keys :is(.pl-step, .pl-speed) { display: none; }
   .phone .pl-bar:not(:has(.p-rail)) .pl-speed-list { display: block; }
+  .phone .pl-keys .pl-play.resume { width: 48px; padding: 0; border-radius: 50%; }
+  .phone .pl-play.resume .pl-play-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 }
 @media (orientation: portrait) and (min-width: 600px) {
   .phone .pl-bar:not(:has(.p-rail)) .pl-keys .pl-skip { display: inline-flex; }

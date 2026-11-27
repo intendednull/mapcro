@@ -20,8 +20,8 @@ test.beforeAll(async () => {
   await new Promise<void>((ok) => upstream.listen(0, "127.0.0.1", ok));
   const port = (upstream.address() as { port: number }).port;
   writeFileSync(join(queue, "feedback-token"), "synthetic-test-only", { mode: 0o600 });
-  // The viewport matrix creates about 40 boards; leave headroom above the production cap of 30.
-  server = new Server(pack({ cards: true, items: 12 }), { CREATE_PER_HOUR: "60", FEEDBACK_GITHUB_TOKEN_FILE: join(queue, "feedback-token"), FEEDBACK_GITHUB_API: `http://127.0.0.1:${port}`, MATCH_API_BASE: `http://127.0.0.1:${port}`, REPLAY_DIR: queue, REPLAY_PER_CLIENT_PER_HOUR: "60" });
+  // The viewport matrix creates over 60 boards; leave headroom above the production cap of 30.
+  server = new Server(pack({ cards: true, items: 12 }), { CREATE_PER_HOUR: "100", FEEDBACK_GITHUB_TOKEN_FILE: join(queue, "feedback-token"), FEEDBACK_GITHUB_API: `http://127.0.0.1:${port}`, MATCH_API_BASE: `http://127.0.0.1:${port}`, REPLAY_DIR: queue, REPLAY_PER_CLIENT_PER_HOUR: "100" });
   await server.start();
 });
 test.afterAll(() => {
@@ -655,7 +655,7 @@ for (const [width, height] of [[1440, 900], [1280, 768], [1024, 768]] as const) 
 }
 
 // A scene saved from the match, opened on a touch screen: the same bar under the scene's row.
-for (const [width, height] of [[344, 615], [390, 844], [768, 1024], [844, 390], [1024, 768]] as const) {
+for (const [width, height] of [[344, 615], [360, 800], [390, 844], [768, 1024], [844, 390], [1024, 768]] as const) {
   test(`a scene from the match on touch, ${width}×${height}`, async ({ browser }) => {
     const url = await newBoardUrl(server, "Touch scene");
     const ctx = await phoneContext(browser, { width, height });
@@ -691,8 +691,126 @@ for (const [width, height] of [[344, 615], [390, 844], [768, 1024], [844, 390], 
     const tabs = [await box("phone-events"), await box("phone-layers"), await box("phone-more")];
     expect(Math.max(...tabs.map((t) => t.y)) - Math.min(...tabs.map((t) => t.y))).toBeLessThanOrEqual(1);
     expect(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    if (!landscape && height >= 800) {
+      expect(await p.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
+    }
+    await checkPhoneLayout(p);
     await saver.context().close();
     await ctx.close();
+  });
+}
+
+for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 800 }] as const) {
+  test(`phone ${viewport.width}×${viewport.height} session Scene with match loaded and Feedback enabled fits viewport with working bottom controls (FM-130)`, async ({ browser }) => {
+    const links = [await newBoardUrl(server, "Match 129738985"), await newBoardUrl(server, "Game 2")];
+    const [, board, token] = /\/b\/([^#]+)#(.+)$/.exec(links[0]!)!;
+    const r = await fetch(`${server.url}/api/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Match 129738985", board, board_token: token }),
+    });
+    const s = (await r.json()) as { session: string; owner_token: string };
+    const url = `${server.url}/s/${s.session}#${s.owner_token}`;
+
+    const desk = await (await browser.newContext({ viewport: { width: 1500, height: 900 } })).newPage();
+    await desk.goto(url);
+    await desk.locator("#join-name").fill("Coach");
+    await desk.keyboard.press("Enter");
+    await desk.getByTestId("add-game").click();
+    await desk.getByTestId("add-paste").fill(links[1]!);
+    await desk.getByTestId("add-paste-go").click();
+    await expect(desk.getByTestId("game-tab")).toHaveCount(2);
+    await desk.getByTestId("game-tab").first().click();
+
+    const ctx = await phoneContext(browser, viewport, { hasTouch: true });
+    const phone = await ctx.newPage();
+    await phone.goto(url);
+    await phone.locator("#join-name").fill("Student");
+    await phone.keyboard.press("Enter");
+    await expect(phone.getByTestId("join-card")).toBeHidden();
+    await open(phone, String(129008000 + viewport.width));
+    await scrubTo(phone, 20);
+    await checkPhoneLayout(phone);
+
+    // Switch Player -> More -> Scenes -> Scene 1.
+    await phone.getByTestId("phone-more").tap();
+    await phone.getByTestId("scene-drawer").tap();
+    await expect(phone.getByTestId("scene-card")).toHaveCount(1);
+    await phone.getByTestId("scene-card").first().tap();
+    await expect(phone.locator(".phone:not(.phone-player)")).toBeVisible();
+    await expect(phone.getByTestId("player")).toHaveAttribute("data-state", "scene");
+
+    // Zero vertical and horizontal overflow on match-loaded Session Scene with Feedback enabled.
+    const fit = await phone.evaluate(() => ({
+      scrollH: document.documentElement.scrollHeight,
+      innerH: window.innerHeight,
+      scrollW: document.documentElement.scrollWidth,
+      innerW: window.innerWidth,
+    }));
+    expect(fit.scrollH).toBeLessThanOrEqual(fit.innerH);
+    expect(fit.scrollW).toBeLessThanOrEqual(fit.innerW);
+    await checkPhoneLayout(phone);
+
+    // Every header, tool, handoff, transport, and scene nav control sits inside the viewport bounds.
+    for (const id of [
+      "games-open",
+      "role-chip",
+      "feedback-open",
+      "tool-select",
+      "tool-laser",
+      "phone-edit",
+      "palette",
+      "pl-scene",
+      "mode-player",
+      "phone-events",
+      "phone-layers",
+      "phone-more",
+      "p-prev",
+      "p-next",
+      "scene-drawer",
+    ]) {
+      const b = (await phone.getByTestId(id).boundingBox())!;
+      expect(b.x, `${id} left`).toBeGreaterThanOrEqual(0);
+      expect(b.y, `${id} top`).toBeGreaterThanOrEqual(0);
+      expect(b.x + b.width, `${id} right`).toBeLessThanOrEqual(viewport.width);
+      expect(b.y + b.height, `${id} bottom`).toBeLessThanOrEqual(viewport.height);
+    }
+
+    // Edit expands .p-tools without duplicating .p-rail and still fits inside the viewport.
+    await phone.getByTestId("phone-edit").tap();
+    await expect(phone.getByTestId("tool-draw")).toBeVisible();
+    await expect(phone.locator(".p-rail")).toHaveCount(0);
+    expect(await phone.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
+    await checkPhoneLayout(phone);
+    await phone.getByTestId("phone-edit").tap();
+    await expect(phone.getByTestId("tool-draw")).toHaveCount(0);
+
+    // Map layers sheet opens cleanly above the handoff bar and toggles layers.
+    await phone.getByTestId("phone-layers").tap();
+    await expect(phone.getByTestId("phone-layers-sheet")).toBeVisible();
+    await checkPhoneLayout(phone);
+    await phone.getByTestId("health-toggle").tap();
+    await expect(phone.getByTestId("health-toggle")).toHaveAttribute("aria-pressed", "false");
+    await phone.getByTestId("health-toggle").tap();
+    await expect(phone.getByTestId("health-toggle")).toHaveAttribute("aria-pressed", "true");
+    await phone.getByTestId("p-sheet-close").tap();
+    await expect(phone.getByTestId("phone-layers-sheet")).toHaveCount(0);
+
+    // Events sheet opens cleanly above the handoff bar.
+    await phone.getByTestId("phone-events").tap();
+    await expect(phone.getByTestId("phone-events-sheet")).toBeVisible();
+    await checkPhoneLayout(phone);
+    await phone.getByTestId("p-sheet-close").tap();
+    await expect(phone.getByTestId("phone-events-sheet")).toHaveCount(0);
+
+    // Back to <time> returns to Player at the held timestamp.
+    await expect(phone.getByTestId("mode-player")).toContainText("Back to 0:20");
+    await phone.getByTestId("mode-player").tap();
+    await expect(phone.getByTestId("player")).toHaveAttribute("data-state", "match");
+    await expect(phone.getByTestId("match-clock")).toContainText("0:20 /");
+
+    await ctx.close();
+    await desk.context().close();
   });
 }
 

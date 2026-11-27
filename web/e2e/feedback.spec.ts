@@ -425,6 +425,8 @@ test("phone 390×844 session Player .p-top and More feedback fit with match load
   expect(sceneFbBox.x + sceneFbBox.width).toBeLessThanOrEqual(390);
   expect(sceneFbBox.width).toBeGreaterThanOrEqual(44);
   expect(sceneFbBox.height).toBeGreaterThanOrEqual(44);
+  expect(await phone.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
+  expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await checkPhoneLayout(phone);
 
   await ctx.close();

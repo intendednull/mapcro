@@ -93,6 +93,15 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 800 }
     expect(h1Box.y + h1Box.height).toBeLessThanOrEqual(discBox.y);
     const toolsBox = (await phone.locator(".p-tools").boundingBox())!;
     expect(Math.abs(toolsBox.x + toolsBox.width / 2 - viewport.width / 2)).toBeLessThanOrEqual(2);
+    if (viewport.height >= 800 && viewport.width < viewport.height) {
+      expect(await phone.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
+      expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      for (const id of ["tool-select", "tool-laser", "phone-edit", "palette", "p-prev", "p-next", "scene-drawer", "mode-player"]) {
+        const b = (await phone.getByTestId(id).boundingBox())!;
+        expect(b.y + b.height, id).toBeLessThanOrEqual(viewport.height);
+        expect(b.x + b.width, id).toBeLessThanOrEqual(viewport.width);
+      }
+    }
     await phone.getByTestId("phone-edit").tap();
     await phone.getByTestId("tool-select").tap();
     await phone.getByTestId("map").scrollIntoViewIfNeeded();

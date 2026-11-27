@@ -106,10 +106,14 @@ export async function revealControls(page: Page, id: string) {
   const where = SOURCE.includes(id) ? ".pl-source" : LAYERS.includes(id) ? ".map-layers" : undefined;
   if (!where) throw new Error(`revealControls: no known place for ${id}`);
   const details = page.locator(where);
-  // Player on a phone: the match source opens from More.
+  // Player on a phone: the match source opens from More; Map layers opens from the transport's sheet button.
   if (where === ".pl-source" && (await page.locator(".phone-player").count()) && !(await details.evaluate(el => (el as HTMLDetailsElement).open))) {
     await page.getByTestId("phone-more").click();
     await page.getByTestId("phone-match").click();
+    return;
+  }
+  if (where === ".map-layers" && !(await details.count()) && (await page.getByTestId("phone-layers").count())) {
+    await page.getByTestId("phone-layers").click();
     return;
   }
   if (!(await details.evaluate(el => (el as HTMLDetailsElement).open))) await details.locator(":scope > summary").click();
