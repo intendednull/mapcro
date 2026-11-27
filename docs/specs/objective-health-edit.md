@@ -210,7 +210,7 @@ On desktop, right-clicking (`e.button === 2`, stationary release `< 4 px`) on an
 1. **Unit tests (`web/test/mapstate.test.ts`):**
    - `setObjectiveHealthOps` on a blank scene (no `SceneState` yet) creates `SceneState` with `rows: 33, has_obj_health: true, obj_health: [hash, pct, -1]`.
    - `setObjectiveHealthOps` on an existing `SceneState` with `rows < 33` clears any dormant flag rows (`DORMANT_FLAG_ROWS`), emits `Op::SetIf` on `obj_health`, and advances `rows` to `33`.
-   - Setting `pct = 0` marks `ObjectiveState` `"Destroyed"` (or Mid-Boss in `camps`) and removes the triple from `obj_health`.
+   - Setting `pct = 0` marks `ObjectiveState` `"Destroyed"` and removes the triple from `obj_health`.
    - Setting `pct = 60` on a `"Destroyed"` objective sets `ObjectiveState` to `"Active"` and writes `60%` in one transaction.
    - Setting `pct = 100` on an `"Active"` objective elides its triple from `obj_health` while keeping `has_obj_health: true`.
    - Patron (`t3`) 1-click stage cycle (`Active` → `Stage2` → `Destroyed` → `Active`) clears any stale partial health triple for that Patron.
