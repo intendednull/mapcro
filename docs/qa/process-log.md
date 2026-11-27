@@ -181,3 +181,14 @@ Pass 007 (`passes/2026-11-26-pass-007-cycle3-doorways-batches-stress.md`, Neon h
 3. **`audit-layout <tab>`:** One-shot horizontal/vertical overflow & off-screen interactive element check (filtering horizontally scrollable `.events-chips` rows) so `.p-top` / `.pl-bar` clips surface automatically on every viewport sweep.
 4. **`offline <tab> on|off`:** Exposes Playwright `context.setOffline()` for Charter C offline-queue & durable reconnect exploratory passes.
 5. **Playbook false-positive guardrail:** Scope main-map DOM queries under `[data-testid="map"]` so `.mm-host.lite` scene-row hover thumbnails never masquerade as stale main-map objectives.
+
+---
+
+## 2026-11-27 — v1.7: Pass 007 Meta-Notes Tool Upgrade (Coordinate Clicks, Scrub, Layout Audit, Offline)
+
+### Driver upgrades applied (`tools/qa-browser/` v1.7, from Pass 007 Meta-Notes)
+1. **`click-at` / `rclick-at` / `dblclick-at <tab> <x> <y>`:** Trusted `page.mouse.click(x, y, { button, clickCount })` at viewport coordinates, with finite-number validation and `{ ok, x, y, button }` responses. Unlocks clean 2-step Doorman doorway placement, empty-map `map-menu`, comment placement, exact-point erasing, `#55` objective drag, and `#16` token double-click without synthetic `PointerEvent` capture failures.
+2. **`scrub <tab> <seconds|mm:ss>`:** Parses plain seconds (`955`, `955.5`) or `m:ss` / `mm:ss` (`15:55` → `955`), sets `[data-testid="match-time"]` via the native `HTMLInputElement` value setter, dispatches `input` + `change`, waits a rAF, and returns `{ ok, seconds, clock }` (clock read from `[data-testid="match-clock"]`).
+3. **`audit-layout <tab>`:** One-call viewport audit returning `{ vw, vh, docOverflowX, docOverflowY, containers, clippedInteractive }`; checks `.p-top`, `.pl-bar`, `.p-nav`, `.p-tools`, `header.top`, `.p-sheet`, `.games-sheet`, and skips intentionally scrollable `.events-chips` / off-scroll `.p-sheet-body` / `.events-list` rows.
+4. **`offline <tab> <on|off>`:** Exposes `context.setOffline()` for network-flake and durable offline edit-queue charters.
+5. **Playbook notes:** Documented the new commands, the `testid:` selector caution, the `[data-testid="map"]` scoping rule for `.mm-host.lite` hover thumbnails, and Pass 008+ charter ideas (touch dialog focus/`Escape`, view-only doorways, offline queue reconnect, `#16`/`#55`/`#61`/`FM-130` live verification).

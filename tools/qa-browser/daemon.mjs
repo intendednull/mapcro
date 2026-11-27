@@ -21,6 +21,7 @@ import { createServer as createNetServer } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseCoordinate, parseOnOff, parseTimeArg } from "./args.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "../..");
@@ -510,6 +511,126 @@ function buildSnapshotInPage(maxInteractive) {
   };
 }
 
+// ---- Layout audit script run inside the page ----
+
+function buildLayoutAuditInPage() {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const root = document.documentElement;
+  const body = document.body;
+  const docOverflowX = Math.max(
+    0,
+    root ? root.scrollWidth - root.clientWidth : 0,
+    body ? body.scrollWidth - body.clientWidth : 0,
+  );
+  const docOverflowY = Math.max(
+    0,
+    root ? root.scrollHeight - root.clientHeight : 0,
+    body ? body.scrollHeight - body.clientHeight : 0,
+  );
+
+  const vis = (el) => {
+    if (!el || !(el instanceof Element)) return false;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return false;
+    const style = window.getComputedStyle(el);
+    return (
+      style.display !== "none" &&
+      style.visibility !== "hidden" &&
+      Number(style.opacity) !== 0
+    );
+  };
+  const clip = (s, n = 60) => {
+    const t = String(s || "").replace(/\s+/g, " ").trim();
+    return t.length > n ? t.slice(0, n - 1) + "…" : t;
+  };
+  const rect = (r) => ({
+    x: Math.round(r.x),
+    y: Math.round(r.y),
+    w: Math.round(r.width),
+    h: Math.round(r.height),
+  });
+
+  const containerSels = [
+    ".p-top",
+    ".pl-bar",
+    ".p-nav",
+    ".p-tools",
+    "header.top",
+    ".p-sheet",
+    ".games-sheet",
+  ];
+  const containers = [];
+  for (const sel of containerSels) {
+    for (const el of document.querySelectorAll(sel)) {
+      if (!vis(el)) continue;
+      containers.push({
+        sel,
+        scrollW: el.scrollWidth,
+        clientW: el.clientWidth,
+        overflowX: Math.max(0, el.scrollWidth - el.clientWidth),
+        scrollH: el.scrollHeight,
+        clientH: el.clientHeight,
+        overflowY: Math.max(0, el.scrollHeight - el.clientHeight),
+      });
+    }
+  }
+
+  const interactiveSel =
+    'button, a, input, select, [role="button"], [role="tab"]';
+  const clippedInteractive = [];
+  for (const el of document.querySelectorAll(interactiveSel)) {
+    if (!vis(el)) continue;
+    // Intentionally horizontally scrollable chip rows are not viewport clips.
+    if (el.closest(".events-chips")) continue;
+    const r = el.getBoundingClientRect();
+    // Off-screen rows inside a scrollable sheet/list are expected, not clipped.
+    const scrollAncestor = el.closest(".p-sheet-body, .events-list");
+    if (scrollAncestor) {
+      const sr = scrollAncestor.getBoundingClientRect();
+      if (
+        r.bottom <= sr.top ||
+        r.top >= sr.bottom ||
+        r.right <= sr.left ||
+        r.left >= sr.right
+      ) {
+        continue;
+      }
+    }
+    let edge = null;
+    if (r.left < 0) edge = "left";
+    else if (r.right > vw) edge = "right";
+    else if (r.top < 0) edge = "top";
+    else if (r.bottom > vh) edge = "bottom";
+    if (!edge) continue;
+    const tag = el.tagName.toLowerCase();
+    const testid = el.getAttribute("data-testid") || undefined;
+    const text = clip(
+      el.innerText ||
+        el.textContent ||
+        el.getAttribute("aria-label") ||
+        el.getAttribute("title") ||
+        "",
+    );
+    clippedInteractive.push({
+      tag,
+      ...(testid ? { testid } : {}),
+      text,
+      rect: rect(r),
+      edge,
+    });
+  }
+
+  return {
+    vw,
+    vh,
+    docOverflowX,
+    docOverflowY,
+    containers,
+    clippedInteractive,
+  };
+}
+
 // ---- Daemon main ----
 
 async function main() {
@@ -789,6 +910,18 @@ async function main() {
         return { ok: true, tab: args.tab, action: "hover", selector: sel, force: Boolean(args.force) };
       }
 
+      case "click-at":
+      case "rclick-at":
+      case "dblclick-at": {
+        const entry = requireTab(args.tab);
+        const x = parseCoordinate(args.x, "x");
+        const y = parseCoordinate(args.y, "y");
+        const button = cmd === "rclick-at" ? "right" : "left";
+        const clickCount = cmd === "dblclick-at" ? 2 : 1;
+        await entry.page.mouse.click(x, y, { button, clickCount });
+        return { ok: true, tab: args.tab, action: cmd, x, y, button };
+      }
+
       case "move": {
         const entry = requireTab(args.tab);
         const x = Number(args.x);
@@ -937,6 +1070,62 @@ async function main() {
           return typeof val === "function" ? val() : val;
         }, expr);
         return { tab: args.tab, result };
+      }
+
+      case "scrub": {
+        const entry = requireTab(args.tab);
+        const seconds = parseTimeArg(args.seconds);
+        const result = await entry.page.evaluate(async (targetSeconds) => {
+          const input = document.querySelector('[data-testid="match-time"]');
+          if (!input) {
+            throw new Error('scrub: [data-testid="match-time"] not found');
+          }
+          const setter = Object.getOwnPropertyDescriptor(
+            HTMLInputElement.prototype,
+            "value",
+          )?.set;
+          if (!setter) {
+            throw new Error(
+              "scrub: native HTMLInputElement value setter unavailable",
+            );
+          }
+          setter.call(input, String(targetSeconds));
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+          await new Promise((resolve) => {
+            if (typeof requestAnimationFrame === "function") {
+              requestAnimationFrame(() => requestAnimationFrame(resolve));
+            } else {
+              setTimeout(resolve, 0);
+            }
+          });
+          const clockEl = document.querySelector('[data-testid="match-clock"]');
+          return {
+            seconds: Number.isFinite(Number(input.value))
+              ? Number(input.value)
+              : targetSeconds,
+            clock: clockEl ? String(clockEl.textContent || "").trim() : null,
+          };
+        }, seconds);
+        return {
+          ok: true,
+          tab: args.tab,
+          seconds: result.seconds,
+          clock: result.clock,
+        };
+      }
+
+      case "audit-layout": {
+        const entry = requireTab(args.tab);
+        const audit = await entry.page.evaluate(buildLayoutAuditInPage);
+        return { tab: args.tab, ...audit };
+      }
+
+      case "offline": {
+        const entry = requireTab(args.tab);
+        const offline = parseOnOff(args.state ?? args.on);
+        await entry.context.setOffline(offline);
+        return { ok: true, tab: args.tab, offline };
       }
 
       case "tabs": {

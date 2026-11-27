@@ -7,12 +7,15 @@ import { existsSync, readFileSync, rmSync, unlinkSync } from "node:fs";
 import { createConnection } from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseCoordinate, parseOnOff, parseTimeArg } from "./args.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DAEMON = join(HERE, "daemon.mjs");
+const VERSION = "1.7";
 
 function usage() {
-  console.log(`Usage: qa-browser.mjs <command> [options] [args...]
+  console.log(`qa-browser.mjs v${VERSION}
+Usage: qa-browser.mjs <command> [options] [args...]
 
 Session lifecycle:
   start [--id <name>] [--url <http://...>] [--server-bin <path>] [--web-dir <path>]
@@ -32,6 +35,7 @@ Tabs & navigation (each tab is an isolated BrowserContext):
 Inspection & interaction:
   snapshot <tab> [--max N] [--json] [--id <name>]
   click | rclick | dblclick <tab> <selector> [--any] [--force] [--id <name>]
+  click-at | rclick-at | dblclick-at <tab> <x> <y> [--id <name>]
   hover <tab> <selector> [--any] [--force] [--id <name>]
   move <tab> <x> <y> [--id <name>]
   fill <tab> <selector> <value> [--any] [--id <name>]
@@ -45,6 +49,11 @@ Inspection & interaction:
   download <tab> <selector> <out-file> [--any] [--id <name>]  (refuses paths inside repo/worktrees)
   logs <tab> [--clear] [--id <name>]
   eval <tab> <js-expr> [--id <name>]
+
+Replay, layout & network:
+  scrub <tab> <seconds|mm:ss> [--id <name>]
+  audit-layout <tab> [--id <name>]
+  offline <tab> <on|off> [--id <name>]
 
 Selector shorthand: "testid:foo" expands to '[data-testid="foo"]'.
 Common flags: --id <name> (default: "default"), --timeout <ms> (default: 10000).`);
@@ -425,6 +434,14 @@ async function main() {
       if (flags.any) args.any = true;
       if (flags.force) args.force = true;
       break;
+    case "click-at":
+    case "rclick-at":
+    case "dblclick-at":
+      if (rest.length < 3) throw new Error(`${cmd} requires <tab> <x> <y>`);
+      args.tab = rest[0];
+      args.x = parseCoordinate(rest[1], "x");
+      args.y = parseCoordinate(rest[2], "y");
+      break;
     case "move":
       if (rest.length < 3) throw new Error("move requires <tab> <x> <y>");
       args.tab = rest[0];
@@ -497,6 +514,20 @@ async function main() {
       if (rest.length < 2) throw new Error("eval requires <tab> <js-expr>");
       args.tab = rest[0];
       args.expr = rest.slice(1).join(" ");
+      break;
+    case "scrub":
+      if (rest.length < 2) throw new Error("scrub requires <tab> <seconds|mm:ss>");
+      args.tab = rest[0];
+      args.seconds = parseTimeArg(rest[1]);
+      break;
+    case "audit-layout":
+      if (!rest[0]) throw new Error("audit-layout requires <tab>");
+      args.tab = rest[0];
+      break;
+    case "offline":
+      if (rest.length < 2) throw new Error("offline requires <tab> <on|off>");
+      args.tab = rest[0];
+      args.state = parseOnOff(rest[1]);
       break;
     default:
       throw new Error(`Unknown command "${cmd}". Run with --help.`);

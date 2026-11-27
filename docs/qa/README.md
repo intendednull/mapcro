@@ -83,7 +83,38 @@ $QA drag coachA 400 400 520 460 --steps 12
 $QA wheel coachA 0 -240 --at 500,450
 $QA press coachA Space
 $QA eval coachA 'document.querySelectorAll("[data-testid=hero-build]:not([hidden])").length'
+
+# v1.7 helpers:
+$QA click-at coachA 500 450                 # trusted left click at viewport (x, y)
+$QA rclick-at coachA 500 450                # trusted right click (map-menu, comments)
+$QA dblclick-at coachA 500 450              # trusted double click (tokens)
+$QA scrub coachA 15:55                      # or 955 / 955.5; sets match-time
+$QA audit-layout coachA                     # overflow + clipped interactive JSON
+$QA offline coachA on                       # then exercise the durable edit queue
+$QA offline coachA off
 ```
+
+**v1.7 coordinate, scrub, layout & network helpers (from Pass 007 Meta-Notes):**
+- `click-at | rclick-at | dblclick-at <tab> <x> <y>` uses real Playwright
+  `page.mouse.click(x, y, { button, clickCount })`, so `svg.setPointerCapture()` works. Use it for
+  2-step Doorman doorway placement, empty-map `map-menu`, comment placement, erasing at exact
+  points, `#55` objective drag, and `#16` token double-click. Avoid synthetic
+  `dispatchEvent(new PointerEvent(...))`.
+- `scrub <tab> <seconds|mm:ss>` accepts `955`, `955.5`, or `15:55`, sets
+  `[data-testid="match-time"]` through the native `HTMLInputElement` value setter, dispatches
+  `input` + `change`, waits a rAF, and returns `{ seconds, clock }` from
+  `[data-testid="match-clock"]`.
+- `audit-layout <tab>` returns `{ vw, vh, docOverflowX, docOverflowY, containers,
+  clippedInteractive }` in one call. It checks `.p-top`, `.pl-bar`, `.p-nav`, `.p-tools`,
+  `header.top`, `.p-sheet`, and `.games-sheet`, and reports interactive elements outside
+  `[0..vw, 0..vh]` while ignoring `.events-chips` and off-scroll `.p-sheet-body` / `.events-list`
+  rows.
+- `offline <tab> <on|off>` calls `context.setOffline()` for network-flake / offline durable edit
+  queue charters.
+
+**Selector notes:** `testid:` is a convenience shorthand only. Keep it simple — don't combine
+`testid:` with comma-separated CSS fallbacks (e.g. `testid:foo, .fallback`); write the explicit
+`[data-testid="foo"], .fallback` selector instead so the fallback is unambiguous.
 
 ### 3. Viewport & input checklist
 Test every chartered flow across relevant viewports:
@@ -102,6 +133,10 @@ Test every chartered flow across relevant viewports:
 - **Avoid false positives:** Check `snapshot`'s URL immediately after clicks (some controls
   intentionally navigate — e.g. `known-rename` opens `/b/<id>` with the title editor focused), and
   cross-check suspected missing UI controls against specs (`docs/specs/`) before filing as bugs.
+- **Scope main-map DOM queries under `[data-testid="map"]`:** Scene rows render `.mm-host.lite`
+  hover thumbnails, so a bare `document.querySelector('[data-key=...]')` can match a thumbnail
+  before the real `.mm-host.free` map and look like stale marker / sync divergence. Always scope
+  main-map queries under the main map container so hover thumbnails never masquerade as markers.
 
 ### 5. Clean teardown (mandatory)
 ```bash
@@ -145,6 +180,24 @@ Verify no stray `mapcro-server` or Chromium processes remain for your session.
 - `smoke`: Interactively opened and happy-path verified in a pass.
 - `deep`: Explored across edge cases, error/empty states, keyboard/touch, viewports, and/or
   multi-user collaboration.
+
+---
+
+## Pass 008+ Charter Ideas (from Pass 007 Meta-Notes)
+
+- **Touch dialog focus & `Escape` sweep:** Verify fixes for the Pass 007 touch findings
+  (`615x344` Session `.p-top`, `games-sheet` focus/`Escape`/auto-close, `"F..."` tier pill,
+  `FM-130` vertical fold) across all touch viewports, and check keyboard `Tab`/`Escape` focus
+  management on every mobile sheet (`Games`, `Scenes`, `Map layers`, `Events`, `More`).
+- **View-only doorways & session permissions:** Confirm view-only links cannot trigger
+  `hero-menu-doorway`, `map-menu`, `door-menu`, drag, or `Erase`/`D` on doorways while still
+  seeing live doorway updates, hover pair highlight, and Vision filtering from an editing
+  presenter.
+- **Offline edit queue + reconnect:** Use `offline <tab> on|off` to edit doorways, strokes, and
+  notes offline, reconnect, and verify durable resend with zero lost ops against live prod.
+- **Live verification of `#16` / `#55` / `#61` / `FM-130`:** Exercise token double-click (`#16`),
+  objective drag (`#55`), the related UX/architecture specs (`#61`), and the remaining
+  `FM-130` narrow-viewport fold fixes on live prod.
 
 ---
 
