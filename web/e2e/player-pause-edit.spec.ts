@@ -529,3 +529,186 @@ test("phone portrait and landscape paused editing keeps transport height budgets
   await expect(resetBtn).toHaveCount(0);
   await ctx.close();
 });
+
+test("scene-mode Play and Play with scene plan (playFrom) do not wipe another coach's paused edits", async ({ browser }) => {
+  const url = await newBoardUrl(server, "Pause Edit PlayFrom Isolation");
+  const a = await joinNew(browser, url, "CoachA");
+  await openReplay(a);
+  await scrubTo(a, 40);
+
+  // Save a scene at 40s and draw a plan stroke on that saved scene.
+  await a.getByTestId("match-save").click();
+  await expect(a.getByTestId("player")).toHaveAttribute("data-state", "scene");
+  await a.getByTestId("tool-draw").click();
+  await gesture(a, [[0.3, 0.3], [0.42, 0.36]]);
+  await expect(a.locator(".ink")).toHaveCount(1);
+  await a.getByTestId("tool-select").click();
+
+  // Coach A returns to Player, pauses at 20s, and drags Amber-0.
+  await a.getByTestId("mode-player").click();
+  await scrubTo(a, 20);
+  await dragToken(a, "Amber-0", 0.62, 0.38);
+  const movedA = await tokenAt(a, "Amber-0");
+  await expect(a.getByTestId("match-reset")).toBeVisible();
+
+  // Coach B joins, opens the saved 40s scene, and triggers scene-mode Play (Resume replay).
+  const b = await joinNew(browser, url, "CoachB");
+  await expect(b.getByTestId("match-tier")).toHaveText("Full replay");
+  await b.locator(".scene-row").last().click();
+  await expect(b.getByTestId("player")).toHaveAttribute("data-state", "scene");
+  await b.getByTestId("match-play").click();
+  await expect(b.getByTestId("match-play")).toHaveAttribute("data-playing", "true");
+  await a.waitForTimeout(300);
+
+  // Coach A's 20s paused edit MUST survive Coach B's scene-mode Play!
+  await expect(a.getByTestId("match-reset")).toBeVisible();
+  const afterScenePlay = await tokenAt(a, "Amber-0");
+  expect(Math.hypot(afterScenePlay.x - movedA.x, afterScenePlay.y - movedA.y)).toBeLessThan(15);
+
+  // Coach B goes back to the 40s scene and clicks "Play from here" (Play with scene plan).
+  await b.locator(".scene-row").last().click();
+  await expect(b.getByTestId("play-from-here")).toBeVisible();
+  await b.getByTestId("play-from-here").click();
+  await expect(b.getByTestId("match-play")).toHaveAttribute("data-playing", "true");
+  // The scene's drawing was copied to live ink!
+  await expect(b.locator(".ink")).toHaveCount(1);
+  await a.waitForTimeout(300);
+
+  // Coach A's 20s paused edit STILL survives Coach B's playFrom!
+  await expect(a.getByTestId("match-reset")).toBeVisible();
+  const afterPlayFrom = await tokenAt(a, "Amber-0");
+  expect(Math.hypot(afterPlayFrom.x - movedA.x, afterPlayFrom.y - movedA.y)).toBeLessThan(15);
+});
+
+test("remote wave drag preview remains visible in a second pause session after Play tombstoned the deterministic wave", async ({ browser }) => {
+  const url = await newBoardUrl(server, "Pause Edit Remote Wave Tombstone");
+  const a = await joinNew(browser, url, "Presenter");
+  await openReplay(a);
+  await scrubTo(a, 20);
+
+  const b = await joinNew(browser, url, "Follower");
+  await expect(b.getByTestId("follow-Presenter")).toBeVisible();
+  await b.getByTestId("follow-Presenter").click();
+  await expect(b.getByTestId("match-clock")).toContainText("0:20");
+
+  // Cycle 1: drag wave -> commits deterministic Wave -> press Play -> tombstones deterministic Wave -> pause again at 20s.
+  const waveA = a.getByTestId("wave-gap-lane1");
+  const w1 = await centre(waveA);
+  await a.mouse.move(w1.x, w1.y);
+  await a.mouse.down();
+  await a.mouse.move(w1.x, w1.y - 50, { steps: 5 });
+  await a.mouse.up();
+  await expect(a.getByTestId("match-reset")).toBeVisible();
+  await a.getByTestId("match-play").click();
+  await expect(a.getByTestId("match-reset")).toHaveCount(0);
+  await a.getByTestId("match-play").click();
+  await scrubTo(a, 20);
+  await expect(b.getByTestId("match-clock")).toContainText("0:20");
+
+  // Cycle 2: hold pointer down and drag wave WITHOUT releasing -> Follower MUST see live remote wave preview!
+  const w2A = await centre(waveA);
+  const w2BBefore = await centre(b.getByTestId("wave-gap-lane1"));
+  await a.mouse.move(w2A.x, w2A.y);
+  await a.mouse.down();
+  await a.mouse.move(w2A.x, w2A.y - 70, { steps: 6 });
+
+  await expect(b.locator(".waves")).toContainText("moving the wave");
+  await expect.poll(async () => {
+    const w2BAfter = await centre(b.getByTestId("wave-gap-lane1"));
+    return Math.hypot(w2BAfter.x - w2BBefore.x, w2BAfter.y - w2BBefore.y);
+  }).toBeGreaterThan(20);
+
+  await a.mouse.up();
+});
+
+test("view-only user cannot edit TopBar controls or see Save/Reset/phone dirty dot", async ({ browser }) => {
+  const url = await newBoardUrl(server, "Pause Edit ViewOnly Controls");
+  const a = await joinNew(browser, url, "Coach");
+  await openReplay(a);
+  await scrubTo(a, 20);
+  await dragToken(a, "Amber-0", 0.58, 0.42);
+  await expect(a.getByTestId("match-reset")).toBeVisible();
+
+  // Desktop view-only user paused at 20s (same timestamp as dirty liveScene).
+  const vUrl = await viewLink(server.url, url);
+  const v = await joinNew(browser, vUrl, "Viewer");
+  await expect(v.getByTestId("match-tier")).toHaveText("Full replay");
+  await scrubTo(v, 20);
+
+  await expect(v.getByTestId("match-reset")).toHaveCount(0);
+  // Right-click portrait does not open hero-menu.
+  const s0 = v.locator('.tb-player[data-slot="Sapphire-0"]');
+  await s0.click({ button: "right" });
+  await expect(v.getByTestId("hero-menu")).toHaveCount(0);
+  // Double-click souls does not open souls editor.
+  await s0.getByTestId("souls-banner").dblclick();
+  await expect(v.getByTestId("souls-input")).toHaveCount(0);
+  // Dragging UltRing does not change cooldown.
+  const a2Ult = v.locator('.tb-player[data-slot="Amber-2"] .tb-ult');
+  await expect(a2Ult).toHaveClass(/ready/);
+  const uc = await centre(a2Ult);
+  await v.mouse.move(uc.x, uc.y);
+  await v.mouse.down();
+  await v.mouse.move(uc.x, uc.y + 18, { steps: 4 });
+  await v.mouse.up();
+  await expect(a2Ult).toHaveClass(/ready/);
+  // No editable vision toggle button for view-only user.
+  await expect(s0.locator("button[data-testid=tb-vision]")).toHaveCount(0);
+
+  // Phone view-only user paused at 20s: NO dirty dot on More button and NO Save/Reset in More sheet!
+  const pCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  const pv = await pCtx.newPage();
+  await pv.goto(vUrl);
+  await pv.locator("#join-name").fill("PhoneViewer");
+  await pv.keyboard.press("Enter");
+  await expect(pv.getByTestId("join-card")).toBeHidden();
+  await expect(pv.getByTestId("match-tier")).toHaveText("Full replay");
+  await scrubTo(pv, 20);
+
+  await expect(pv.locator('[data-testid="phone-more"] .save-dirty-dot')).toHaveCount(0);
+  await pv.getByTestId("phone-more").tap();
+  await expect(pv.getByTestId("phone-match-save")).toHaveCount(0);
+  await expect(pv.getByTestId("phone-match-reset")).toHaveCount(0);
+  await pCtx.close();
+});
+
+test("split ink + doorway Erase in paused Player preserves live-ink undo after Play", async ({ browser }) => {
+  const url = await newBoardUrl(server, "Pause Edit Split Erase");
+  const p = await joinNew(browser, url, "Coach");
+  await openReplay(p);
+  await scrubTo(p, 20);
+
+  // Locate the replay Doorman doorway on screen.
+  const door = p.locator(".pl-door").first();
+  await expect(door).toBeVisible();
+  const dc = await centre(door);
+
+  // Draw a live ink stroke right beside the doorway!
+  await p.getByTestId("tool-draw").click();
+  await p.mouse.move(dc.x - 75, dc.y - 35);
+  await p.mouse.down();
+  await p.mouse.move(dc.x - 35, dc.y - 25, { steps: 5 });
+  await p.mouse.up();
+  await expect(p.locator(".ink")).toHaveCount(1);
+
+  // Switch to Erase tool and sweep ONE continuous gesture across BOTH the live ink stroke AND the doorway!
+  await p.getByTestId("tool-erase").click();
+  await p.mouse.move(dc.x - 65, dc.y - 32);
+  await p.mouse.down();
+  await p.mouse.move(dc.x - 40, dc.y - 26, { steps: 4 });
+  await p.mouse.move(dc.x, dc.y, { steps: 6 });
+  await p.mouse.up();
+  await expect(p.locator(".ink")).toHaveCount(0);
+  await expect(p.locator(".pl-door")).toHaveCount(0);
+
+  // Press Play -> clears doorway override and prunes live-entity undo, then pause again.
+  await p.keyboard.press("Space");
+  await expect(p.getByTestId("match-play")).toHaveAttribute("data-playing", "true");
+  await expect(p.locator(".pl-door")).toHaveCount(1);
+  await p.keyboard.press("Space");
+  await expect(p.getByTestId("match-play")).toHaveAttribute("data-playing", "false");
+
+  // Ctrl+Z MUST restore the erased live ink stroke (proving Erase split ink vs doorway transactions)!
+  await p.keyboard.press("Control+z");
+  await expect(p.locator(".ink")).toHaveCount(1);
+});

@@ -21,6 +21,7 @@ import { type CampAt, type PowerupAt, type Timeline, shopsClosed, slotKey } from
 import { effectiveCamp } from "../player/Camps";
 import {
   clearPauseOverridesOps,
+  liveEntityRecordIds,
   liveObjId,
   liveSceneStateId,
   liveWaveId,
@@ -45,6 +46,7 @@ export interface MutablePausedBoard extends PausedBoard {
   edit(ops: Op[]): boolean;
   editSilent(ops: Op[]): boolean;
   ensure(ops: Op[]): boolean;
+  dropHistoryFor(ids: RecordId[]): void;
   rowsIn<T extends { scene: RecordId }>(kind: string, scene: RecordId | undefined): ReadonlyArray<{ id: RecordId; r: T }>;
 }
 
@@ -352,31 +354,51 @@ export function fromPausedPlayer(
 // ---- Pause-edit transaction preparation & op builders ----
 
 /**
- * Prepare `liveSceneId` before applying a pause-edit mutation at integer `clock`:
+ * Prepare `liveSceneId` before applying a non-empty pause-edit mutation at integer `clock`:
  * 1. If another timestamp left overrides on `liveScene` (`clock != null && clock !== target`),
- *    silently clear them first so overrides from two match moments never mix (spec §2.1).
+ *    atomically clear them AND CAS-stamp `SceneClock: curClock -> clock` via `editSilent`
+ *    (zero `clock === null` window between clear and stamp), then prune local undo/redo entries
+ *    touching `liveScene` entity records so prior-timestamp edits cannot be resurrected.
  * 2. If `liveScene.clock === null` and untouched legacy `PlayerState` records still have
- *    `placed: true, pos: {0,0}`, normalize them silently to `placed: false` (spec §2.2).
+ *    `placed: true, pos: {0,0}`, normalize them silently to `placed: false` via `SetIf` (spec §2.2).
+ *
+ * Returns `true` iff a timestamp switch was performed (callers prepend `pauseSwitchFallbackOps`
+ * to their undoable `edit` so a concurrent Play clearing `curClock -> null` still lets the new
+ * timestamp stamp cleanly).
  */
-export function prepareLivePauseEdit(board: MutablePausedBoard, liveSceneId: RecordId, clock: number): void {
+export function prepareLivePauseEdit(board: MutablePausedBoard, liveSceneId: RecordId, clock: number): boolean {
   const sc = board.records[liveSceneId];
-  if (!sc || sc.deleted || !("Scene" in sc.record)) return;
+  if (!sc || sc.deleted || !("Scene" in sc.record)) return false;
   const curClock = sc.record.Scene.clock ?? null;
   if (curClock !== null && curClock !== clock) {
-    for (const tx of clearPauseOverridesOps(board.records, liveSceneId)) board.editSilent(tx);
+    for (const tx of clearPauseOverridesOps(board.records, liveSceneId, clock)) board.editSilent(tx);
+    const entityIds = liveEntityRecordIds(board.records, liveSceneId);
+    if (entityIds.length) board.dropHistoryFor(entityIds);
+    return true;
   }
   const after = board.records[liveSceneId];
   if (after && !after.deleted && "Scene" in after.record && after.record.Scene.clock == null) {
     const norm = normalizeLegacyLiveOps(board.records, liveSceneId);
     if (norm.length) board.editSilent(norm);
   }
+  return false;
 }
 
-/** `SceneClock` stamp op if `liveSceneId` is not already stamped to `clock`. */
+/**
+ * Fallback CAS op for the undoable edit immediately following a timestamp switch:
+ * no-op if our silent `curClock -> clock` switch applied, and stamps `null -> clock` if a
+ * concurrent Play (`curClock -> null`) beat our silent switch on the server.
+ */
+export function pauseSwitchFallbackOps(liveSceneId: RecordId, clock: number, switched: boolean): Op[] {
+  return switched ? [{ SetIf: { id: liveSceneId, expect: { SceneClock: null }, value: { SceneClock: clock } } }] : [];
+}
+
+/** `SceneClock` CAS op (`SetIf` expecting the observed clock) if `liveSceneId` is not already at `clock`. */
 export function pauseClockOps(records: Record<RecordId, Entry | undefined>, liveSceneId: RecordId, clock: number): Op[] {
   const sc = records[liveSceneId];
   if (!sc || sc.deleted || !("Scene" in sc.record)) return [];
-  return sc.record.Scene.clock === clock ? [] : [{ Set: { id: liveSceneId, value: { SceneClock: clock } } }];
+  const cur = sc.record.Scene.clock ?? null;
+  return cur === clock ? [] : [{ SetIf: { id: liveSceneId, expect: { SceneClock: cur }, value: { SceneClock: clock } } }];
 }
 
 /** Move one or more heroes on `liveScene` while paused (stamping `SceneClock` + `PlayerPlaced: true` + `PlayerPos`). */
@@ -554,11 +576,13 @@ export function liveWaveUpsertOps(
   const id = liveWaveId(board, matchId, lane);
   const entry = records[id];
   if (entry?.deleted) {
-    const staleMore = "Wave" in entry.record ? Object.keys(entry.record.Wave.more ?? {}) : [];
+    const staleMore = "Wave" in entry.record ? (entry.record.Wave.more ?? {}) : {};
     return [
       ...clockOps,
       { Restore: { id } },
-      ...staleMore.map((key): Op => ({ Set: { id, value: { More: { key, value: null } } } })),
+      ...Object.entries(staleMore)
+        .filter(([, value]) => value !== undefined)
+        .map(([key, value]): Op => ({ SetIf: { id, expect: { More: { key, value } }, value: { More: { key, value: null } } } })),
       { Set: { id, value: { WavePos: t } } },
     ];
   }
@@ -594,12 +618,14 @@ export function preparePausedSceneState(
     return { state: { id, more }, prefix: [] };
   }
   if (entry.deleted) {
-    const staleKeys = "SceneState" in entry.record ? Object.keys(entry.record.SceneState.more ?? {}) : [];
+    const staleMore = "SceneState" in entry.record ? (entry.record.SceneState.more ?? {}) : {};
     return {
       state: { id, more: {} },
       prefix: [
         { Restore: { id } },
-        ...staleKeys.map((key): Op => ({ Set: { id, value: { More: { key, value: null } } } })),
+        ...Object.entries(staleMore)
+          .filter(([, value]) => value !== undefined)
+          .map(([key, value]): Op => ({ SetIf: { id, expect: { More: { key, value } }, value: { More: { key, value: null } } } })),
       ],
     };
   }

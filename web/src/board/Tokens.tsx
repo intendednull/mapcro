@@ -18,7 +18,14 @@ import { MAX_RESPAWN, slotKey } from "../match/save";
 import type { Shown } from "../mapstate/frame";
 import { heroDraw, playerHero, sceneTokenHealth } from "../mapstate/shown";
 import type { MapState } from "../mapstate/state";
-import { pauseKillOps, pauseMoveOps, pauseRespawnOps, pauseReviveOps, prepareLivePauseEdit } from "../mapstate/paused";
+import {
+  pauseKillOps,
+  pauseMoveOps,
+  pauseRespawnOps,
+  pauseReviveOps,
+  pauseSwitchFallbackOps,
+  prepareLivePauseEdit,
+} from "../mapstate/paused";
 import { pauseClock } from "../player/live";
 import { colorOf } from "../core/device";
 import type { PeerPresence } from "../gen/PeerPresence";
@@ -328,14 +335,12 @@ export function Tokens(p: {
           const liveId = p.scene;
           const clock = p.frame.pauseClock?.();
           if (liveId && clock !== undefined) {
-            prepareLivePauseEdit(p.state, liveId, clock);
-            const ops = pauseMoveOps(
-              p.state.records as never,
-              liveId,
-              clock,
-              d.group.map((g) => ({ id: g.id, pos: moved(g.from, d.delta) })),
-            );
-            if (ops.length) p.state.edit(ops);
+            const moves = d.group.map((g) => ({ id: g.id, pos: moved(g.from, d.delta), from: g.from }));
+            if (moves.some((m) => m.pos.x !== m.from.x || m.pos.y !== m.from.y)) {
+              const switched = prepareLivePauseEdit(p.state, liveId, clock);
+              const ops = pauseMoveOps(p.state.records as never, liveId, clock, moves);
+              if (ops.length) p.state.edit([...pauseSwitchFallbackOps(liveId, clock, switched), ...ops]);
+            }
           }
         } else {
           p.state.edit(d.group.map((g) => ({ Set: { id: g.id, value: { PlayerPos: moved(g.from, d.delta) } } })));
@@ -363,11 +368,11 @@ export function Tokens(p: {
       if (!liveId || clock === undefined || !sl) return;
       const h = p.frame.ms().hero(slotKey(sl.team, sl.slot));
       const pos = h.pos() ?? h.last() ?? { x: 0, y: 0 };
-      prepareLivePauseEdit(p.state, liveId, clock);
+      const switched = prepareLivePauseEdit(p.state, liveId, clock);
       const ops = h.alive()
         ? pauseKillOps(p.state.records as never, liveId, clock, pl, pos)
         : pauseReviveOps(p.state.records as never, liveId, clock, pl, pos);
-      if (ops.length) p.state.edit(ops);
+      if (ops.length) p.state.edit([...pauseSwitchFallbackOps(liveId, clock, switched), ...ops]);
       return;
     }
     p.state.edit(aliveOps(pl));
@@ -434,9 +439,12 @@ export function Tokens(p: {
       const liveId = p.scene;
       const clock = p.frame.pauseClock?.();
       if (!liveId || clock === undefined) return;
-      prepareLivePauseEdit(p.state, liveId, clock);
+      const sl = slots().get(pl.state.slot);
+      const curRespawn = sl ? (p.frame.ms().hero(slotKey(sl.team, sl.slot)).respawn() ?? null) : (pl.state.respawn ?? null);
+      if (s === curRespawn) return;
+      const switched = prepareLivePauseEdit(p.state, liveId, clock);
       const ops = pauseRespawnOps(p.state.records as never, liveId, clock, pl, s);
-      if (ops.length) p.state.edit(ops);
+      if (ops.length) p.state.edit([...pauseSwitchFallbackOps(liveId, clock, switched), ...ops]);
       return;
     }
     if (s !== (pl.state.respawn ?? null)) p.state.edit([{ Set: { id: pl.id, value: { PlayerRespawn: s } } }]);

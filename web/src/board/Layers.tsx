@@ -45,6 +45,7 @@ import {
   liveObjUpsert,
   liveWaveUpsertOps,
   pauseClockOps,
+  pauseSwitchFallbackOps,
   prepareLivePauseEdit,
   preparePausedSceneState,
   seedObjHealthMap,
@@ -242,7 +243,8 @@ export function Layers(p: {
     const myClock = p.frame.player() ? p.frame.pauseClock?.() : undefined;
     for (const x of st.peerList()) {
       const d = x.state?.drag;
-      if (!d || st.records[d.id] || x.state?.scene !== p.scene) continue;
+      const rec = d ? st.records[d.id] : undefined;
+      if (!d || (rec && !rec.deleted) || x.state?.scene !== p.scene) continue;
       if (p.frame.player()) {
         const pb = x.state?.playback;
         if (myClock === undefined || !pb || pb.playing || pauseClock(pb.t) !== myClock) continue;
@@ -333,12 +335,22 @@ export function Layers(p: {
       const clock = p.frame.pauseClock?.();
       const matchId = p.pauseCtx?.matchId();
       if (!p.pauseCtx || clock === undefined || matchId === undefined) return false;
-      prepareLivePauseEdit(st, scene, clock);
+      // Dry-run before clearing another timestamp so a no-op door edit never wipes peer overrides.
+      const scRec = st.records[scene];
+      const curClock = scRec && !scRec.deleted && "Scene" in scRec.record ? (scRec.record.Scene.clock ?? null) : null;
+      const sameClock = curClock === clock;
+      const curRow = sameClock ? st.rowsIn<SceneState>("SceneState", scene)[0] : undefined;
+      const dryState = curRow ? { id: curRow.id, more: curRow.r.more ?? {} } : undefined;
+      const drySeed = dryState && captured(dryState.more).doors ? undefined : p.frame.ms().scene().doors();
+      const dryOps = build({ scene, state: dryState, mint: newRecordId, ...(drySeed ? { seed: drySeed } : {}) });
+      if (!dryOps.length && !extraOps.length) return false;
+      if (!dryOps.length) return st.edit(extraOps);
+      const switched = prepareLivePauseEdit(st, scene, clock);
       const { state: ss, prefix } = preparePausedSceneState(st, p.pauseCtx.board, matchId, scene);
       const seed = captured(ss.more).doors ? undefined : p.frame.ms().scene().doors();
       const ops = build({ scene, state: ss, mint: newRecordId, ...(seed ? { seed } : {}) });
       if (!ops.length && !extraOps.length) return false;
-      const clockOps = ops.length ? pauseClockOps(st.records as never, scene, clock) : [];
+      const clockOps = ops.length ? [...pauseSwitchFallbackOps(scene, clock, switched), ...pauseClockOps(st.records as never, scene, clock)] : [];
       return st.edit([...extraOps, ...clockOps, ...(ops.length ? prefix : []), ...ops]);
     }
     const ctx = doorCtx();
@@ -444,9 +456,33 @@ export function Layers(p: {
       const clock = p.frame.pauseClock?.();
       const matchId = p.pauseCtx?.matchId();
       if (!p.pauseCtx || clock === undefined || matchId === undefined) return;
-      prepareLivePauseEdit(st, scene, clock);
+      // Dry-run against this timestamp's effective state before clearing another timestamp.
+      const scRec = st.records[scene];
+      const curClock = scRec && !scRec.deleted && "Scene" in scRec.record ? (scRec.record.Scene.clock ?? null) : null;
+      const sameClock = curClock === clock;
+      const curRow = sameClock ? st.rowsIn<SceneState>("SceneState", scene)[0] : undefined;
+      const dryState = curRow ? { id: curRow.id, more: curRow.r.more ?? {} } : undefined;
+      const dryObjectives = sameClock ? p.objectives() : new Map();
+      const drySeed = dryState && captured(dryState.more).obj_health ? undefined : seedObjHealthMap(p.pauseCtx.tl(), clock, p.art.model.markers);
+      const dryOps = setObjectiveHealthOps(
+        {
+          scene,
+          state: dryState,
+          objectives: dryObjectives,
+          markers: p.art.model.markers,
+          mint: newRecordId,
+          ...(p.markerStatus ? { shownStatus: p.markerStatus } : {}),
+          ...(drySeed ? { seed: drySeed } : {}),
+          upsertObjective: liveObjUpsert(st.records as never, p.pauseCtx.board, matchId, scene, dryObjectives),
+        },
+        m,
+        pct,
+        stage,
+      );
+      if (!dryOps.length) return;
+      const switched = prepareLivePauseEdit(st, scene, clock);
       const { state: ss, prefix } = preparePausedSceneState(st, p.pauseCtx.board, matchId, scene);
-      const seed = captured(ss.more).obj_health ? undefined : seedObjHealthMap(p.pauseCtx.tl(), Math.floor(p.pauseCtx.t()), p.art.model.markers);
+      const seed = captured(ss.more).obj_health ? undefined : seedObjHealthMap(p.pauseCtx.tl(), clock, p.art.model.markers);
       const upsertObjective = liveObjUpsert(st.records as never, p.pauseCtx.board, matchId, scene, p.objectives());
       const ops = setObjectiveHealthOps(
         {
@@ -464,7 +500,7 @@ export function Layers(p: {
         stage,
       );
       if (!ops.length) return;
-      const clockOps = pauseClockOps(st.records as never, scene, clock);
+      const clockOps = [...pauseSwitchFallbackOps(scene, clock, switched), ...pauseClockOps(st.records as never, scene, clock)];
       if (st.edit([...clockOps, ...prefix, ...ops]) && pct > 0) p.onEditObjHealth?.();
       return;
     }
@@ -485,10 +521,15 @@ export function Layers(p: {
         const clock = p.frame.pauseClock?.();
         const matchId = p.pauseCtx?.matchId();
         if (!p.pauseCtx || clock === undefined || matchId === undefined) return;
-        prepareLivePauseEdit(st, scene, clock);
+        const scRec = st.records[scene];
+        const curClock = scRec && !scRec.deleted && "Scene" in scRec.record ? (scRec.record.Scene.clock ?? null) : null;
+        const dryObjectives = curClock === clock ? p.objectives() : new Map();
+        const dryUpsert = liveObjUpsert(st.records as never, p.pauseCtx.board, matchId, scene, dryObjectives);
+        if (!groupToggleOps(m, group, p.art.model.markers, dryObjectives, scene, newRecordId, p.markerStatus, curClock === clock ? objHealthCtx() : undefined, dryUpsert).length) return;
+        const switched = prepareLivePauseEdit(st, scene, clock);
         const upsert = liveObjUpsert(st.records as never, p.pauseCtx.board, matchId, scene, p.objectives());
         const ops = groupToggleOps(m, group, p.art.model.markers, p.objectives(), scene, newRecordId, p.markerStatus, objHealthCtx(), upsert);
-        if (ops.length) st.edit([...pauseClockOps(st.records as never, scene, clock), ...ops]);
+        if (ops.length) st.edit([...pauseSwitchFallbackOps(scene, clock, switched), ...pauseClockOps(st.records as never, scene, clock), ...ops]);
         return;
       }
       const ops = groupToggleOps(m, group, p.art.model.markers, p.objectives(), scene, newRecordId, p.markerStatus, objHealthCtx());
@@ -505,10 +546,15 @@ export function Layers(p: {
       const clock = p.frame.pauseClock?.();
       const matchId = p.pauseCtx?.matchId();
       if (!p.pauseCtx || clock === undefined || matchId === undefined) return;
-      prepareLivePauseEdit(st, scene, clock);
+      const scRec = st.records[scene];
+      const curClock = scRec && !scRec.deleted && "Scene" in scRec.record ? (scRec.record.Scene.clock ?? null) : null;
+      const dryObjectives = curClock === clock ? p.objectives() : new Map();
+      const dryUpsert = liveObjUpsert(st.records as never, p.pauseCtx.board, matchId, scene, dryObjectives);
+      if (!toggleOps(m, p.art.model.markers, dryObjectives, scene, newRecordId, p.markerStatus, curClock === clock ? objHealthCtx() : undefined, dryUpsert).length) return;
+      const switched = prepareLivePauseEdit(st, scene, clock);
       const upsert = liveObjUpsert(st.records as never, p.pauseCtx.board, matchId, scene, p.objectives());
       const ops = toggleOps(m, p.art.model.markers, p.objectives(), scene, newRecordId, p.markerStatus, objHealthCtx(), upsert);
-      if (ops.length) st.edit([...pauseClockOps(st.records as never, scene, clock), ...ops]);
+      if (ops.length) st.edit([...pauseSwitchFallbackOps(scene, clock, switched), ...pauseClockOps(st.records as never, scene, clock), ...ops]);
       return;
     }
     const ops = toggleOps(m, p.art.model.markers, p.objectives(), scene, newRecordId, p.markerStatus, objHealthCtx());
@@ -563,9 +609,10 @@ export function Layers(p: {
         if (p.frame.player()) {
           const clock = p.frame.pauseClock?.();
           if (!p.pauseCtx || matchId === undefined || clock === undefined) return;
-          prepareLivePauseEdit(st, scene, clock);
+          if (d.t === Math.round(p.splitOf(key))) return;
+          const switched = prepareLivePauseEdit(st, scene, clock);
           const ops = liveWaveUpsertOps(st.records as never, p.pauseCtx.board, matchId, scene, clock, p.waves(), key, d.t);
-          if (ops.length) st.edit(ops);
+          if (ops.length) st.edit([...pauseSwitchFallbackOps(scene, clock, switched), ...ops]);
           return;
         }
         if (existing) {
@@ -1408,7 +1455,14 @@ export function Layers(p: {
           p.setErasingDoors?.(new Set<number>());
           if (!ok) return;
           const ops: Op[] = [...hits].map((id): Op => ({ Delete: { id } }));
-          if (doorHits.size) {
+          if (p.frame.player()) {
+            // Keep live-ink annotation deletes separate from live-entity SceneState doorway edits
+            // so Play's `dropHistoryFor(liveEntityRecordIds)` never drops live-ink undo (D1/B2).
+            if (ops.length) st.edit(ops);
+            if (doorHits.size) {
+              commitDoorEdit((ctx) => removeDoorwaysOps(ctx, [...doorHits.entries()].map(([index, expect]) => ({ index, expect }))));
+            }
+          } else if (doorHits.size) {
             commitDoorEdit(
               (ctx) => removeDoorwaysOps(ctx, [...doorHits.entries()].map(([index, expect]) => ({ index, expect }))),
               ops,

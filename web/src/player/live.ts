@@ -118,7 +118,7 @@ export function normalizeLegacyLiveOps(records: Record<string, Entry | undefined
     if (!e || e.deleted || !("PlayerState" in e.record)) continue;
     const ps = e.record.PlayerState;
     if (ps.scene === liveSceneId && isLegacyUntouchedPlayerState(ps, null)) {
-      ops.push({ Set: { id, value: { PlayerPlaced: false } } });
+      ops.push({ SetIf: { id, expect: { PlayerPlaced: true }, value: { PlayerPlaced: false } } });
     }
   }
   return ops;
@@ -188,55 +188,76 @@ export function liveEntityRecordIds(records: Record<string, Entry | undefined>, 
 }
 
 /**
- * Reset all entity overrides on `liveSceneId` (`SceneClock: null`, non-baseline `PlayerState`
- * fields back to neutral baseline, and `Delete` of live `SceneState` / `Wave` / `ObjectiveState`),
+ * Reset all entity overrides on `liveSceneId` (`SceneClock: cur -> nextClock` via CAS `SetIf`,
+ * non-baseline `PlayerState` fields back to neutral baseline via `SetIf`, and scrubbing `more`
+ * before `Delete` on live `SceneState` / `Wave` / `ObjectiveState` so tombstones stay clean),
  * chunked within `MAX_OPS_PER_TX`. Leaves live ink (`Stroke` / `Arrow` / `Callout`) untouched.
  */
-export function clearPauseOverridesOps(records: Record<string, Entry | undefined>, liveSceneId: RecordId): Op[][] {
-  const ops: Op[] = [];
+export function clearPauseOverridesOps(
+  records: Record<string, Entry | undefined>,
+  liveSceneId: RecordId,
+  nextClock: number | null = null,
+): Op[][] {
+  const groups: Op[][] = [];
   const sc = records[liveSceneId];
-  if (sc && !sc.deleted && "Scene" in sc.record && sc.record.Scene.clock != null) {
-    ops.push({ Set: { id: liveSceneId, value: { SceneClock: null } } });
+  if (sc && !sc.deleted && "Scene" in sc.record && sc.record.Scene.clock != null && sc.record.Scene.clock !== nextClock) {
+    groups.push([{ SetIf: { id: liveSceneId, expect: { SceneClock: sc.record.Scene.clock }, value: { SceneClock: nextClock } } }]);
   }
   for (const [id, e] of Object.entries(records)) {
     if (!e || e.deleted) continue;
     const r = e.record;
     if ("PlayerState" in r && r.PlayerState.scene === liveSceneId) {
       const ps = r.PlayerState;
-      const dirty =
-        ps.placed ||
-        ps.pos.x !== 0 ||
-        ps.pos.y !== 0 ||
-        !ps.alive ||
-        ps.souls != null ||
-        ps.ult_cooldown != null ||
-        ps.respawn != null ||
-        !ps.visible ||
-        hasMoreKeys(ps.more);
-      if (!dirty) continue;
-      if (ps.placed) ops.push({ Set: { id, value: { PlayerPlaced: false } } });
-      if (ps.pos.x !== 0 || ps.pos.y !== 0) ops.push({ Set: { id, value: { PlayerPos: { x: 0, y: 0 } } } });
-      if (!ps.alive) ops.push({ Set: { id, value: { PlayerAlive: true } } });
-      if (ps.ult_cooldown != null) ops.push({ Set: { id, value: { PlayerUltCooldown: null } } });
-      if (ps.souls != null) ops.push({ Set: { id, value: { PlayerSouls: null } } });
-      if (ps.respawn != null) ops.push({ Set: { id, value: { PlayerRespawn: null } } });
-      if (!ps.visible) ops.push({ Set: { id, value: { PlayerVisible: true } } });
-      for (const key of Object.keys(ps.more ?? {})) {
-        ops.push({ Set: { id, value: { More: { key, value: null } } } });
+      const pOps: Op[] = [];
+      if (ps.placed) pOps.push({ SetIf: { id, expect: { PlayerPlaced: true }, value: { PlayerPlaced: false } } });
+      if (ps.pos.x !== 0 || ps.pos.y !== 0) {
+        pOps.push({ SetIf: { id, expect: { PlayerPos: ps.pos }, value: { PlayerPos: { x: 0, y: 0 } } } });
       }
-    } else if (
-      ("SceneState" in r && r.SceneState.scene === liveSceneId) ||
-      ("Wave" in r && r.Wave.scene === liveSceneId) ||
-      ("ObjectiveState" in r && r.ObjectiveState.scene === liveSceneId)
-    ) {
-      ops.push({ Delete: { id } });
+      if (!ps.alive) pOps.push({ SetIf: { id, expect: { PlayerAlive: false }, value: { PlayerAlive: true } } });
+      if (ps.ult_cooldown != null) {
+        pOps.push({ SetIf: { id, expect: { PlayerUltCooldown: ps.ult_cooldown }, value: { PlayerUltCooldown: null } } });
+      }
+      if (ps.souls != null) pOps.push({ SetIf: { id, expect: { PlayerSouls: ps.souls }, value: { PlayerSouls: null } } });
+      if (ps.respawn != null) pOps.push({ SetIf: { id, expect: { PlayerRespawn: ps.respawn }, value: { PlayerRespawn: null } } });
+      if (!ps.visible) pOps.push({ SetIf: { id, expect: { PlayerVisible: false }, value: { PlayerVisible: true } } });
+      for (const [key, value] of Object.entries(ps.more ?? {})) {
+        if (value !== undefined) {
+          pOps.push({ SetIf: { id, expect: { More: { key, value } }, value: { More: { key, value: null } } } });
+        }
+      }
+      if (pOps.length) groups.push(pOps);
+    } else if ("SceneState" in r && r.SceneState.scene === liveSceneId) {
+      const sOps: Op[] = [];
+      // Clear `more` keys via SetIf before tombstoning so future concurrent restores start from `{}`.
+      for (const [key, value] of Object.entries(r.SceneState.more ?? {})) {
+        if (value !== undefined) {
+          sOps.push({ SetIf: { id, expect: { More: { key, value } }, value: { More: { key, value: null } } } });
+        }
+      }
+      sOps.push({ Delete: { id } });
+      groups.push(sOps);
+    } else if ("Wave" in r && r.Wave.scene === liveSceneId) {
+      const wOps: Op[] = [];
+      for (const [key, value] of Object.entries(r.Wave.more ?? {})) {
+        if (value !== undefined) {
+          wOps.push({ SetIf: { id, expect: { More: { key, value } }, value: { More: { key, value: null } } } });
+        }
+      }
+      wOps.push({ Delete: { id } });
+      groups.push(wOps);
+    } else if ("ObjectiveState" in r && r.ObjectiveState.scene === liveSceneId) {
+      const oOps: Op[] = [];
+      for (const [key, value] of Object.entries(r.ObjectiveState.more ?? {})) {
+        if (value !== undefined) {
+          oOps.push({ SetIf: { id, expect: { More: { key, value } }, value: { More: { key, value: null } } } });
+        }
+      }
+      oOps.push({ Delete: { id } });
+      groups.push(oOps);
     }
   }
-  if (!ops.length) return [];
-  return chunks(
-    ops.map((o) => [o]),
-    MAX_OPS_PER_TX,
-  );
+  if (!groups.length) return [];
+  return chunks(groups, MAX_OPS_PER_TX);
 }
 
 /** Collect active `PauseOverrides` from `liveSceneId` for `matchSceneOps` (`Save as scene`). */
@@ -334,21 +355,24 @@ export function isLiveEntityCreate(
     const e = records.get(sceneId);
     return e && "Scene" in e.record && e.record.Scene.live ? e.record.Scene.source?.match_id : undefined;
   };
-  for (const op of tx.ops) {
-    if (!("Create" in op)) continue;
+  const creates = tx.ops.filter((op): op is Extract<Op, { Create: unknown }> => "Create" in op);
+  if (creates.length === 0) return false;
+  return creates.every((op) => {
     const rec = op.Create.record;
     if ("ObjectiveState" in rec) {
       const m = matchOf(rec.ObjectiveState.scene);
-      if (m !== undefined && op.Create.id === liveObjId(board, m, rec.ObjectiveState.key)) return true;
-    } else if ("Wave" in rec) {
-      const m = matchOf(rec.Wave.scene);
-      if (m !== undefined && op.Create.id === liveWaveId(board, m, rec.Wave.lane)) return true;
-    } else if ("SceneState" in rec) {
-      const m = matchOf(rec.SceneState.scene);
-      if (m !== undefined && op.Create.id === liveSceneStateId(board, m)) return true;
+      return m !== undefined && op.Create.id === liveObjId(board, m, rec.ObjectiveState.key);
     }
-  }
-  return false;
+    if ("Wave" in rec) {
+      const m = matchOf(rec.Wave.scene);
+      return m !== undefined && op.Create.id === liveWaveId(board, m, rec.Wave.lane);
+    }
+    if ("SceneState" in rec) {
+      const m = matchOf(rec.SceneState.scene);
+      return m !== undefined && op.Create.id === liveSceneStateId(board, m);
+    }
+    return false;
+  });
 }
 
 /**

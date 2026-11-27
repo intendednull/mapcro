@@ -22,6 +22,7 @@ import type { Marker } from "../map/model";
 import type { Slot } from "../board/state";
 import type { SceneRow } from "../board/scenes";
 import { clampToMap } from "../map/transform";
+import { pauseClock } from "../player/live";
 import { type RiftAt, type Timeline, riftAt, slotKey } from "./timeline";
 import { LIMITS } from "../gen/limits";
 import type { More } from "../gen/More";
@@ -305,7 +306,7 @@ export function matchSceneOps(
 ): { id: RecordId; ops: Op[]; order: string; builds: boolean } {
   const i = current ? scenes.findIndex((s) => s.id === current.id) : scenes.length - 1;
   const id = mint();
-  const second = Math.floor(t);
+  const second = opts.overrides ? pauseClock(t) : Math.floor(t);
   const order = keyBetween(opts.after ?? scenes[i]?.scene.order, scenes[i + 1]?.scene.order);
   const name = opts.name ?? "Match moment";
   const scene = { name: sceneName(name, second), order, clock: second, ...(opts.source ? { source: { ...opts.source, t: second } } : {}) };
@@ -634,18 +635,50 @@ export function matchSceneOps(
       if (hero == null && !name) return undefined;
       return { ...(hero != null ? { hero } : {}), ...(name ? { name } : {}) };
     });
-    const stateMore = captureScene(tl, { builds: false, written });
+    const baseStateMore = captureScene(tl, { builds: false, written });
+    const pauseStateMore: More = { ...baseStateMore };
+    if (ov?.state) {
+      const liveCap = captured(ov.state);
+      const tryMerge = (flag: string, dataKey: string, dataVal: MoreValue | undefined, minRows: number) => {
+        if (minRows > written) return;
+        const cand: More = { ...pauseStateMore, [flag]: true };
+        if (dataVal !== undefined) cand[dataKey] = dataVal;
+        const curRows = typeof cand.rows === "number" ? cand.rows : 0;
+        if (curRows < minRows) cand.rows = minRows;
+        if (moreBytes(cand) <= LIMITS.max_more_bytes) Object.assign(pauseStateMore, cand);
+      };
+      if (liveCap.doors) {
+        const d = Array.isArray(ov.state.doors) && ov.state.doors.length ? [...ov.state.doors] : undefined;
+        tryMerge("has_doors", "doors", d, ROWS.doors.index + 1);
+      }
+      if (liveCap.obj_health) {
+        const h = Array.isArray(ov.state.obj_health) && ov.state.obj_health.length ? [...ov.state.obj_health] : undefined;
+        tryMerge("has_obj_health", "obj_health", h, ROWS.obj_health.index + 1);
+      }
+      if (liveCap.camps) {
+        const c = Array.isArray(ov.state.camps) && ov.state.camps.length ? [...ov.state.camps] : undefined;
+        tryMerge("has_camps", "camps", c, ROWS.camps.index + 1);
+      }
+      if (liveCap.rifts) {
+        const r = Array.isArray(ov.state.rift) && ov.state.rift.length ? [...ov.state.rift] : undefined;
+        tryMerge("has_rifts", "rift", r, ROWS.rift.index + 1);
+      }
+    }
     const bytes = mine.reduce((n: number, m) => n + (!m ? 0 : MORE_KEY + moreBytes(m)), 0);
-    const fitsBytes = (objs: ObjEntry[]) => opsBytes(previewOps(objs, stateMore)) + bytes <= txBudget;
-    const fallbackObjs = written > 16 ? fitBuckets(new Set(), maxObjWithState, fitsBytes) : legacyObjs;
-    if (fixedCount + fallbackObjs.length < LIMITS.max_ops_per_tx && fitsBytes(fallbackObjs)) {
+    const tryFallback = (sm: More) => {
+      const fitsBytes = (objs: ObjEntry[]) => opsBytes(previewOps(objs, sm)) + bytes <= txBudget;
+      const fallbackObjs = written > 16 ? fitBuckets(new Set(), maxObjWithState, fitsBytes) : legacyObjs;
+      return fixedCount + fallbackObjs.length < LIMITS.max_ops_per_tx && fitsBytes(fallbackObjs) ? { sm, fallbackObjs } : undefined;
+    };
+    const picked = tryFallback(pauseStateMore) ?? tryFallback(baseStateMore);
+    if (picked) {
       mine.forEach((m, idx) => {
         if (m) heroes[idx]!.PlayerState.more = m;
         const pov = ov?.players.get(roster[idx]!.id);
         if (pov?.more?.unseen === true) heroes[idx]!.PlayerState.visible = false;
       });
-      finalObjs = fallbackObjs;
-      finalState = stateMore;
+      finalObjs = picked.fallbackObjs;
+      finalState = picked.sm;
       held = true;
     }
   }

@@ -21,6 +21,7 @@ import {
   clearPauseOverridesOps,
   collectPauseOverrides,
   liveEntityRecordIds,
+  pauseClock,
   playFromTxs,
   takeAnnotationsOps,
 } from "./live";
@@ -180,7 +181,6 @@ export function Player(p: {
   const toggleReplay = () => user(() => {
     if (!watching()) {
       const t = transportTime();
-      p.onBeforePlay?.();
       h.setMode("player"); h.control.seek(t); h.control.play(true);
     } else {
       const nextPlaying = !h.playback().playing;
@@ -234,10 +234,14 @@ export function Player(p: {
       if (ensure.length) p.state.ensure(ensure);
       const liveId = p.state.liveScene(src.match_id);
       if (liveId) {
-        const clearTxs = clearPauseOverridesOps(p.state.records as never, liveId);
-        for (const tx of clearTxs) p.state.editSilent(tx);
-        if (clearTxs.length || p.state.canUndo() || p.state.canRedo()) {
-          p.state.dropHistoryFor(liveEntityRecordIds(p.state.records as never, liveId));
+        const sc = p.state.records[liveId];
+        const liveClock = sc && !sc.deleted && "Scene" in sc.record ? (sc.record.Scene.clock ?? null) : null;
+        if (liveClock === pauseClock(src.t)) {
+          const clearTxs = clearPauseOverridesOps(p.state.records as never, liveId);
+          for (const tx of clearTxs) p.state.editSilent(tx);
+          if (clearTxs.length || p.state.canUndo() || p.state.canRedo()) {
+            p.state.dropHistoryFor(liveEntityRecordIds(p.state.records as never, liveId));
+          }
         }
       }
       for (const tx of copies) p.state.editSilent(tx);

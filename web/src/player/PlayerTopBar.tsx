@@ -31,6 +31,7 @@ import {
   pauseRenameOps,
   pauseReviveOps,
   pauseSoulsOps,
+  pauseSwitchFallbackOps,
   pauseToggleSightOps,
   pauseUltOps,
   prepareLivePauseEdit,
@@ -90,9 +91,9 @@ export function PlayerTopBar(p: {
     const liveId = p.liveScene?.();
     if (!canPauseEdit() || !liveId) return;
     const clock = pauseClock(p.host.t());
-    prepareLivePauseEdit(p.state, liveId, clock);
+    const switched = prepareLivePauseEdit(p.state, liveId, clock);
     const ops = build(liveId, clock);
-    if (ops.length) p.state.edit(ops);
+    if (ops.length) p.state.edit([...pauseSwitchFallbackOps(liveId, clock, switched), ...ops]);
   };
   const [menu, setMenu] = createSignal<{ slot: Slot; player: Player; label: string; at: { x: number; y: number }; fromToken?: boolean }>();
   const [renaming, setRenaming] = createSignal<RecordId>();
@@ -166,9 +167,9 @@ export function PlayerTopBar(p: {
       document.body.style.cursor = "";
       if (ev.type === "pointerup" && moved) {
         suppressClickSlot = slot.id;
-        queueMicrotask(() => {
+        setTimeout(() => {
           if (suppressClickSlot === slot.id) suppressClickSlot = undefined;
-        });
+        }, 0);
         const rect = svg.getBoundingClientRect();
         if (ev.clientX >= rect.left && ev.clientX <= rect.right && ev.clientY >= rect.top && ev.clientY <= rect.bottom) {
           const pos = clampToDisc(viewToWorld(svgPoint(svg, ev), p.vp));
@@ -271,7 +272,7 @@ export function PlayerTopBar(p: {
           const commitSouls = (text: string) => {
             setSoulsEdit(undefined);
             const v = parseSouls(text);
-            if (v === undefined) return;
+            if (v === undefined || v === (x()?.souls ?? null)) return;
             pauseEdit((liveId, clock) => {
               const pl = livePlayer(s.id);
               return pl ? pauseSoulsOps(p.state.records as never, liveId, clock, pl, v) : [];
@@ -279,6 +280,9 @@ export function PlayerTopBar(p: {
           };
           const commitRename = (text: string) => {
             setRenaming(undefined);
+            const next = text.trim() || null;
+            if (next === (pausedName() ?? null)) return;
+            if (pausedName() == null && next === (h.name() ?? null)) return;
             pauseEdit((liveId, clock) => {
               const pl = livePlayer(s.id);
               return pl ? pauseRenameOps(p.state.records as never, liveId, clock, pl, text) : [];
@@ -435,12 +439,13 @@ export function PlayerTopBar(p: {
                         const pl = livePlayer(s.id);
                         if (pl) p.state.presence({ focus: on ? pl.id : null });
                       }}
-                      onCommit={(v) =>
+                      onCommit={(v) => {
+                        if (v === (x()?.ult ?? null)) return;
                         pauseEdit((liveId, clock) => {
                           const pl = livePlayer(s.id);
                           return pl ? pauseUltOps(p.state.records as never, liveId, clock, pl, v) : [];
-                        })
-                      }
+                        });
+                      }}
                     />
                   </Hover>
                 );

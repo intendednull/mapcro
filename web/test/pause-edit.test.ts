@@ -20,12 +20,13 @@ import { LIMITS } from "../src/gen/limits";
 import { FALLBACK } from "../src/map/fallback-data";
 import { modelFromFallback } from "../src/map/model";
 import { decodeDoors, decodeObjHealth, encodeDoors, encodeObjHealth } from "../src/mapstate/codec";
-import { placeDoorwayOps, removeDoorwayOps, setObjectiveHealthOps } from "../src/mapstate/edit";
+import { clearTeamDoorsOps, placeDoorwayOps, removeDoorwayOps, setObjectiveHealthOps } from "../src/mapstate/edit";
 import {
   type MutablePausedBoard,
   fromPausedPlayer,
   liveObjUpsert,
   liveWaveUpsertOps,
+  pauseClockOps,
   pauseHeroOps,
   pauseKillOps,
   pauseMoveOps,
@@ -33,8 +34,10 @@ import {
   pauseRespawnOps,
   pauseReviveOps,
   pauseSoulsOps,
+  pauseSwitchFallbackOps,
   pauseToggleSightOps,
   pauseUltOps,
+  prepareLivePauseEdit,
   preparePausedSceneState,
   seedObjHealthMap,
 } from "../src/mapstate/paused";
@@ -233,6 +236,9 @@ function makeHarness(legacy = false) {
     ensure: (ops) => {
       apply(ops, true);
       return true;
+    },
+    dropHistoryFor: (idsList) => {
+      replica.dropHistoryFor(JSON.stringify(idsList));
     },
   };
 
@@ -807,5 +813,304 @@ describe("playback clock follow while paused (M5)", () => {
     expect(follow(pausedMine, { t: 10.004, playing: false, speed: 1, at: 0 }, 0, 100)).toBe(pausedMine);
     const playingMine = { t: 10.0, playing: true, speed: 1, at: 0 };
     expect(follow(playingMine, { t: 10.2, playing: true, speed: 1, at: 0 }, 0, 100)).toBe(playingMine);
+  });
+});
+
+const sceneClockOf = (records: Record<RecordId, Entry | undefined>, sceneId: RecordId) => {
+  const e = records[sceneId];
+  return e && "Scene" in e.record ? (e.record.Scene.clock ?? null) : undefined;
+};
+
+describe("adversarial review regressions (clock CAS, tombstone SceneState race, no-op isolation, undo pruning, fallback bake)", () => {
+  it("clock CAS prevents concurrent 20s vs 60s first edits from flipping clock and prevents 20s edit racing Play from resurrecting clock", () => {
+    createRoot((dispose) => {
+      // Base doc with liveScene initialized at clock = null.
+      const base = makeHarness(false);
+      const baseSnapshot = JSON.stringify({ seq: 0, doc: JSON.parse(base.replica.view()) as Doc });
+      const ids = base.ids;
+
+      // 1. Concurrent first edits from clock = null at 20s (A) vs 60s (B).
+      const srv = new BoardReplica(newClientId(), newClientSecret(), baseSnapshot);
+      const doc0 = Object.fromEntries(JSON.parse(srv.view()) as Doc) as Record<RecordId, Entry>;
+      const aOps = pauseMoveOps(doc0, ids.scene, 20, [{ id: ids.players[0]![0], pos: { x: 200, y: 200 } }]);
+      const bOps = pauseMoveOps(doc0, ids.scene, 60, [{ id: ids.players[1]![0], pos: { x: 600, y: 600 } }]);
+      expect(aOps.some((o) => "SetIf" in o && "SceneClock" in o.SetIf.value)).toBe(true);
+      expect(bOps.some((o) => "SetIf" in o && "SceneClock" in o.SetIf.value)).toBe(true);
+
+      expect(JSON.parse(srv.edit(JSON.stringify(aOps))).refused).toBeNull();
+      expect(JSON.parse(srv.edit(JSON.stringify(bOps))).refused).toBeNull();
+      const afterAB = Object.fromEntries(JSON.parse(srv.view()) as Doc) as Record<RecordId, Entry>;
+      // First writer (A at 20s) wins SceneClock; B's SetIf(null -> 60) skipped cleanly!
+      expect(sceneClockOf(afterAB, ids.scene)).toBe(20);
+
+      // 2. Edit at 20s racing Play at 20s: Play clears 20 -> null, then stale 20s edit arrives -> SceneClock stays null (never resurrected!).
+      const snap20 = JSON.stringify({ seq: 0, doc: JSON.parse(srv.view()) as Doc });
+      const srvPlay = new BoardReplica(newClientId(), newClientSecret(), snap20);
+      const doc20 = Object.fromEntries(JSON.parse(srvPlay.view()) as Doc) as Record<RecordId, Entry>;
+      const playTxs = clearPauseOverridesOps(doc20, ids.scene, null);
+      const racingEdit = pauseMoveOps(doc20, ids.scene, 20, [{ id: ids.players[2]![0], pos: { x: 300, y: 300 } }]);
+      // Because doc20 already had clock === 20, racingEdit does not re-stamp SceneClock!
+      expect(racingEdit.some((o) => ("Set" in o && "SceneClock" in o.Set.value) || ("SetIf" in o && "SceneClock" in o.SetIf.value))).toBe(false);
+      for (const tx of playTxs) expect(JSON.parse(srvPlay.edit_silent(JSON.stringify(tx))).refused).toBeNull();
+      expect(JSON.parse(srvPlay.edit(JSON.stringify(racingEdit))).refused).toBeNull();
+      const afterPlayRace = Object.fromEntries(JSON.parse(srvPlay.view()) as Doc) as Record<RecordId, Entry>;
+      expect(sceneClockOf(afterPlayRace, ids.scene)).toBeNull();
+
+      // 3. Play at 20s racing Coach B's timestamp switch 20 -> 60: Play lands first (20 -> null),
+      //    then B's silent switch (20 -> 60) skips, and B's undoable edit's pauseSwitchFallbackOps (null -> 60) succeeds!
+      const srvSwitch = new BoardReplica(newClientId(), newClientSecret(), snap20);
+      const bSwitchTxs = clearPauseOverridesOps(doc20, ids.scene, 60);
+      const bEditOps = [
+        ...pauseSwitchFallbackOps(ids.scene, 60, true),
+        ...pauseMoveOps(doc20, ids.scene, 20, [{ id: ids.players[3]![0], pos: { x: 400, y: 400 } }]),
+      ];
+      for (const tx of playTxs) expect(JSON.parse(srvSwitch.edit_silent(JSON.stringify(tx))).refused).toBeNull();
+      for (const tx of bSwitchTxs) expect(JSON.parse(srvSwitch.edit_silent(JSON.stringify(tx))).refused).toBeNull();
+      expect(JSON.parse(srvSwitch.edit(JSON.stringify(bEditOps))).refused).toBeNull();
+      const afterSwitchRace = Object.fromEntries(JSON.parse(srvSwitch.view()) as Doc) as Record<RecordId, Entry>;
+      expect(sceneClockOf(afterSwitchRace, ids.scene)).toBe(60);
+
+      dispose();
+    });
+  });
+
+  it("concurrent 2-replica same-clock tombstone SceneState restore preserves both doors & obj_health and never regresses rows 42 -> 33", () => {
+    createRoot((dispose) => {
+      // Seed a cycle that creates SceneState with rows: 42 (doors), then clears it via clearPauseOverridesOps -> clean tombstone!
+      const h = makeHarness(false);
+      const prep0 = preparePausedSceneState(h.board, BOARD_ID, MATCH_ID, h.ids.scene);
+      h.apply([
+        ...pauseClockOps(h.board.records, h.ids.scene, 10),
+        ...prep0.prefix,
+        ...placeDoorwayOps({ scene: h.ids.scene, state: prep0.state, mint: () => hexId(8001), seed: [] }, "amber", { x: 10, y: 10 }),
+      ]);
+      for (const tx of clearPauseOverridesOps(h.board.records, h.ids.scene, null)) h.apply(tx, true);
+      const ssId = liveSceneStateId(BOARD_ID, MATCH_ID);
+      expect(h.board.records[ssId]?.deleted).toBe(true);
+
+      // Snapshot the tombstoned state for two independent concurrent replicas A (doors, rows 42) and B (obj_health, rows 33).
+      const snapTomb = JSON.stringify({ seq: 0, doc: JSON.parse(h.replica.view()) as Doc });
+
+      const buildSide = (which: "doors" | "health"): Op[] => {
+        const rep = new BoardReplica(newClientId(), newClientSecret(), snapTomb);
+        const doc = Object.fromEntries(JSON.parse(rep.view()) as Doc) as Record<RecordId, Entry>;
+        const miniBoard: MutablePausedBoard = {
+          records: doc,
+          roster: () => h.rosterSlots,
+          playersIn: () => [],
+          inScene: () => [],
+          rowsIn: () => [],
+          edit: () => true,
+          editSilent: () => true,
+          ensure: () => true,
+          dropHistoryFor: () => {},
+        };
+        const prep = preparePausedSceneState(miniBoard, BOARD_ID, MATCH_ID, h.ids.scene);
+        const clockOps = pauseClockOps(doc, h.ids.scene, 20);
+        if (which === "doors") {
+          return [
+            ...clockOps,
+            ...prep.prefix,
+            ...placeDoorwayOps({ scene: h.ids.scene, state: prep.state, mint: () => hexId(8101), seed: [] }, "amber", { x: 50, y: 60 }),
+          ];
+        }
+        return [
+          ...clockOps,
+          ...prep.prefix,
+          ...setObjectiveHealthOps(
+            {
+              scene: h.ids.scene,
+              state: prep.state,
+              objectives: new Map(),
+              markers: MARKERS,
+              mint: () => hexId(8102),
+              seed: new Map(),
+              upsertObjective: liveObjUpsert(doc, BOARD_ID, MATCH_ID, h.ids.scene, new Map()),
+            },
+            WALKER,
+            45,
+          ),
+        ];
+      };
+
+      const opsA = buildSide("doors");
+      const opsB = buildSide("health");
+
+      // Verify BOTH serialization orders (A-then-B and B-then-A)!
+      for (const order of [
+        [opsA, opsB],
+        [opsB, opsA],
+      ] as const) {
+        const srv = new BoardReplica(newClientId(), newClientSecret(), snapTomb);
+        for (const tx of order) {
+          const res = JSON.parse(srv.edit(JSON.stringify(tx)));
+          expect(res.refused, JSON.stringify(res)).toBeNull();
+        }
+        const finalDoc = Object.fromEntries(JSON.parse(srv.view()) as Doc) as Record<RecordId, Entry>;
+        const ss = finalDoc[ssId]!;
+        expect(ss.deleted).toBe(false);
+        expect("SceneState" in ss.record).toBe(true);
+        if ("SceneState" in ss.record) {
+          expect(ss.record.SceneState.more?.rows).toBe(42);
+          expect(ss.record.SceneState.more?.has_doors).toBe(true);
+          expect(decodeDoors(ss.record.SceneState.more?.doors)).toHaveLength(1);
+          expect(ss.record.SceneState.more?.has_obj_health).toBe(true);
+          expect(decodeObjHealth(ss.record.SceneState.more?.obj_health, MARKERS).get(WALKER.key)).toEqual({ pct: 45 });
+        }
+      }
+      dispose();
+    });
+  });
+
+  it("no-op edit checks at a different timestamp leave peer overrides untouched", () => {
+    createRoot((dispose) => {
+      const { ids, board, apply, pl } = makeHarness(false);
+      // Coach A edits at 20s.
+      apply(pauseMoveOps(board.records, ids.scene, 20, [{ id: pl(0).id, pos: { x: 350, y: -250 } }]));
+      expect(sceneClockOf(board.records, ids.scene)).toBe(20);
+
+      // Coach B at 60s checks no-op actions before calling prepareLivePauseEdit:
+      // 1. clearTeamDoorsOps with 0 doors on amber -> returns []
+      expect(clearTeamDoorsOps({ scene: ids.scene, state: undefined, mint: () => hexId(8201), seed: [] }, "amber")).toEqual([]);
+      // 2. pauseRenameOps with empty string on untouched baseline -> returns []
+      expect(pauseRenameOps(board.records, ids.scene, 60, { id: pl(1).id, state: pl(1).state }, "   ")).toEqual([]);
+      // 3. pauseRespawnOps with null on untouched baseline -> returns []
+      expect(pauseRespawnOps(board.records, ids.scene, 60, { id: pl(1).id, state: pl(1).state }, null)).toEqual([]);
+
+      // Coach A's 20s edits are completely untouched!
+      expect(sceneClockOf(board.records, ids.scene)).toBe(20);
+      expect(pl(0).state.placed).toBe(true);
+      expect(pl(0).state.pos).toEqual({ x: 350, y: -250 });
+      dispose();
+    });
+  });
+
+  it("timestamp-switch clear in prepareLivePauseEdit prunes prior undo/redo entries via dropHistoryFor", () => {
+    createRoot((dispose) => {
+      const { replica, ids, board, apply, pl } = makeHarness(false);
+      // Edit at 20s (pushes onto undo stack).
+      apply(pauseMoveOps(board.records, ids.scene, 20, [{ id: pl(0).id, pos: { x: 200, y: 200 } }]));
+      // Switch to 60s via prepareLivePauseEdit -> clears 20s, stamps 60, and prunes 20s undo entries!
+      const switched = prepareLivePauseEdit(board, ids.scene, 60);
+      expect(switched).toBe(true);
+      const edit60 = [
+        ...pauseSwitchFallbackOps(ids.scene, 60, switched),
+        ...pauseMoveOps(board.records, ids.scene, 60, [{ id: pl(1).id, pos: { x: 600, y: 600 } }]),
+      ];
+      apply(edit60);
+
+      // Undo once -> undoes ONLY the 60s edit, leaves canUndo === false (never resurrects 20s!).
+      const u1 = JSON.parse(replica.undo());
+      expect(u1.refused).toBeNull();
+      expect(u1.canUndo).toBe(false);
+      const afterUndo = Object.fromEntries(JSON.parse(replica.view()) as Doc) as Record<RecordId, Entry>;
+      const p0 = afterUndo[pl(0).id]!;
+      expect("PlayerState" in p0.record && p0.record.PlayerState.placed).toBe(false);
+      dispose();
+    });
+  });
+
+  it("reload cleanup scrubs stale liveScene overrides and prunes live-entity undo/redo while keeping real-scene undo", () => {
+    createRoot((dispose) => {
+      const { replica, ids, board, apply, pl } = makeHarness(false);
+      const realCallout = hexId(8301);
+      // Real scene edit (must survive reload cleanup).
+      apply([
+        {
+          Create: {
+            id: realCallout,
+            record: { Callout: { scene: hexId(2), pos: { x: 10, y: 20 }, text: "plan", color: null, side: "Below" } },
+          },
+        },
+      ]);
+      // Stale liveScene pause edits (one undone onto redo stack, one on undo stack).
+      apply(pauseMoveOps(board.records, ids.scene, 20, [{ id: pl(0).id, pos: { x: 111, y: 222 } }]));
+      apply(pauseMoveOps(board.records, ids.scene, 20, [{ id: pl(1).id, pos: { x: 333, y: 444 } }]));
+      replica.undo();
+
+      // Simulate layer.ts SETTLE_MS reload cleanup: silent clear + dropHistoryFor(liveEntityRecordIds).
+      for (const tx of clearPauseOverridesOps(board.records, ids.scene)) apply(tx, true);
+      const dropRes = JSON.parse(replica.dropHistoryFor(JSON.stringify(liveEntityRecordIds(board.records, ids.scene))));
+      expect(dropRes.canRedo).toBe(false);
+      expect(dropRes.canUndo).toBe(true);
+
+      // Undo removes the real-scene callout, NOT any scrubbed live entity.
+      const u1 = JSON.parse(replica.undo());
+      expect(u1.canUndo).toBe(false);
+      const finalDoc = Object.fromEntries(JSON.parse(replica.view()) as Doc) as Record<RecordId, Entry>;
+      expect(finalDoc[realCallout]?.deleted).toBe(true);
+      dispose();
+    });
+  });
+
+  it("Save as scene builds-overflow fallback still bakes ov.state doors and obj_health", () => {
+    createRoot((dispose) => {
+      // Force the heroes-only fallback by creating 220 objectives + huge builds so builds cannot fit,
+      // while heroes + SceneState with pause overrides DO fit!
+      const { rosterSlots } = makeHarness(false);
+      const longPlayers = (["amber", "sapphire"] as const).flatMap((team) =>
+        [0, 1, 2, 3, 4, 5].map((slot) => {
+          const base = mkPlayer(team, slot);
+          return {
+            ...base,
+            items: Array.from({ length: 220 }, (_, k) => [100_000 + k, 4_000_000_000 + k, 0] as [number, number, number]),
+          };
+        }),
+      );
+      const extraKeys = Array.from({ length: 190 }, (_, k) => `camp:neutral:lane0:extra_${k}`);
+      const bigTl = makeTimeline({
+        players: longPlayers,
+        objectives: extraKeys.map((key) => ({ key, kind: "walker", team: "amber", lane: 1, destroyed_s: 1 })),
+      });
+      const bigMarkers = [
+        ...MARKERS,
+        ...extraKeys.map((key) => ({ key, kind: "t2" as const, team: "amber" as const, lane: "yellow" as const, at: { x: 0, y: 0 } })),
+      ];
+      const overrides: PauseOverrides = {
+        players: new Map(),
+        objectives: new Map(),
+        waves: new Map(),
+        state: {
+          rows: 42,
+          has_doors: true,
+          doors: encodeDoors([{ id: 0, team: "amber", at: { x: 77, y: 88 }, role: "unpaired", partner: null, inSight: true }]),
+          has_obj_health: true,
+          obj_health: encodeObjHealth(new Map([[WALKER.key, { pct: 40 }]]), MARKERS).ints,
+        } as More,
+      };
+      let n = 8400;
+      const saved = matchSceneOps(rosterSlots, [], undefined, bigTl, 2, bigMarkers, () => hexId(n++), [], {
+        source: sourceOf(bigTl),
+        builds: false, // explicitly exercise the builds: false / heroes-only fallback path
+        overrides,
+      });
+      expect(saved.builds).toBe(false);
+      expect(saved.ops.length).toBeGreaterThan(0);
+      expect(saved.ops.length).toBeLessThanOrEqual(LIMITS.max_ops_per_tx);
+      expect(opsBytes(saved.ops)).toBeLessThanOrEqual(LIMITS.max_tx_bytes);
+      const ss = saved.ops.flatMap((o) => ("Create" in o && "SceneState" in o.Create.record ? [o.Create.record.SceneState] : []))[0]!;
+      expect(ss.more?.has_doors).toBe(true);
+      expect(decodeDoors(ss.more?.doors)).toEqual([{ id: 0, team: "amber", at: { x: 77, y: 88 }, role: "unpaired", partner: null, inSight: true }]);
+      expect(ss.more?.has_obj_health).toBe(true);
+      expect(decodeObjHealth(ss.more?.obj_health, MARKERS).get(WALKER.key)).toEqual({ pct: 40 });
+      dispose();
+    });
+  });
+
+  it("isLiveEntityCreate returns false for mixed live-entity + unrelated Create transactions (Minor #12)", () => {
+    createRoot((dispose) => {
+      const { ids, readDoc } = makeHarness(false);
+      const recMap = new Map(Object.entries(readDoc()));
+      expect(
+        isLiveEntityCreate(BOARD_ID, recMap, {
+          kind: "Edit",
+          ops: [
+            { Create: { id: liveWaveId(BOARD_ID, MATCH_ID, "yellow"), record: { Wave: { scene: ids.scene, lane: "yellow", t: 500 } } } },
+            { Create: { id: hexId(8501), record: { Stroke: { scene: ids.scene, color: 0, width: 6, points: [{ x: 0, y: 0 }, { x: 50, y: 50 }] } } } },
+          ],
+        }),
+      ).toBe(false);
+      dispose();
+    });
   });
 });

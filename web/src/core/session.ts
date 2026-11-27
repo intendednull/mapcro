@@ -437,8 +437,10 @@ export class BoardSession {
       }
     }
     const hello = frames[0];
-    const from = hello?.t === "msg" && "Hello" in hello.msg ? hello.msg.Hello.pending_from : undefined;
-    if (from !== undefined) for (const c of this.ensures) if (c < from) this.ensures.delete(c);
+    if (hello?.t === "msg" && "Hello" in hello.msg) {
+      this.client = hello.msg.Hello.client;
+      for (const c of this.ensures) if (c < hello.msg.Hello.pending_from) this.ensures.delete(c);
+    }
   }
 
   /** Update what others see of us. Sent at most every PRESENCE_MS; the latest state always wins. */
@@ -698,7 +700,13 @@ export class BoardSession {
         const m = frame.msg;
         // Decided before the change callback runs, so the UI never sees an ensure's refusal.
         const lost = typeof m === "object" && "Rejected" in m && this.ensures.has(m.Rejected.cseq) && m.Rejected.reason === "IdTaken";
-        if (typeof m === "object" && "Rejected" in m && !lost) this.problems.push(`rejected: ${JSON.stringify(m.Rejected.reason)}`);
+        if (typeof m === "object" && "Rejected" in m && !lost) {
+          this.ensures.delete(m.Rejected.cseq);
+          this.problems.push(`rejected: ${JSON.stringify(m.Rejected.reason)}`);
+        } else if (typeof m === "object" && "Entry" in m && m.Entry.tx.client === this.client) {
+          // Accepted in the log: the server will never reject this cseq again.
+          this.ensures.delete(m.Entry.tx.cseq);
+        }
         this.apply(r.receive(JSON.stringify(frame)));
         this.persistSoon();
         return;
