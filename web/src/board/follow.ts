@@ -159,5 +159,5 @@ export function centerViewOnWorld(pos: { x: number; y: number }, w: number, vp: 
 export function normalizeSlotKey(raw: string | null | undefined): string | undefined {
   if (!raw) return undefined;
   const m = /^(amber|sapphire)-(\d+)$/i.exec(raw.trim());
-  return m ? slotKey(m[1]!, Number(m[2]!)) : undefined;
+  return m ? slotKey(m[1]!.toLowerCase(), Number(m[2]!)) : undefined;
 }

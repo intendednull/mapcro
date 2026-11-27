@@ -99,7 +99,7 @@ export function HeroCard(p: {
             {/* The column below names the player and the hero. */}
             <span />
             <Show when={p.onTrack}>
-              <Hover tip={() => <TagTip text={p.tracked ? "Stop tracking [F]" : "Track hero [F]"} />}>
+              <Hover tip={() => <TagTip text={p.tracked ? "Stop tracking" : "Track hero"} />}>
                 <button
                   type="button"
                   class={cx("btn icon small hero-panel-track", p.tracked && "active")}

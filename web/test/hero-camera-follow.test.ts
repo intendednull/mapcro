@@ -59,6 +59,7 @@ describe("hero camera tracking transform math", () => {
 
   it("normalizes DOM data-slot attributes to canonical slotKey", () => {
     expect(normalizeSlotKey("Amber-0")).toBe("amber-0");
+    expect(normalizeSlotKey("AMBER-0")).toBe("amber-0");
     expect(normalizeSlotKey("Sapphire-5")).toBe("sapphire-5");
     expect(normalizeSlotKey("amber-2")).toBe("amber-2");
     expect(normalizeSlotKey("  SAPPHIRE-3  ")).toBe("sapphire-3");

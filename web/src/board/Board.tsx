@@ -770,20 +770,29 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     const pos = trackedWorldPos();
     const vp = viewpoint();
     if (localDraggingSlots?.has(key)) return;
+    const vpChanged = lastTrackedVp !== undefined && lastTrackedVp !== vp;
+    lastTrackedVp = vp;
     if (!pos) {
       if (trackGlide) {
         cancelAnimationFrame(trackRaf);
         trackRaf = 0;
         trackGlide = undefined;
       }
+      if (vpChanged) {
+        const cur = untrack(view);
+        const mx = 1000 - (cur.x + cur.w / 2);
+        const my = 1000 - (cur.y + cur.w / 2);
+        setView(clampView({ x: mx - cur.w / 2, y: my - cur.w / 2, w: cur.w }));
+        if (lastTrackedViewPt) {
+          lastTrackedViewPt = { x: 1000 - lastTrackedViewPt.x, y: 1000 - lastTrackedViewPt.y };
+        }
+      }
       return;
     }
     const newC = worldToView(pos, vp);
     const prevC = lastTrackedViewPt;
     const switchedKey = lastTrackedKey !== key;
-    const vpChanged = lastTrackedVp !== undefined && lastTrackedVp !== vp;
     lastTrackedKey = key;
-    lastTrackedVp = vp;
     lastTrackedViewPt = newC;
 
     if (vpChanged) {
@@ -851,9 +860,19 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     trackPendingZoom = false;
     const cur = untrack(view);
     const nextW = Math.max(MIN_W, Math.min(MAX_W, cur.w * factor));
+    // While locally dragging the tracked hero, avoid snapping back to its stale committed position.
+    if (localDraggingSlots?.has(key)) {
+      cancelAnimationFrame(trackRaf);
+      trackRaf = 0;
+      trackGlide = undefined;
+      setView(zoomAt(cur, at, factor));
+      return;
+    }
     const pos = untrack(trackedWorldPos);
     if (pos) {
       if (trackGlide) {
+        cancelAnimationFrame(trackRaf);
+        trackRaf = 0;
         trackGlide = { ...trackGlide, from: { ...trackGlide.from, w: nextW }, targetW: nextW };
         stepTrackGlide(performance.now());
       } else {
@@ -875,7 +894,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     const heroId = h.hero();
     const hero = heroId != null ? p.art.heroes.get(heroId) : undefined;
     const rosterSlot = state.roster().find((s) => slotKey(s.slot.team, s.slot.slot) === key);
-    const fallbackLabel = h.name() || rosterSlot?.slot.name.trim() || slotPlaceholder(team === "amber" ? "Amber" : "Sapphire", slotNum);
+    const fallbackLabel = (player.showNames() ? h.name() : null) || rosterSlot?.slot.name.trim() || slotPlaceholder(team === "amber" ? "Amber" : "Sapphire", slotNum);
     return { key, team, label: hero?.name ?? fallbackLabel };
   });
   const trackChip = () => (
@@ -928,25 +947,33 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       if (portrait) return normalizeSlotKey(portrait.getAttribute("data-slot"));
       return undefined;
     };
-    const hoveredHeroSlot = (): string | undefined => {
+    const F_BLOCK_SEL =
+      ".hero-panel, .skull-recap, .ctx-menu, .dialog, .scrim, .tb-build-column, .more-menu, .clear-pop, .p-sheet, .scenes, details.map-layers[open], details.pl-source[open], .map-controls, .track-chip";
+    const hoveredHeroSlot = (): { kind: "slot"; key: string } | { kind: "blocked" } | { kind: "none" } => {
       if (mouseClient) {
         for (const el of document.elementsFromPoint(mouseClient.x, mouseClient.y)) {
-          if (el.closest?.(".hero-panel, .skull-recap, .ctx-menu, .dialog, .scrim, .tb-build-column")) return undefined;
+          if (el.closest?.(F_BLOCK_SEL)) return { kind: "blocked" };
           const slot = matchSlotEl(el);
-          if (slot) return slot;
+          if (slot) return { kind: "slot", key: slot };
         }
+        return { kind: "none" };
       }
-      return matchSlotEl(document.querySelector('.tok[data-slot]:not([data-fading="out"]):hover, .tb-player[data-slot]:hover, .phone-hero[data-slot]:hover'));
+      if (document.querySelector(`:is(${F_BLOCK_SEL}):hover`)) return { kind: "blocked" };
+      const slot = matchSlotEl(document.querySelector('.tok[data-slot]:not([data-fading="out"]):hover, .tb-player[data-slot]:hover, .phone-hero[data-slot]:hover'));
+      return slot ? { kind: "slot", key: slot } : { kind: "none" };
     };
     const key = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
       if (e.defaultPrevented || e.repeat || modalOpen()) return;
       if (e.key.toLowerCase() === "f" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
-        const slot = hoveredHeroSlot();
-        if (slot && isTrackable(slot)) {
-          e.preventDefault();
-          toggleTrackHero(slot);
+        const hit = hoveredHeroSlot();
+        if (hit.kind === "blocked") return;
+        if (hit.kind === "slot") {
+          if (isTrackable(hit.key)) {
+            e.preventDefault();
+            toggleTrackHero(hit.key);
+          }
           return;
         }
         if (following() === undefined) {

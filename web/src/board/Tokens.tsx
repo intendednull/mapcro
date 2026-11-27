@@ -169,13 +169,21 @@ export function Tokens(p: {
   // prevents native DOM `dblclick` on <g class="tok">).
   let lastTokTap: { key: string; t: number; openedCard: boolean } | undefined;
   const DOUBLE_TAP_MS = 400;
+  createEffect(on([() => p.scene, live], () => { lastTokTap = undefined; }, { defer: true }));
 
   const handleStationaryTap = (slot: Slot["slot"], tok: Element | undefined, shiftKey: boolean) => {
-    if (p.tool === "erase" || shiftKey) return;
-    if (tok?.getAttribute("data-fading") === "out") return;
+    if (p.tool === "erase" || tok?.getAttribute("data-fading") === "out") {
+      lastTokTap = undefined;
+      return;
+    }
     const k = slotKey(slot.team, slot.slot);
     const now = performance.now();
     if (live()) {
+      if (shiftKey) {
+        lastTokTap = undefined;
+        p.onOpen?.(slot.team.toLowerCase(), slot.slot, tok);
+        return;
+      }
       if (lastTokTap && lastTokTap.key === k && now - lastTokTap.t < DOUBLE_TAP_MS) {
         const opened = lastTokTap.openedCard;
         lastTokTap = undefined;
@@ -186,6 +194,10 @@ export function Tokens(p: {
       const wasOpen = p.isCardOpen?.(k) ?? false;
       p.onOpen?.(slot.team.toLowerCase(), slot.slot, tok);
       lastTokTap = { key: k, t: now, openedCard: !wasOpen };
+      return;
+    }
+    if (shiftKey) {
+      lastTokTap = undefined;
       return;
     }
     if (lastTokTap && lastTokTap.key === k && now - lastTokTap.t < DOUBLE_TAP_MS) {
@@ -199,11 +211,15 @@ export function Tokens(p: {
   if (p.bindTap) {
     const bind = p.bindTap;
     bind((tok, e) => {
-      if (e.button !== 0 || e.shiftKey || p.tool === "erase") return;
+      if (e.button !== 0 || p.tool === "erase") {
+        lastTokTap = undefined;
+        return;
+      }
       const pid = tok.getAttribute("data-player");
       const pl = pid ? players().find((x) => x.id === pid) : undefined;
       const slot = pl && slots().get(pl.state.slot);
       if (slot) handleStationaryTap(slot, tok, e.shiftKey);
+      else lastTokTap = undefined;
     });
     onCleanup(() => bind(undefined));
   }
@@ -236,6 +252,7 @@ export function Tokens(p: {
     p.onPress?.();
     const sel = p.selection();
     if (e.shiftKey) {
+      lastTokTap = undefined;
       // Shift-click adds a hero to the selection, or takes it out.
       const next = new Set(sel);
       if (next.has(pl.id)) next.delete(pl.id);
@@ -268,7 +285,10 @@ export function Tokens(p: {
       const d = drag();
       if (!d || ev.pointerId !== d.pointer) return;
       if (!d.moved && Math.hypot(ev.clientX - fromClient.x, ev.clientY - fromClient.y) < slop) return;
-      if (!d.moved) p.onDragHero?.(dragKeys);
+      if (!d.moved) {
+        lastTokTap = undefined;
+        p.onDragHero?.(dragKeys);
+      }
       const at = clampToMap(viewToWorld(svgPoint(svg, ev), p.vp));
       const delta = { x: at.x - d.start.x, y: at.y - d.start.y };
       setDrag({ ...d, delta, moved: true });

@@ -167,6 +167,16 @@ test("1. top-bar double-click zooms to 2.5x, centers hero, closes newly opened B
   const fitW = (await viewOf(a))[2];
   expect(fitW).toBeGreaterThan(800);
 
+  // Single-click on .tb-focus still opens and closes BuildColumn without starting camera tracking.
+  await portrait(a, "Amber-0").click();
+  await expect(a.locator('.tb-player[data-slot="Amber-0"] [data-testid=hero-build]')).toHaveCount(1);
+  await expect(a.getByTestId("track-chip")).toHaveCount(0);
+  await a.waitForTimeout(400);
+  await portrait(a, "Amber-0").click();
+  await expect(a.locator('.tb-player[data-slot="Amber-0"] [data-testid=hero-build]')).toHaveCount(0);
+  await expect(a.getByTestId("track-chip")).toHaveCount(0);
+  await a.waitForTimeout(400);
+
   // Double-click Amber-0 portrait in Player top bar.
   await portrait(a, "Amber-0").dblclick();
 
@@ -291,6 +301,17 @@ test("3. hover hotkey F tracks hovered token or portrait, toggles off, switches 
   // Press F again while still hovering Sapphire-2 -> stops tracking.
   await b.keyboard.press("f");
   await expect(b.getByTestId("track-chip")).toHaveCount(0);
+
+  // Pressing F while hovering an open overlay (HeroCard or Map layers) must NOT fall through to presenter follow!
+  await tok(b, "Sapphire-2").click();
+  await expect(b.getByTestId("hero-card")).toHaveCount(1);
+  const cardCenter = await centreOf(b, "[data-testid=hero-card]");
+  await b.mouse.move(cardCenter.x, cardCenter.y);
+  await b.keyboard.press("f");
+  await expect(b.getByTestId("stop-following")).toHaveCount(0);
+  await expect(b.getByTestId("track-chip")).toHaveCount(0);
+  await b.keyboard.press("Escape");
+  await expect(b.getByTestId("hero-card")).toHaveCount(0);
 
   // Move pointer to an empty corner inside the visible map box (not over any token or portrait) and press F -> falls through to presenter follow!
   const mapBox = (await b.getByTestId("map").boundingBox())!;
