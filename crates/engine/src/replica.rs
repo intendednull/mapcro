@@ -68,6 +68,8 @@ pub struct Replica {
     redo: Vec<HistoryEntry>,
     rejected: Vec<(u64, Reject)>,
     connected: bool,
+    /// Server-applied inverse of the most recent own `ServerMsg::Entry` (ephemeral, not persisted).
+    last_own_entry_inverse: Option<(u64, Vec<Op>)>,
 }
 
 impl Replica {
@@ -86,6 +88,7 @@ impl Replica {
             redo: Vec::new(),
             rejected: Vec::new(),
             connected: false,
+            last_own_entry_inverse: None,
         }
     }
 
@@ -118,6 +121,7 @@ impl Replica {
             redo: s.redo,
             rejected: s.rejected,
             connected: false,
+            last_own_entry_inverse: None,
         };
         r.rebase();
         r
@@ -202,6 +206,23 @@ impl Replica {
         let keep = |e: &HistoryEntry| !e.inverse.iter().any(|op| targets.contains(&op_target(op)));
         self.undo.retain(keep);
         self.redo.retain(keep);
+    }
+
+    /// Find and remove the undo history entry for `cseq`, returning its locally-computed inverse.
+    /// Purely local; sends nothing on the wire.
+    pub fn take_undo_for(&mut self, cseq: u64) -> Option<Vec<Op>> {
+        let idx = self.undo.iter().position(|e| e.cseq == cseq)?;
+        Some(self.undo.remove(idx).inverse)
+    }
+
+    /// Take the server-applied inverse recorded when our own `ServerMsg::Entry` for `cseq`
+    /// applied to `self.confirmed` in `receive`.
+    pub fn take_confirmed_inverse(&mut self, cseq: u64) -> Option<Vec<Op>> {
+        if self.last_own_entry_inverse.as_ref().is_some_and(|(c, _)| *c == cseq) {
+            self.last_own_entry_inverse.take().map(|(_, inv)| inv)
+        } else {
+            None
+        }
     }
 
     /// Undo this client's most recent transaction that still has an undo entry.
@@ -294,7 +315,13 @@ impl Replica {
                         return Err(ProtocolError::AckMismatch { expected: front, got: tx.cseq });
                     }
                 }
-                apply_tx(&mut self.confirmed, &tx).map_err(|reason| ProtocolError::Diverged { seq, reason })?;
+                if tx.client == self.client {
+                    let (_, inv) = apply_tx_with_inverse(&mut self.confirmed, &tx)
+                        .map_err(|reason| ProtocolError::Diverged { seq, reason })?;
+                    self.last_own_entry_inverse = Some((tx.cseq, inv));
+                } else {
+                    apply_tx(&mut self.confirmed, &tx).map_err(|reason| ProtocolError::Diverged { seq, reason })?;
+                }
                 self.last_seq = seq;
                 // The view is the confirmed state with the pending work on top. Two entries
                 // leave it that without rebuilding it from a copy of the board (map-state
@@ -912,5 +939,97 @@ mod drop_history_tests {
         let restored = Replica::from_state(r.state());
         assert!(!restored.can_undo());
         assert!(!restored.can_redo());
+    }
+
+    #[test]
+    fn take_undo_for_removes_matching_entry_and_returns_inverse() {
+        let mut r = replica_with_live();
+        let c0 = r.next_cseq();
+        r.edit(vec![Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerSouls(Some(5000)) }]).expect("c0");
+        let c1 = r.next_cseq();
+        r.edit(vec![Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerSouls(Some(9000)) }]).expect("c1");
+
+        // Taking the older entry returns its inverse and leaves the newer entry on the undo stack.
+        let inv0 = r.take_undo_for(c0).expect("c0 inverse");
+        assert_eq!(
+            inv0,
+            vec![Op::SetIf {
+                id: LIVE_PLAYER,
+                expect: FieldValue::PlayerSouls(Some(5000)),
+                value: FieldValue::PlayerSouls(None),
+            }]
+        );
+        assert!(r.take_undo_for(c0).is_none(), "second take returns None");
+        assert!(r.can_undo(), "c1 still on stack");
+
+        let inv1 = r.take_undo_for(c1).expect("c1 inverse");
+        assert_eq!(
+            inv1,
+            vec![Op::SetIf {
+                id: LIVE_PLAYER,
+                expect: FieldValue::PlayerSouls(Some(9000)),
+                value: FieldValue::PlayerSouls(Some(5000)),
+            }]
+        );
+        assert!(!r.can_undo(), "undo stack now empty");
+    }
+
+    #[test]
+    fn take_confirmed_inverse_captures_exact_server_applied_diff_on_own_entry() {
+        let mut r = replica_with_live();
+        // Confirm the live layer init tx so LIVE_SCENE & LIVE_PLAYER exist in `confirmed`.
+        let init_tx = r.pending().next().expect("init pending").clone();
+        r.receive(ServerMsg::Entry { seq: 1, tx: init_tx }).expect("confirm init");
+        r.connect();
+        // Peer A (client 99) moves LIVE_PLAYER to (200, 200) and stamps clock = 20 first.
+        let peer_tx = Tx {
+            client: ClientId(99),
+            cseq: 0,
+            kind: TxKind::Edit,
+            ops: vec![
+                Op::SetIf {
+                    id: LIVE_SCENE,
+                    expect: FieldValue::SceneClock(None),
+                    value: FieldValue::SceneClock(Some(20)),
+                },
+                Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerPlaced(true) },
+                Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerPos(WorldPos { x: 200, y: 200 }) },
+            ],
+        };
+        // Local client B concurrently tries clock = 60 and moves LIVE_PLAYER to (600, 600).
+        let cseq = r.next_cseq();
+        let own_msg = r
+            .edit(vec![
+                Op::SetIf {
+                    id: LIVE_SCENE,
+                    expect: FieldValue::SceneClock(None),
+                    value: FieldValue::SceneClock(Some(60)),
+                },
+                Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerPlaced(true) },
+                Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerPos(WorldPos { x: 600, y: 600 }) },
+            ])
+            .expect("own edit")
+            .expect("submit");
+        let ClientMsg::Submit(own_tx) = own_msg else { panic!("expected Submit") };
+
+        r.receive(ServerMsg::Entry { seq: 2, tx: peer_tx }).expect("peer entry");
+        r.receive(ServerMsg::Entry { seq: 3, tx: own_tx }).expect("own entry");
+
+        // Confirmed clock is 20 (peer won). Server-applied inverse restores ONLY pos (600->200),
+        // NOT placed (already true) and NOT SceneClock (SetIf skipped).
+        assert_eq!(
+            r.confirmed().live(LIVE_SCENE).map(|rec| match rec { Record::Scene(s) => s.clock, _ => unreachable!() }),
+            Some(Some(20))
+        );
+        let confirmed_inv = r.take_confirmed_inverse(cseq).expect("confirmed inverse");
+        assert_eq!(
+            confirmed_inv,
+            vec![Op::SetIf {
+                id: LIVE_PLAYER,
+                expect: FieldValue::PlayerPos(WorldPos { x: 600, y: 600 }),
+                value: FieldValue::PlayerPos(WorldPos { x: 200, y: 200 }),
+            }]
+        );
+        assert!(r.take_confirmed_inverse(cseq).is_none());
     }
 }

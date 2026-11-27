@@ -124,18 +124,15 @@ export function normalizeLegacyLiveOps(records: Record<string, Entry | undefined
   return ops;
 }
 
-/** Whether `liveSceneId` holds any pause-edit entity overrides scoped to `(playing=false, pauseClock(t))`. */
-export function hasPauseEntityOverrides(
+/** Whether `liveSceneId` holds any non-baseline entity state regardless of `liveScene.clock`. */
+export function hasRawDirtyLiveEntities(
   records: Record<string, Entry | undefined>,
   liveSceneId: RecordId | undefined,
-  playing: boolean,
-  t: number,
 ): boolean {
-  if (playing || !liveSceneId) return false;
+  if (!liveSceneId) return false;
   const sc = records[liveSceneId];
   if (!sc || sc.deleted || !("Scene" in sc.record)) return false;
   const liveClock = sc.record.Scene.clock ?? null;
-  if (liveClock !== pauseClock(t)) return false;
   for (const e of Object.values(records)) {
     if (!e || e.deleted) continue;
     const r = e.record;
@@ -150,6 +147,21 @@ export function hasPauseEntityOverrides(
     }
   }
   return false;
+}
+
+/** Whether `liveSceneId` holds any pause-edit entity overrides scoped to `(playing=false, pauseClock(t))`. */
+export function hasPauseEntityOverrides(
+  records: Record<string, Entry | undefined>,
+  liveSceneId: RecordId | undefined,
+  playing: boolean,
+  t: number,
+): boolean {
+  if (playing || !liveSceneId) return false;
+  const sc = records[liveSceneId];
+  if (!sc || sc.deleted || !("Scene" in sc.record)) return false;
+  const liveClock = sc.record.Scene.clock ?? null;
+  if (liveClock === null || liveClock !== pauseClock(t)) return false;
+  return hasRawDirtyLiveEntities(records, liveSceneId);
 }
 
 /** Whether `liveSceneId` holds any live annotation (`Stroke`, `Arrow`, `Callout`). */
@@ -200,8 +212,9 @@ export function clearPauseOverridesOps(
 ): Op[][] {
   const groups: Op[][] = [];
   const sc = records[liveSceneId];
-  if (sc && !sc.deleted && "Scene" in sc.record && sc.record.Scene.clock != null && sc.record.Scene.clock !== nextClock) {
-    groups.push([{ SetIf: { id: liveSceneId, expect: { SceneClock: sc.record.Scene.clock }, value: { SceneClock: nextClock } } }]);
+  const curClock = sc && !sc.deleted && "Scene" in sc.record ? (sc.record.Scene.clock ?? null) : undefined;
+  if (curClock !== undefined && curClock !== nextClock) {
+    groups.push([{ SetIf: { id: liveSceneId, expect: { SceneClock: curClock }, value: { SceneClock: nextClock } } }]);
   }
   for (const [id, e] of Object.entries(records)) {
     if (!e || e.deleted) continue;
@@ -419,3 +432,131 @@ export function chunks(groups: Op[][], cap: number): Op[][] {
 
 /** The schema's per-transaction op cap (crates/schema/src/validate.rs `max_ops_per_tx`). */
 export const MAX_OPS_PER_TX = LIMITS.max_ops_per_tx;
+
+/** Extract `{ scene, clock }` from a pause-edit tx's `SetIf(SceneClock: observed -> target)`. */
+export function pauseEditClockTag(ops: readonly Op[]): { scene: RecordId; clock: number } | undefined {
+  for (const op of ops) {
+    if ("SetIf" in op && "SceneClock" in op.SetIf.value && op.SetIf.value.SceneClock !== null) {
+      return { scene: op.SetIf.id, clock: op.SetIf.value.SceneClock };
+    }
+  }
+  return undefined;
+}
+
+function moreOf(rec: Entry["record"]): More | undefined {
+  if ("SceneState" in rec) return rec.SceneState.more;
+  if ("Wave" in rec) return rec.Wave.more;
+  if ("ObjectiveState" in rec) return rec.ObjectiveState.more;
+  if ("PlayerState" in rec) return rec.PlayerState.more;
+  return undefined;
+}
+
+/**
+ * Build safe rollback transactions when one or more pause-edit transactions lose a concurrent
+ * `SceneClock` race (Blocker #2):
+ * - Drops `SceneClock` ops (never touches the winner's clock) and `Restore` ops (never resurrects
+ *   a record the winner deleted).
+ * - Keeps `SetIf` field reverts in LIFO order (safe by construction: skips if a peer wrote a
+ *   different value).
+ * - For `Delete { id }` (inverse of our `Create` or `Restore` on `SceneState`/`Wave`/`ObjectiveState`),
+ *   scrubs any `Create` `more` keys via `SetIf` first and emits `Delete { id }` ONLY when simulating
+ *   our `SetIf` chain against the live record matches every field and leaves `more` empty (never
+ *   deleting a shared record a peer wrote to).
+ */
+export function buildLostPauseRollbackOps(
+  inv: readonly Op[],
+  txOps: readonly Op[],
+  records: ReadonlyMap<RecordId, Entry>,
+): Op[][] {
+  const createdById = new Map<RecordId, Entry["record"]>();
+  for (const op of txOps) {
+    if ("Create" in op) createdById.set(op.Create.id, op.Create.record);
+  }
+
+  const reverts: Op[] = [];
+  const deleteIds: RecordId[] = [];
+  const seenDelete = new Set<RecordId>();
+
+  for (const op of inv) {
+    if ("SetIf" in op) {
+      if ("SceneClock" in op.SetIf.value) continue;
+      reverts.push(op);
+    } else if ("Delete" in op) {
+      const id = op.Delete.id;
+      if (!seenDelete.has(id)) {
+        seenDelete.add(id);
+        const created = createdById.get(id);
+        if (created) {
+          for (const [key, value] of Object.entries(moreOf(created) ?? {})) {
+            if (value !== undefined) {
+              reverts.push({ SetIf: { id, expect: { More: { key, value } }, value: { More: { key, value: null } } } });
+            }
+          }
+        }
+        deleteIds.push(id);
+      }
+    }
+    // `Restore` (and any non-inverse op) intentionally dropped.
+  }
+
+  const deletes: Op[] = [];
+  for (const id of deleteIds) {
+    const cur = records.get(id);
+    if (!cur || cur.deleted) continue;
+    const rec = cur.record;
+    if (!("SceneState" in rec || "Wave" in rec || "ObjectiveState" in rec)) continue;
+
+    const simMore: Record<string, unknown> = { ...(moreOf(rec) ?? {}) };
+    let waveT = "Wave" in rec ? rec.Wave.t : undefined;
+    let objStatus = "ObjectiveState" in rec ? rec.ObjectiveState.status : undefined;
+    let safe = true;
+
+    for (const op of reverts) {
+      if (!("SetIf" in op) || op.SetIf.id !== id) continue;
+      const { expect, value } = op.SetIf;
+      if ("More" in expect && "More" in value) {
+        const curVal = simMore[expect.More.key] ?? null;
+        const expVal = expect.More.value ?? null;
+        if (JSON.stringify(curVal) !== JSON.stringify(expVal)) {
+          safe = false;
+          break;
+        }
+        if (value.More.value == null) delete simMore[value.More.key];
+        else simMore[value.More.key] = value.More.value;
+      } else if ("WavePos" in expect && "WavePos" in value) {
+        if (waveT !== expect.WavePos) {
+          safe = false;
+          break;
+        }
+        waveT = value.WavePos;
+      } else if ("ObjectiveStatus" in expect && "ObjectiveStatus" in value) {
+        if (objStatus !== expect.ObjectiveStatus) {
+          safe = false;
+          break;
+        }
+        objStatus = value.ObjectiveStatus;
+      } else {
+        safe = false;
+        break;
+      }
+    }
+
+    if (safe) {
+      const created = createdById.get(id);
+      if (created) {
+        if ("Wave" in created && waveT !== created.Wave.t) safe = false;
+        if ("ObjectiveState" in created && objStatus !== created.ObjectiveState.status) safe = false;
+      }
+    }
+
+    if (safe && !hasMoreKeys(simMore as More)) {
+      deletes.push({ Delete: { id } });
+    }
+  }
+
+  const all = [...reverts, ...deletes];
+  if (!all.length) return [];
+  const out: Op[][] = [];
+  for (let i = 0; i < all.length; i += MAX_OPS_PER_TX) out.push(all.slice(i, i + MAX_OPS_PER_TX));
+  return out;
+}

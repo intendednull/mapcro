@@ -1424,7 +1424,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     const entry = state.records[live];
     if (!entry || entry.deleted || !("Scene" in entry.record)) return false;
     const liveClock = entry.record.Scene.clock ?? null;
-    if (liveClock !== pauseClock(player.t())) return false;
+    if (liveClock === null || liveClock !== pauseClock(player.t())) return false;
     for (const pl of state.playersIn(live)) {
       if (!isBaselinePlayerState(pl.state, liveClock)) return true;
     }

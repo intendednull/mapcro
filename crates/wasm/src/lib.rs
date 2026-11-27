@@ -212,6 +212,30 @@ impl BoardReplica {
         serde_json::to_string(&u).map_err(js_err)
     }
 
+    /// Find and remove the undo history entry for `cseq`, returning its inverse ops as JSON
+    /// `Op[] | null`. Purely local; emits no wire frames.
+    #[wasm_bindgen(js_name = takeUndoFor)]
+    pub fn take_undo_for(&mut self, cseq: f64) -> Result<String, JsError> {
+        serde_json::to_string(&self.inner.take_undo_for(cseq as u64)).map_err(js_err)
+    }
+
+    /// Take the server-applied inverse recorded when our own `Entry` for `cseq` applied to
+    /// `confirmed` in `receive`, as JSON `Op[] | null`.
+    #[wasm_bindgen(js_name = takeConfirmedInverse)]
+    pub fn take_confirmed_inverse(&mut self, cseq: f64) -> Result<String, JsError> {
+        serde_json::to_string(&self.inner.take_confirmed_inverse(cseq as u64)).map_err(js_err)
+    }
+
+    /// Server-confirmed `Scene.clock` for `scene_id` (or `undefined` when absent/deleted/null).
+    #[wasm_bindgen(js_name = confirmedSceneClock)]
+    pub fn confirmed_scene_clock(&self, scene_id: &str) -> Result<Option<u32>, JsError> {
+        let id: RecordId = serde_json::from_value(serde_json::Value::String(scene_id.into())).map_err(js_err)?;
+        Ok(match self.inner.confirmed().live(id) {
+            Some(mapcro_schema::Record::Scene(s)) => s.clock,
+            _ => None,
+        })
+    }
+
     /// The socket opened and `Ready` arrived: frames to send (hello, then pending work).
     pub fn connect(&mut self) -> Result<String, JsError> {
         let frames: Vec<WireIn> = self.inner.connect().into_iter().map(|msg| WireIn::Msg { msg }).collect();

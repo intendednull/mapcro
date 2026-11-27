@@ -21,6 +21,7 @@ import { type CampAt, type PowerupAt, type Timeline, shopsClosed, slotKey } from
 import { effectiveCamp } from "../player/Camps";
 import {
   clearPauseOverridesOps,
+  hasRawDirtyLiveEntities,
   liveEntityRecordIds,
   liveObjId,
   liveSceneStateId,
@@ -370,7 +371,7 @@ export function prepareLivePauseEdit(board: MutablePausedBoard, liveSceneId: Rec
   const sc = board.records[liveSceneId];
   if (!sc || sc.deleted || !("Scene" in sc.record)) return false;
   const curClock = sc.record.Scene.clock ?? null;
-  if (curClock !== null && curClock !== clock) {
+  if ((curClock !== null && curClock !== clock) || (curClock === null && hasRawDirtyLiveEntities(board.records, liveSceneId))) {
     for (const tx of clearPauseOverridesOps(board.records, liveSceneId, clock)) board.editSilent(tx);
     const entityIds = liveEntityRecordIds(board.records, liveSceneId);
     if (entityIds.length) board.dropHistoryFor(entityIds);
@@ -393,12 +394,17 @@ export function pauseSwitchFallbackOps(liveSceneId: RecordId, clock: number, swi
   return switched ? [{ SetIf: { id: liveSceneId, expect: { SceneClock: null }, value: { SceneClock: clock } } }] : [];
 }
 
-/** `SceneClock` CAS op (`SetIf` expecting the observed clock) if `liveSceneId` is not already at `clock`. */
+/**
+ * Always emit `SetIf(SceneClock: observed -> clock)` on every pause-edit transaction (even when
+ * `observed === clock`): no-op `SetIf(c -> c)` leaves no undo inverse, never resurrects a `null`
+ * clock after Play, and unambiguously tags the tx with its intended `{ scene, clock }` for
+ * lost-race rollback in `BoardSession`.
+ */
 export function pauseClockOps(records: Record<RecordId, Entry | undefined>, liveSceneId: RecordId, clock: number): Op[] {
   const sc = records[liveSceneId];
   if (!sc || sc.deleted || !("Scene" in sc.record)) return [];
   const cur = sc.record.Scene.clock ?? null;
-  return cur === clock ? [] : [{ SetIf: { id: liveSceneId, expect: { SceneClock: cur }, value: { SceneClock: clock } } }];
+  return [{ SetIf: { id: liveSceneId, expect: { SceneClock: cur }, value: { SceneClock: clock } } }];
 }
 
 /** Move one or more heroes on `liveScene` while paused (stamping `SceneClock` + `PlayerPlaced: true` + `PlayerPos`). */
@@ -409,17 +415,17 @@ export function pauseMoveOps(
   moves: ReadonlyArray<{ id: RecordId; pos: WorldPos }>,
 ): Op[] {
   if (!moves.length) return [];
-  const ops: Op[] = [...pauseClockOps(records, liveSceneId, clock)];
+  const body: Op[] = [];
   for (const { id, pos } of moves) {
     const clamped = clampToDisc(pos);
     const e = records[id];
     const ps = e && !e.deleted && "PlayerState" in e.record ? e.record.PlayerState : undefined;
-    if (!ps?.placed) ops.push({ Set: { id, value: { PlayerPlaced: true } } });
+    if (!ps?.placed) body.push({ Set: { id, value: { PlayerPlaced: true } } });
     if (!ps || ps.pos.x !== clamped.x || ps.pos.y !== clamped.y) {
-      ops.push({ Set: { id, value: { PlayerPos: clamped } } });
+      body.push({ Set: { id, value: { PlayerPos: clamped } } });
     }
   }
-  return ops;
+  return body.length ? [...pauseClockOps(records, liveSceneId, clock), ...body] : [];
 }
 
 /** Kill a hero while paused (`PlayerAlive: false`, `PlayerPlaced: true`, `PlayerPos: curPos`, clear `more.health`). */
@@ -431,12 +437,12 @@ export function pauseKillOps(
   curPos: WorldPos,
 ): Op[] {
   const pos = clampToDisc(curPos);
-  const ops: Op[] = [...pauseClockOps(records, liveSceneId, clock)];
-  if (pl.state.alive) ops.push({ Set: { id: pl.id, value: { PlayerAlive: false } } });
-  if (!pl.state.placed) ops.push({ Set: { id: pl.id, value: { PlayerPlaced: true } } });
-  if (pl.state.pos.x !== pos.x || pl.state.pos.y !== pos.y) ops.push({ Set: { id: pl.id, value: { PlayerPos: pos } } });
-  if (pl.state.more?.health !== undefined) ops.push({ Set: { id: pl.id, value: { More: { key: "health", value: null } } } });
-  return ops;
+  const body: Op[] = [];
+  if (pl.state.alive) body.push({ Set: { id: pl.id, value: { PlayerAlive: false } } });
+  if (!pl.state.placed) body.push({ Set: { id: pl.id, value: { PlayerPlaced: true } } });
+  if (pl.state.pos.x !== pos.x || pl.state.pos.y !== pos.y) body.push({ Set: { id: pl.id, value: { PlayerPos: pos } } });
+  if (pl.state.more?.health !== undefined) body.push({ Set: { id: pl.id, value: { More: { key: "health", value: null } } } });
+  return body.length ? [...pauseClockOps(records, liveSceneId, clock), ...body] : [];
 }
 
 /** Revive a hero while paused (`PlayerAlive: true`, `PlayerPlaced: true`, `PlayerPos: atPos`, clear respawn, `more.health: 100`). */
@@ -448,13 +454,13 @@ export function pauseReviveOps(
   atPos: WorldPos,
 ): Op[] {
   const pos = clampToDisc(atPos);
-  const ops: Op[] = [...pauseClockOps(records, liveSceneId, clock)];
-  if (!pl.state.alive) ops.push({ Set: { id: pl.id, value: { PlayerAlive: true } } });
-  if (!pl.state.placed) ops.push({ Set: { id: pl.id, value: { PlayerPlaced: true } } });
-  if (pl.state.pos.x !== pos.x || pl.state.pos.y !== pos.y) ops.push({ Set: { id: pl.id, value: { PlayerPos: pos } } });
-  if (pl.state.respawn != null) ops.push({ Set: { id: pl.id, value: { PlayerRespawn: null } } });
-  if (pl.state.more?.health !== 100) ops.push({ Set: { id: pl.id, value: { More: { key: "health", value: 100 } } } });
-  return ops;
+  const body: Op[] = [];
+  if (!pl.state.alive) body.push({ Set: { id: pl.id, value: { PlayerAlive: true } } });
+  if (!pl.state.placed) body.push({ Set: { id: pl.id, value: { PlayerPlaced: true } } });
+  if (pl.state.pos.x !== pos.x || pl.state.pos.y !== pos.y) body.push({ Set: { id: pl.id, value: { PlayerPos: pos } } });
+  if (pl.state.respawn != null) body.push({ Set: { id: pl.id, value: { PlayerRespawn: null } } });
+  if (pl.state.more?.health !== 100) body.push({ Set: { id: pl.id, value: { More: { key: "health", value: 100 } } } });
+  return body.length ? [...pauseClockOps(records, liveSceneId, clock), ...body] : [];
 }
 
 /** Toggle hero enemy sight while paused (`more.unseen = currentlyInSight`). */

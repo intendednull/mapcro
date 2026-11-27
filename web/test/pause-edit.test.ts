@@ -9,6 +9,8 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("solid-js", async () => await import(/* @vite-ignore */ "solid-js/dist/" + "solid.js"));
 
 import { createRoot, createSignal } from "solid-js";
+import { MemoryPersist } from "../src/core/persist";
+import { BoardSession, type SocketLike } from "../src/core/session";
 import type { Doc } from "../src/gen/Doc";
 import type { Entry } from "../src/gen/Entry";
 import type { More } from "../src/gen/More";
@@ -16,6 +18,9 @@ import type { Op } from "../src/gen/Op";
 import type { PlayerState } from "../src/gen/PlayerState";
 import type { RecordId } from "../src/gen/RecordId";
 import type { RosterSlot } from "../src/gen/RosterSlot";
+import type { Tx } from "../src/gen/Tx";
+import type { WireIn } from "../src/gen/WireIn";
+import type { WireOut } from "../src/gen/WireOut";
 import { LIMITS } from "../src/gen/limits";
 import { FALLBACK } from "../src/map/fallback-data";
 import { modelFromFallback } from "../src/map/model";
@@ -52,6 +57,7 @@ import {
   ensureLiveOps,
   hasLiveAnnotations,
   hasPauseEntityOverrides,
+  hasRawDirtyLiveEntities,
   isBaselinePlayerState,
   isLegacyUntouchedPlayerState,
   isLiveEntityCreate,
@@ -821,57 +827,465 @@ const sceneClockOf = (records: Record<RecordId, Entry | undefined>, sceneId: Rec
   return e && "Scene" in e.record ? (e.record.Scene.clock ?? null) : undefined;
 };
 
-describe("adversarial review regressions (clock CAS, tombstone SceneState race, no-op isolation, undo pruning, fallback bake)", () => {
-  it("clock CAS prevents concurrent 20s vs 60s first edits from flipping clock and prevents 20s edit racing Play from resurrecting clock", () => {
-    createRoot((dispose) => {
-      // Base doc with liveScene initialized at clock = null.
-      const base = makeHarness(false);
-      const baseSnapshot = JSON.stringify({ seq: 0, doc: JSON.parse(base.replica.view()) as Doc });
-      const ids = base.ids;
+const sessionRecords = (s: BoardSession): Record<RecordId, Entry | undefined> =>
+  Object.fromEntries(s.records.entries());
 
-      // 1. Concurrent first edits from clock = null at 20s (A) vs 60s (B).
-      const srv = new BoardReplica(newClientId(), newClientSecret(), baseSnapshot);
-      const doc0 = Object.fromEntries(JSON.parse(srv.view()) as Doc) as Record<RecordId, Entry>;
-      const aOps = pauseMoveOps(doc0, ids.scene, 20, [{ id: ids.players[0]![0], pos: { x: 200, y: 200 } }]);
-      const bOps = pauseMoveOps(doc0, ids.scene, 60, [{ id: ids.players[1]![0], pos: { x: 600, y: 600 } }]);
-      expect(aOps.some((o) => "SetIf" in o && "SceneClock" in o.SetIf.value)).toBe(true);
-      expect(bOps.some((o) => "SetIf" in o && "SceneClock" in o.SetIf.value)).toBe(true);
+const sessionBoardAdapter = (s: BoardSession, rosterSlots: Array<{ id: RecordId; slot: RosterSlot }>): MutablePausedBoard => ({
+  get records() {
+    return sessionRecords(s);
+  },
+  roster: () => rosterSlots,
+  playersIn: (sc) =>
+    [...s.records.entries()].flatMap(([id, e]) =>
+      !e.deleted && "PlayerState" in e.record && e.record.PlayerState.scene === sc ? [{ id, state: e.record.PlayerState }] : [],
+    ),
+  inScene: (kind, sc) =>
+    [...s.records.entries()].flatMap(([id, e]) => {
+      if (e.deleted) return [];
+      const body = (e.record as Record<string, { scene?: RecordId }>)[kind];
+      return body?.scene === sc ? [[id, e.record] as const] : [];
+    }),
+  rowsIn: <T extends { scene: RecordId }>(kind: string, sc: RecordId | undefined) =>
+    [...s.records.entries()].flatMap(([id, e]) => {
+      if (e.deleted) return [];
+      const body = (e.record as unknown as Record<string, T | undefined>)[kind];
+      return body && body.scene === sc ? [{ id, r: body }] : [];
+    }),
+  edit: (ops) => s.edit(ops),
+  editSilent: (ops) => s.editSilent(ops),
+  ensure: (ops) => s.ensure(ops),
+  dropHistoryFor: (ids) => s.dropHistoryFor(ids),
+});
 
-      expect(JSON.parse(srv.edit(JSON.stringify(aOps))).refused).toBeNull();
-      expect(JSON.parse(srv.edit(JSON.stringify(bOps))).refused).toBeNull();
-      const afterAB = Object.fromEntries(JSON.parse(srv.view()) as Doc) as Record<RecordId, Entry>;
-      // First writer (A at 20s) wins SceneClock; B's SetIf(null -> 60) skipped cleanly!
-      expect(sceneClockOf(afterAB, ids.scene)).toBe(20);
+/**
+ * Deterministic in-memory authoritative hub driving two real `BoardSession` instances (and real
+ * WASM `BoardReplica`s + Rust `crates/schema` rules) with exact control over `Submit` delivery order.
+ */
+async function createTwoClientHub(baseDoc: Doc) {
+  const auth = new BoardReplica(newClientId(), newClientSecret(), JSON.stringify({ seq: 0, doc: baseDoc }));
+  let seq = 0;
+  const log: Array<{ seq: number; tx: Tx }> = [];
+  type Peer = {
+    name: "A" | "B";
+    peerId: number;
+    socket: SocketLike;
+    queue: Tx[];
+  };
+  const peers: Record<"A" | "B", Peer | undefined> = { A: undefined, B: undefined };
 
-      // 2. Edit at 20s racing Play at 20s: Play clears 20 -> null, then stale 20s edit arrives -> SceneClock stays null (never resurrected!).
-      const snap20 = JSON.stringify({ seq: 0, doc: JSON.parse(srv.view()) as Doc });
-      const srvPlay = new BoardReplica(newClientId(), newClientSecret(), snap20);
-      const doc20 = Object.fromEntries(JSON.parse(srvPlay.view()) as Doc) as Record<RecordId, Entry>;
-      const playTxs = clearPauseOverridesOps(doc20, ids.scene, null);
-      const racingEdit = pauseMoveOps(doc20, ids.scene, 20, [{ id: ids.players[2]![0], pos: { x: 300, y: 300 } }]);
-      // Because doc20 already had clock === 20, racingEdit does not re-stamp SceneClock!
-      expect(racingEdit.some((o) => ("Set" in o && "SceneClock" in o.Set.value) || ("SetIf" in o && "SceneClock" in o.SetIf.value))).toBe(false);
-      for (const tx of playTxs) expect(JSON.parse(srvPlay.edit_silent(JSON.stringify(tx))).refused).toBeNull();
-      expect(JSON.parse(srvPlay.edit(JSON.stringify(racingEdit))).refused).toBeNull();
-      const afterPlayRace = Object.fromEntries(JSON.parse(srvPlay.view()) as Doc) as Record<RecordId, Entry>;
-      expect(sceneClockOf(afterPlayRace, ids.scene)).toBeNull();
+  const sendOut = (p: Peer, frame: WireOut) => p.socket.onmessage?.({ data: JSON.stringify(frame) });
 
-      // 3. Play at 20s racing Coach B's timestamp switch 20 -> 60: Play lands first (20 -> null),
-      //    then B's silent switch (20 -> 60) skips, and B's undoable edit's pauseSwitchFallbackOps (null -> 60) succeeds!
-      const srvSwitch = new BoardReplica(newClientId(), newClientSecret(), snap20);
-      const bSwitchTxs = clearPauseOverridesOps(doc20, ids.scene, 60);
-      const bEditOps = [
-        ...pauseSwitchFallbackOps(ids.scene, 60, true),
-        ...pauseMoveOps(doc20, ids.scene, 20, [{ id: ids.players[3]![0], pos: { x: 400, y: 400 } }]),
-      ];
-      for (const tx of playTxs) expect(JSON.parse(srvSwitch.edit_silent(JSON.stringify(tx))).refused).toBeNull();
-      for (const tx of bSwitchTxs) expect(JSON.parse(srvSwitch.edit_silent(JSON.stringify(tx))).refused).toBeNull();
-      expect(JSON.parse(srvSwitch.edit(JSON.stringify(bEditOps))).refused).toBeNull();
-      const afterSwitchRace = Object.fromEntries(JSON.parse(srvSwitch.view()) as Doc) as Record<RecordId, Entry>;
-      expect(sceneClockOf(afterSwitchRace, ids.scene)).toBe(60);
-
-      dispose();
+  const makeSession = (name: "A" | "B", peerId: number): BoardSession =>
+    new BoardSession({
+      wsUrl: "ws://in-memory",
+      board: BOARD_ID,
+      token: "tok",
+      persist: new MemoryPersist(),
+      openSocket: () => {
+        const sock: SocketLike = {
+          onopen: null,
+          onmessage: null,
+          onclose: null,
+          onerror: null,
+          send: (raw: string) => {
+            const frame = JSON.parse(raw) as WireIn;
+            const peer = peers[name]!;
+            if (frame.t === "auth") {
+              sendOut(peer, {
+                t: "ready",
+                peer: peerId,
+                role: "edit",
+                head: seq,
+                base: { seq: 0, doc: baseDoc },
+                kind: "board",
+              });
+            } else if (frame.t === "msg" && "Hello" in frame.msg) {
+              for (const entry of log) {
+                if (entry.seq > frame.msg.Hello.last_seq) {
+                  sendOut(peer, { t: "msg", msg: { Entry: entry } });
+                }
+              }
+            } else if (frame.t === "msg" && "Submit" in frame.msg) {
+              peer.queue.push(frame.msg.Submit);
+            }
+          },
+          close: () => {},
+        };
+        peers[name] = { name, peerId, socket: sock, queue: [] };
+        queueMicrotask(() => sock.onopen?.({}));
+        return sock;
+      },
     });
+
+  const flush = async () => {
+    for (let i = 0; i < 8; i++) await new Promise((r) => setTimeout(r, 0));
+  };
+
+  const a = makeSession("A", 1);
+  const b = makeSession("B", 2);
+  await a.start();
+  await b.start();
+  await flush();
+
+  const deliverOne = (name: "A" | "B"): boolean => {
+    const peer = peers[name]!;
+    const tx = peer.queue.shift();
+    if (!tx) return false;
+    const res = JSON.parse(auth.edit_silent(JSON.stringify(tx.ops))) as { refused: string | null };
+    if (res.refused) {
+      sendOut(peer, { t: "msg", msg: { Rejected: { cseq: tx.cseq, reason: res.refused as never } } });
+      return true;
+    }
+    seq += 1;
+    const entry = { seq, tx };
+    log.push(entry);
+    for (const p of Object.values(peers)) if (p) sendOut(p, { t: "msg", msg: { Entry: entry } });
+    return true;
+  };
+
+  const deliverAll = async (name: "A" | "B") => {
+    await flush();
+    while (deliverOne(name)) await flush();
+  };
+
+  const settle = async () => {
+    for (let round = 0; round < 20; round++) {
+      await flush();
+      let moved = false;
+      while (deliverOne("A")) moved = true;
+      while (deliverOne("B")) moved = true;
+      if (!moved && a.status.kind === "saved" && b.status.kind === "saved") break;
+    }
+    await flush();
+  };
+
+  return {
+    a,
+    b,
+    flush,
+    deliverOne,
+    deliverAll,
+    settle,
+    stop: () => {
+      a.stop();
+      b.stop();
+    },
+  };
+}
+
+describe("adversarial review regressions (clock CAS + lost-race rollback, tombstone SceneState race, no-op isolation, undo pruning, fallback bake)", () => {
+  it("Race 1: first-edit race (20s vs 60s, different heroes + 2 consecutive in-flight edits) rolls back loser entities & undo stack", async () => {
+    const base = makeHarness(false);
+    const baseDoc = JSON.parse(base.replica.view()) as Doc;
+    const ids = base.ids;
+    const amber0 = ids.players[0]![0];
+    const sapph0 = ids.players[6]![0];
+    const hub = await createTwoClientHub(baseDoc);
+    try {
+      // Coach A (20s) moves Amber-0; Coach B (60s) makes TWO consecutive moves on Sapphire-0 before either lands.
+      const aOps = pauseMoveOps(sessionRecords(hub.a), ids.scene, 20, [{ id: amber0, pos: { x: 200, y: 200 } }]);
+      const bOps1 = pauseMoveOps(sessionRecords(hub.b), ids.scene, 60, [{ id: sapph0, pos: { x: 600, y: 600 } }]);
+      expect(hub.a.edit(aOps)).toBe(true);
+      expect(hub.b.edit(bOps1)).toBe(true);
+      const bOps2 = pauseMoveOps(sessionRecords(hub.b), ids.scene, 60, [{ id: sapph0, pos: { x: 650, y: 650 } }]);
+      expect(hub.b.edit(bOps2)).toBe(true);
+      await hub.flush();
+
+      // Server accepts A first, then both of B's in-flight edits, then B's LIFO rollback settles.
+      await hub.deliverAll("A");
+      await hub.deliverAll("B");
+      await hub.settle();
+
+      for (const s of [hub.a, hub.b]) {
+        const recs = sessionRecords(s);
+        expect(sceneClockOf(recs, ids.scene)).toBe(20);
+        const aRec = recs[amber0]!.record;
+        const bRec = recs[sapph0]!.record;
+        expect("PlayerState" in aRec && aRec.PlayerState.placed).toBe(true);
+        expect("PlayerState" in aRec && aRec.PlayerState.pos).toEqual({ x: 200, y: 200 });
+        expect("PlayerState" in bRec && bRec.PlayerState.placed).toBe(false);
+        expect("PlayerState" in bRec && bRec.PlayerState.pos).toEqual({ x: 0, y: 0 });
+        expect(s.problems).toEqual([]);
+      }
+      // Loser B's dead 60s edits were removed from undo; winner A keeps undo.
+      expect(hub.b.canUndo).toBe(false);
+      expect(hub.a.canUndo).toBe(true);
+
+      // Verify fromPausedPlayer at 20s shows A's Amber-0 move and pure timeline for Sapphire-0.
+      createRoot((dispose) => {
+        const tl = makeTimeline();
+        const ms = fromPausedPlayer(
+          fromTimeline({ tl: () => tl, t: () => 20, markers: () => MARKERS }),
+          sessionBoardAdapter(hub.a, base.rosterSlots),
+          () => ids.scene,
+          () => true,
+          () => 20,
+          () => MARKERS,
+        );
+        expect(ms.hero("amber-0").pos()).toEqual({ x: 200, y: 200 });
+        expect(ms.hero("sapphire-0").pos()).not.toEqual({ x: 600, y: 600 });
+        expect(ms.hero("sapphire-0").pos()).not.toEqual({ x: 650, y: 650 });
+        dispose();
+      });
+    } finally {
+      hub.stop();
+    }
+  });
+
+  it("Race 2a: first-edit race (20s vs 60s) on the SAME hero preserves winner's position when loser rolls back", async () => {
+    const base = makeHarness(false);
+    const baseDoc = JSON.parse(base.replica.view()) as Doc;
+    const ids = base.ids;
+    const amber0 = ids.players[0]![0];
+    const hub = await createTwoClientHub(baseDoc);
+    try {
+      const aOps = pauseMoveOps(sessionRecords(hub.a), ids.scene, 20, [{ id: amber0, pos: { x: 200, y: 200 } }]);
+      const bOps = pauseMoveOps(sessionRecords(hub.b), ids.scene, 60, [{ id: amber0, pos: { x: 600, y: 600 } }]);
+      expect(hub.a.edit(aOps)).toBe(true);
+      expect(hub.b.edit(bOps)).toBe(true);
+      await hub.flush();
+
+      await hub.deliverAll("A");
+      await hub.deliverAll("B");
+      await hub.settle();
+
+      for (const s of [hub.a, hub.b]) {
+        const recs = sessionRecords(s);
+        expect(sceneClockOf(recs, ids.scene)).toBe(20);
+        const aRec = recs[amber0]!.record;
+        expect("PlayerState" in aRec && aRec.PlayerState.placed).toBe(true);
+        expect("PlayerState" in aRec && aRec.PlayerState.pos).toEqual({ x: 200, y: 200 });
+        expect(s.problems).toEqual([]);
+      }
+      expect(hub.a.canUndo).toBe(true);
+      expect(hub.b.canUndo).toBe(false);
+    } finally {
+      hub.stop();
+    }
+  });
+
+  it("Race 2b: first-edit race (20s vs 60s) on the SAME tombstoned SceneState reverts loser doors without deleting or clobbering winner obj_health", async () => {
+    const base = makeHarness(false);
+    const ids = base.ids;
+    // Create & clear SceneState so ssId is a clean tombstone at clock = null.
+    const prep0 = preparePausedSceneState(base.board, BOARD_ID, MATCH_ID, ids.scene);
+    base.apply([
+      ...pauseClockOps(base.board.records, ids.scene, 10),
+      ...prep0.prefix,
+      ...placeDoorwayOps({ scene: ids.scene, state: prep0.state, mint: () => hexId(8201), seed: [] }, "amber", { x: 10, y: 10 }),
+    ]);
+    for (const tx of clearPauseOverridesOps(base.board.records, ids.scene, null)) base.apply(tx, true);
+    const ssId = liveSceneStateId(BOARD_ID, MATCH_ID);
+    expect(base.board.records[ssId]?.deleted).toBe(true);
+
+    const baseDoc = JSON.parse(base.replica.view()) as Doc;
+    const hub = await createTwoClientHub(baseDoc);
+    try {
+      const boardA = sessionBoardAdapter(hub.a, base.rosterSlots);
+      const boardB = sessionBoardAdapter(hub.b, base.rosterSlots);
+
+      // Coach A (20s) restores SceneState with obj_health (WALKER = 45%, rows = 33).
+      const prepA = preparePausedSceneState(boardA, BOARD_ID, MATCH_ID, ids.scene);
+      const aOps = [
+        ...pauseClockOps(boardA.records, ids.scene, 20),
+        ...prepA.prefix,
+        ...setObjectiveHealthOps(
+          {
+            scene: ids.scene,
+            state: prepA.state,
+            objectives: new Map(),
+            markers: MARKERS,
+            mint: () => hexId(8211),
+            seed: new Map(),
+            upsertObjective: liveObjUpsert(boardA.records, BOARD_ID, MATCH_ID, ids.scene, new Map()),
+          },
+          WALKER,
+          45,
+        ),
+      ];
+      // Coach B (60s) concurrently restores SceneState with a Doorman doorway (rows = 42).
+      const prepB = preparePausedSceneState(boardB, BOARD_ID, MATCH_ID, ids.scene);
+      const bOps = [
+        ...pauseClockOps(boardB.records, ids.scene, 60),
+        ...prepB.prefix,
+        ...placeDoorwayOps({ scene: ids.scene, state: prepB.state, mint: () => hexId(8212), seed: [] }, "amber", { x: 50, y: 60 }),
+      ];
+
+      expect(hub.a.edit(aOps)).toBe(true);
+      expect(hub.b.edit(bOps)).toBe(true);
+      await hub.flush();
+
+      await hub.deliverAll("A");
+      await hub.deliverAll("B");
+      await hub.settle();
+
+      for (const s of [hub.a, hub.b]) {
+        const recs = sessionRecords(s);
+        expect(sceneClockOf(recs, ids.scene)).toBe(20);
+        const ss = recs[ssId]!;
+        expect(ss.deleted).toBe(false);
+        expect("SceneState" in ss.record).toBe(true);
+        if ("SceneState" in ss.record) {
+          expect(ss.record.SceneState.more?.rows).toBe(33);
+          expect(ss.record.SceneState.more?.has_obj_health).toBe(true);
+          expect(decodeObjHealth(ss.record.SceneState.more?.obj_health, MARKERS).get(WALKER.key)).toEqual({ pct: 45 });
+          expect(ss.record.SceneState.more?.has_doors).toBeUndefined();
+          expect(ss.record.SceneState.more?.doors).toBeUndefined();
+        }
+        expect(s.problems).toEqual([]);
+      }
+      expect(hub.a.canUndo).toBe(true);
+      expect(hub.b.canUndo).toBe(false);
+    } finally {
+      hub.stop();
+    }
+  });
+
+  it("Race 3: stale 20s edit arriving after Play clears 20 -> null rolls back cleanly to baseline with pure timeline", async () => {
+    const base = makeHarness(false);
+    const ids = base.ids;
+    const amber0 = ids.players[0]![0];
+    const sapph0 = ids.players[6]![0];
+    // Seed liveScene at clock = 20 with Amber-0 moved.
+    base.apply(pauseMoveOps(base.board.records, ids.scene, 20, [{ id: amber0, pos: { x: 200, y: 200 } }]));
+    const baseDoc = JSON.parse(base.replica.view()) as Doc;
+    const hub = await createTwoClientHub(baseDoc);
+    try {
+      // Coach A (still paused at 20s) moves Sapphire-0 (includes no-op SetIf(20 -> 20) tag);
+      // Coach B presses Play (clears 20 -> null + resets Amber-0).
+      const aOps = pauseMoveOps(sessionRecords(hub.a), ids.scene, 20, [{ id: sapph0, pos: { x: 300, y: 300 } }]);
+      expect(
+        aOps.some(
+          (o) =>
+            "SetIf" in o &&
+            "SceneClock" in o.SetIf.expect &&
+            "SceneClock" in o.SetIf.value &&
+            o.SetIf.expect.SceneClock === 20 &&
+            o.SetIf.value.SceneClock === 20,
+        ),
+      ).toBe(true);
+      const playTxs = clearPauseOverridesOps(sessionRecords(hub.b), ids.scene, null);
+
+      expect(hub.a.edit(aOps)).toBe(true);
+      for (const tx of playTxs) expect(hub.b.editSilent(tx)).toBe(true);
+      await hub.flush();
+
+      // Play lands first, then A's stale 20s edit lands -> A rolls back Sapphire-0!
+      await hub.deliverAll("B");
+      await hub.deliverAll("A");
+      await hub.settle();
+
+      for (const s of [hub.a, hub.b]) {
+        const recs = sessionRecords(s);
+        expect(sceneClockOf(recs, ids.scene)).toBeNull();
+        const aRec = recs[amber0]!.record;
+        const bRec = recs[sapph0]!.record;
+        expect("PlayerState" in aRec && aRec.PlayerState.placed).toBe(false);
+        expect("PlayerState" in bRec && bRec.PlayerState.placed).toBe(false);
+        expect("PlayerState" in bRec && bRec.PlayerState.pos).toEqual({ x: 0, y: 0 });
+        expect(hasPauseEntityOverrides(recs, ids.scene, false, 20)).toBe(false);
+        expect(hasRawDirtyLiveEntities(recs, ids.scene)).toBe(false);
+        expect(s.problems).toEqual([]);
+      }
+      expect(hub.a.canUndo).toBe(false);
+      createRoot((dispose) => {
+        const tl = makeTimeline();
+        const pure = fromTimeline({ tl: () => tl, t: () => 2, markers: () => MARKERS });
+        const ms = fromPausedPlayer(
+          pure,
+          sessionBoardAdapter(hub.a, base.rosterSlots),
+          () => ids.scene,
+          () => true,
+          () => 20,
+          () => MARKERS,
+        );
+        expect(ms.hero("amber-0").pos()).toEqual(pure.hero("amber-0").pos());
+        expect(ms.hero("sapphire-0").pos()).toEqual(pure.hero("sapphire-0").pos());
+        dispose();
+      });
+    } finally {
+      hub.stop();
+    }
+  });
+
+  it("Race 4: timestamp-switch race (20 -> 60 vs stale 20s edit, and Play vs 20 -> 60 switch) keeps winner clean and reverts loser", async () => {
+    const base = makeHarness(false);
+    const ids = base.ids;
+    const amber0 = ids.players[0]![0];
+    const sapph0 = ids.players[6]![0];
+    base.apply(pauseMoveOps(base.board.records, ids.scene, 20, [{ id: amber0, pos: { x: 200, y: 200 } }]));
+    const baseDoc = JSON.parse(base.replica.view()) as Doc;
+
+    // 4a: Coach B switches 20 -> 60 and moves Sapphire-0 while Coach A's stale 20s edit on Amber-0 is in flight.
+    const hub = await createTwoClientHub(baseDoc);
+    try {
+      const boardB = sessionBoardAdapter(hub.b, base.rosterSlots);
+      const aOps = pauseMoveOps(sessionRecords(hub.a), ids.scene, 20, [{ id: amber0, pos: { x: 250, y: 250 } }]);
+      expect(hub.a.edit(aOps)).toBe(true);
+
+      const switched = prepareLivePauseEdit(boardB, ids.scene, 60);
+      expect(switched).toBe(true);
+      const bOps = [
+        ...pauseSwitchFallbackOps(ids.scene, 60, switched),
+        ...pauseMoveOps(boardB.records, ids.scene, 60, [{ id: sapph0, pos: { x: 600, y: 600 } }]),
+      ];
+      expect(hub.b.edit(bOps)).toBe(true);
+      await hub.flush();
+
+      // B's switch + 60s edit land first, then A's stale 20s edit lands -> A reverts Amber-0 to baseline!
+      await hub.deliverAll("B");
+      await hub.deliverAll("A");
+      await hub.settle();
+
+      for (const s of [hub.a, hub.b]) {
+        const recs = sessionRecords(s);
+        expect(sceneClockOf(recs, ids.scene)).toBe(60);
+        const aRec = recs[amber0]!.record;
+        const bRec = recs[sapph0]!.record;
+        expect("PlayerState" in aRec && aRec.PlayerState.placed).toBe(false);
+        expect("PlayerState" in aRec && aRec.PlayerState.pos).toEqual({ x: 0, y: 0 });
+        expect("PlayerState" in bRec && bRec.PlayerState.placed).toBe(true);
+        expect("PlayerState" in bRec && bRec.PlayerState.pos).toEqual({ x: 600, y: 600 });
+        expect(s.problems).toEqual([]);
+      }
+      expect(hub.a.canUndo).toBe(false);
+      expect(hub.b.canUndo).toBe(true);
+    } finally {
+      hub.stop();
+    }
+
+    // 4b: Play (20 -> null) lands before Coach B's timestamp switch (20 -> 60) -> pauseSwitchFallbackOps (null -> 60) stamps 60 cleanly!
+    const hub2 = await createTwoClientHub(baseDoc);
+    try {
+      const boardB = sessionBoardAdapter(hub2.b, base.rosterSlots);
+      for (const tx of clearPauseOverridesOps(sessionRecords(hub2.a), ids.scene, null)) {
+        expect(hub2.a.editSilent(tx)).toBe(true);
+      }
+      const switched = prepareLivePauseEdit(boardB, ids.scene, 60);
+      expect(switched).toBe(true);
+      const bOps = [
+        ...pauseSwitchFallbackOps(ids.scene, 60, switched),
+        ...pauseMoveOps(boardB.records, ids.scene, 60, [{ id: sapph0, pos: { x: 600, y: 600 } }]),
+      ];
+      expect(hub2.b.edit(bOps)).toBe(true);
+      await hub2.flush();
+
+      await hub2.deliverAll("A");
+      await hub2.deliverAll("B");
+      await hub2.settle();
+
+      for (const s of [hub2.a, hub2.b]) {
+        const recs = sessionRecords(s);
+        expect(sceneClockOf(recs, ids.scene)).toBe(60);
+        const bRec = recs[sapph0]!.record;
+        expect("PlayerState" in bRec && bRec.PlayerState.placed).toBe(true);
+        expect("PlayerState" in bRec && bRec.PlayerState.pos).toEqual({ x: 600, y: 600 });
+        expect(s.problems).toEqual([]);
+      }
+      expect(hub2.b.canUndo).toBe(true);
+    } finally {
+      hub2.stop();
+    }
   });
 
   it("concurrent 2-replica same-clock tombstone SceneState restore preserves both doors & obj_health and never regresses rows 42 -> 33", () => {
