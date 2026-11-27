@@ -391,8 +391,7 @@ export function Layers(p: {
     if (!ctx) return;
     const ops = setObjectiveHealthOps(ctx, m, pct, stage);
     if (!ops.length) return;
-    st.edit(ops);
-    if (pct > 0) p.onEditObjHealth?.();
+    if (st.edit(ops) && pct > 0) p.onEditObjHealth?.();
   };
   /** A click on an objective: the whole group if it's in your selection, else just it. */
   const clickObjective = (m: Marker) => {
@@ -1098,7 +1097,8 @@ export function Layers(p: {
       const m = objectiveAt(start);
       if (m) {
         e.preventDefault();
-        if (!p.frame.player() && isHealthKind(m.kind) && !e.shiftKey) {
+        if (!p.frame.player() && p.scene && isHealthKind(m.kind) && !e.shiftKey) {
+          const startScene = p.scene;
           const startClientX = e.clientX;
           const startClientY = e.clientY;
           const curStatus = p.markerStatus?.(m.key) ?? p.objectives().get(m.key)?.status;
@@ -1106,12 +1106,20 @@ export function Layers(p: {
           const curHealth = p.frame.ms().marker(m.key).health();
           const startPct = curDown ? 0 : (curHealth?.pct ?? 100);
           const startStage: 1 | 2 | undefined = m.kind === "t3" ? (curStatus === "Stage2" ? 2 : 1) : undefined;
-          const focusId = p.objectives().get(m.key)?.id ?? p.scene ?? null;
+          const focusId = p.objectives().get(m.key)?.id ?? startScene;
           let scrubbing = false;
           let lastPct = startPct;
           track(
             e,
             (_, ev) => {
+              if (p.scene !== startScene) {
+                if (scrubbing) {
+                  scrubbing = false;
+                  p.setDragObjHealth?.(undefined);
+                  st.presence({ focus: null });
+                }
+                return;
+              }
               const distPx = Math.hypot(ev.clientX - startClientX, ev.clientY - startClientY);
               if (!scrubbing) {
                 if (distPx < 6) return;
@@ -1131,8 +1139,8 @@ export function Layers(p: {
               p.setDragObjHealth?.(undefined);
               if (scrubbing) {
                 st.presence({ focus: null });
-                if (ok) commitObjHealth(m, lastPct, startStage);
-              } else if (ok && Math.hypot(ev.clientX - startClientX, ev.clientY - startClientY) < 6) {
+                if (ok && p.scene === startScene) commitObjHealth(m, lastPct, startStage);
+              } else if (ok && p.scene === startScene && Math.hypot(ev.clientX - startClientX, ev.clientY - startClientY) < 6) {
                 clickObjective(m);
               }
             },

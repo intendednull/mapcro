@@ -796,6 +796,11 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   // Selections belong to a scene: flipping clears them. (Keyed on the scene's id: the scene
   // object itself is rebuilt on every edit, which once cleared the selection after each toggle.)
   const sceneKey = createMemo(() => scene()?.id);
+  const cancelObjHealthDrag = () => {
+    if (!untrack(dragObjHealth)) return;
+    setDragObjHealth(undefined);
+    state.presence({ focus: untrack(openComment) ?? null });
+  };
   createEffect(() => {
     sceneKey();
     setSelection(new Set<RecordId>());
@@ -803,7 +808,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     setPlacingDoor(undefined);
     setDragDoor(undefined);
     setErasingDoors(new Set<number>());
-    setDragObjHealth(undefined);
+    cancelObjHealthDrag();
   });
   // Cancel doorway placement/drag on scene switch (remaining guards live below after `phone`/`phoneEdit`).
   /** Give up the keyboard focus a control holds, so the board's own keys work (operator,
@@ -1011,7 +1016,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       setPlacingDoor(undefined);
       setDragDoor(undefined);
       setErasingDoors(new Set<number>());
-      setDragObjHealth(undefined);
+      cancelObjHealthDrag();
     }
   });
   // Cancel doorway placement/drag on tool switch, Player mode, phone view mode, lost edit access, or vanished/changed target.
@@ -1029,10 +1034,14 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     }
   });
   createEffect(() => {
+    if (inPlayer() || !state.canEdit() || (phone() && !phoneEdit()) || tool() !== "select") {
+      cancelObjHealthDrag();
+    }
+  });
+  createEffect(() => {
     if (inPlayer() || !state.canEdit() || (phone() && !phoneEdit())) {
       setDragDoor(undefined);
       setErasingDoors(new Set<number>());
-      setDragObjHealth(undefined);
       return;
     }
     const dr = dragDoor();

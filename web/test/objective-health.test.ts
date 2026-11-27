@@ -62,6 +62,11 @@ function applyOps(sim: SimScene, ops: readonly Op[]): SimScene {
         const nextVal = op.SetIf.value.More.value;
         if (nextVal === null) delete state.more[key];
         else state.more[key] = nextVal;
+      } else if ("ObjectiveStatus" in op.SetIf.value && "ObjectiveStatus" in op.SetIf.expect) {
+        const k = objById.get(op.SetIf.id);
+        const cur = k ? objectives.get(k) : undefined;
+        if (!k || !cur || cur.status !== op.SetIf.expect.ObjectiveStatus) continue;
+        objectives.set(k, { id: op.SetIf.id, status: op.SetIf.value.ObjectiveStatus });
       }
     }
   }
@@ -123,10 +128,19 @@ describe("Objective health manual Scene edits (objective-health-edit.md)", () =>
     const clearSightIdx = ops.findIndex((o) => "Set" in o && "More" in o.Set.value && o.Set.value.More.key === "has_sight" && o.Set.value.More.value === null);
     const clearCampsIdx = ops.findIndex((o) => "Set" in o && "More" in o.Set.value && o.Set.value.More.key === "has_camps" && o.Set.value.More.value === null);
     const setIfIdx = ops.findIndex((o) => "SetIf" in o && "More" in o.SetIf.value && o.SetIf.value.More.key === "obj_health");
-    const rowsIdx = ops.findIndex((o) => "Set" in o && "More" in o.Set.value && o.Set.value.More.key === "rows");
+    const rowsIdx = ops.findIndex(
+      (o) =>
+        "SetIf" in o &&
+        "More" in o.SetIf.value &&
+        "More" in o.SetIf.expect &&
+        o.SetIf.value.More.key === "rows" &&
+        o.SetIf.expect.More.value === 16 &&
+        o.SetIf.value.More.value === 33,
+    );
     expect(clearSightIdx).toBeGreaterThanOrEqual(0);
     expect(clearCampsIdx).toBeGreaterThanOrEqual(0);
     expect(setIfIdx).toBeGreaterThanOrEqual(0);
+    expect(rowsIdx).toBeGreaterThanOrEqual(0);
     expect(clearSightIdx).toBeLessThan(rowsIdx);
     expect(clearCampsIdx).toBeLessThan(rowsIdx);
 
@@ -148,19 +162,33 @@ describe("Objective health manual Scene edits (objective-health-edit.md)", () =>
     // Existing scene at rows: 42 (e.g. with doors) keeps rows: 42 and never downgrades to 33.
     const newer: SimScene = { state: { id: "st42", more: { rows: 42, has_doors: true, doors: [0, 100, 200, 0, -1, 0] } }, objectives: new Map() };
     const newerOps = setObjectiveHealthOps(makeCtx(newer), guardian, 30);
+    expect(newerOps.some((o) => "SetIf" in o && "More" in o.SetIf.value && o.SetIf.value.More.key === "rows")).toBe(false);
     expect(newerOps.some((o) => "Set" in o && "More" in o.Set.value && o.Set.value.More.key === "rows")).toBe(false);
     const newerNext = applyOps(newer, newerOps);
     expect(newerNext.state!.more.rows).toBe(42);
     expect(newerNext.state!.more.has_doors).toBe(true);
     expect(newerNext.state!.more.has_obj_health).toBe(true);
+
+    // Stale health writer (observed rows: 16) racing a peer who already committed Doorman doorways (rows: 42):
+    // `rows` uses `Op::SetIf` expecting 16, so it is skipped and never regresses 42 -> 33!
+    const staleBase: SimScene = { state: { id: "st_race", more: { rows: 16, has_builds: true } }, objectives: new Map() };
+    const staleHealthOps = setObjectiveHealthOps(makeCtx(staleBase), walker, 55);
+    const afterPeerDoors: SimScene = {
+      state: { id: "st_race", more: { rows: 42, has_builds: true, has_doors: true, doors: [0, 100, 200, 0, -1, 0] } },
+      objectives: new Map(),
+    };
+    const afterRace = applyOps(afterPeerDoors, staleHealthOps);
+    expect(afterRace.state!.more.rows).toBe(42);
+    expect(captured(afterRace.state!.more)).toMatchObject({ builds: true, doors: true, obj_health: true, rows: 42 });
+    expect(decodeObjHealth(afterRace.state!.more.obj_health, markers).get(walker.key)).toEqual({ pct: 55 });
   });
 
-  it("enforces Op::SetIf CAS on concurrent edits, preflights max_more_bytes, and stays dormant when written < 33", () => {
+  it("enforces Op::SetIf CAS on concurrent obj_health & ObjectiveState edits, preflights schema-legal max_more_bytes, and stays dormant when written < 33", () => {
     expect(ROWS.obj_health.index).toBe(32);
     const empty: SimScene = { state: undefined, objectives: new Map() };
     expect(setObjectiveHealthOps(makeCtx(empty, { written: 32 }), walker, 50)).toEqual([]);
 
-    // Concurrent CAS: peer B edits walker while peer A edits guardian against the same base snapshot.
+    // Concurrent obj_health CAS: peer B edits walker while peer A edits guardian against the same base snapshot.
     const base = applyOps(empty, setObjectiveHealthOps(makeCtx(empty), walker, 80));
     const peerBOps = setObjectiveHealthOps(makeCtx(base), walker, 40);
     const peerAOps = setObjectiveHealthOps(makeCtx(base), guardian, 60);
@@ -170,20 +198,68 @@ describe("Objective health manual Scene edits (objective-health-edit.md)", () =>
     expect(decodeObjHealth(afterBThenA.state!.more.obj_health, markers).get(walker.key)).toEqual({ pct: 40 });
     expect(decodeObjHealth(afterBThenA.state!.more.obj_health, markers).has(guardian.key)).toBe(false);
 
-    // Near-cap SceneState.more: preflight rejects cleanly with [] (including omitting ObjectiveState op).
+    // Concurrent Patron status + health CAS race:
+    // Base has Patron Active at 80%. Peer A prepares Stage2 at 40% while Peer B marks Patron Destroyed.
+    // Applying A after B skips BOTH SetIf(ObjectiveStatus) and SetIf(obj_health), never half-applying Stage2 at 100%!
+    const patronBase: SimScene = {
+      state: { id: "st_p", more: { rows: 33, has_obj_health: true, obj_health: [fnv1a32(patron.key), 80, 1] } },
+      objectives: new Map([[patron.key, { id: "obj_p", status: "Active" }]]),
+    };
+    const peerAStage2Ops = setObjectiveHealthOps(makeCtx(patronBase), patron, 40, 2);
+    const peerBDestroyOps = setObjectiveHealthOps(makeCtx(patronBase), patron, 0);
+    expect(peerAStage2Ops.some((o) => "SetIf" in o && "ObjectiveStatus" in o.SetIf.value)).toBe(true);
+    const afterPatronDestroy = applyOps(patronBase, peerBDestroyOps);
+    expect(afterPatronDestroy.objectives.get(patron.key)?.status).toBe("Destroyed");
+    expect(afterPatronDestroy.state!.more.obj_health).toBeUndefined();
+    const afterPatronRace = applyOps(afterPatronDestroy, peerAStage2Ops);
+    expect(afterPatronRace.objectives.get(patron.key)?.status).toBe("Destroyed");
+    expect(afterPatronRace.state!.more.obj_health).toBeUndefined();
+
+    // Near-cap schema-legal SceneState.more (every row strictly within ROWS[k].len & bounds):
+    // preflight rejects cleanly with [] (including omitting the ObjectiveState op).
+    const healthMarkers = markers.filter((m) => m.kind === "t1" || m.kind === "t2" || m.kind === "barracks" || m.kind === "shrine" || m.kind === "t3" || m.kind === "midboss");
+    const otherHealth = new Map(healthMarkers.filter((m) => m.key !== guardian.key).map((m) => [m.key, { pct: 50 }] as const));
+    const baseObjHealth = encodeObjHealth(otherHealth, markers).ints;
+    expect(baseObjHealth.length).toBeLessThanOrEqual(ROWS.obj_health.len);
+    const nearCapMore: More = {
+      rows: 42,
+      has_builds: true,
+      build: 6865,
+      has_heroes: true,
+      has_sight: true,
+      has_cc: true,
+      has_movement: true,
+      has_lanes: true,
+      has_skulls: true,
+      skulls: Array.from({ length: ROWS.skulls.len }, () => 255),
+      has_camps: true,
+      camps: Array.from({ length: ROWS.camps.len }, (_, i) => 1_000_000_000 + i),
+      has_powerups: true,
+      powerups: Array.from({ length: ROWS.powerups.len }, (_, i) => 1_000_000_000 + i),
+      has_obj_health: true,
+      obj_health: baseObjHealth,
+      has_rifts: true,
+      rift: Array.from({ length: ROWS.rift.len }, (_, i) => 1_000_000_000 + i),
+      has_urn: true,
+      urn: Array.from({ length: ROWS.urn.len }, (_, i) => 1_000_000_000 + i),
+      urn_at: { x: -10752, y: -10752 },
+      has_rejuv: true,
+      rejuv: Array.from({ length: ROWS.rejuv.len }, (_, i) => 1_000_000_000 + i),
+      has_doors: true,
+      doors: Array.from({ length: ROWS.doors.len }, () => -10752),
+    };
+    // Trim `camps` (keeping stride-3 and <= 600) until `nearCapMore` fits <= 8192 B while adding guardian exceeds 8192 B.
+    const withGuardianInts = encodeObjHealth(new Map([...otherHealth, [guardian.key, { pct: 50 }]]), markers).ints;
+    while (moreBytes(nearCapMore) > LIMITS.max_more_bytes) {
+      (nearCapMore.camps as number[]).splice(-3, 3);
+    }
+    expect((nearCapMore.camps as number[]).length).toBeLessThanOrEqual(ROWS.camps.len);
+    expect(moreBytes(nearCapMore)).toBeLessThanOrEqual(LIMITS.max_more_bytes);
+    expect(moreBytes({ ...nearCapMore, obj_health: withGuardianInts })).toBeGreaterThan(LIMITS.max_more_bytes);
     const nearCap: SimScene = {
-      state: {
-        id: "st_cap",
-        more: {
-          rows: 42,
-          has_builds: true,
-          has_camps: true,
-          camps: Array.from({ length: 738 }, (_, i) => 1_000_000_000 + i),
-        },
-      },
+      state: { id: "st_cap", more: nearCapMore },
       objectives: new Map([[guardian.key, { id: "g1", status: "Destroyed" }]]),
     };
-    expect(moreBytes(nearCap.state!.more)).toBeLessThanOrEqual(LIMITS.max_more_bytes);
     expect(setObjectiveHealthOps(makeCtx(nearCap), guardian, 50)).toEqual([]);
   });
 
@@ -201,9 +277,18 @@ describe("Objective health manual Scene edits (objective-health-edit.md)", () =>
     expect(sim.state!.more.obj_health).toBeUndefined();
     expect(sim.state!.more.has_obj_health).toBe(true);
 
-    // Drag upward on Destroyed objective to 60%: revives to Active AND writes 60% in one transaction.
+    // Dragging upward on Destroyed objective to 60%: revives to Active via SetIf AND writes 60% in one transaction.
     const reviveOps = setObjectiveHealthOps(makeCtx(sim), walker, 60);
-    expect(reviveOps.some((o) => "Set" in o && "ObjectiveStatus" in o.Set.value && o.Set.value.ObjectiveStatus === "Active")).toBe(true);
+    expect(
+      reviveOps.some(
+        (o) =>
+          "SetIf" in o &&
+          "ObjectiveStatus" in o.SetIf.value &&
+          "ObjectiveStatus" in o.SetIf.expect &&
+          o.SetIf.expect.ObjectiveStatus === "Destroyed" &&
+          o.SetIf.value.ObjectiveStatus === "Active",
+      ),
+    ).toBe(true);
     expect(reviveOps.some((o) => "SetIf" in o && "More" in o.SetIf.value && o.SetIf.value.More.key === "obj_health")).toBe(true);
     sim = applyOps(sim, reviveOps);
     expect(sim.objectives.get(walker.key)?.status).toBe("Active");
@@ -269,14 +354,23 @@ describe("Objective health manual Scene edits (objective-health-edit.md)", () =>
     expect(sim.objectives.get(patron.key)?.status).toBe("Stage2");
     expect(sim.state!.more.obj_health).toBeUndefined();
 
-    // Group toggle destroying walker + guardian clears both partial health entries in one tx.
+    // Dragging upward on a Destroyed Patron revives it cleanly into Stage 1 (Active) at dragged %.
+    sim = applyOps(sim, setObjectiveHealthOps(makeCtx(sim), patron, 0));
+    expect(sim.objectives.get(patron.key)?.status).toBe("Destroyed");
+    expect(sim.state!.more.obj_health).toBeUndefined();
+    sim = applyOps(sim, setObjectiveHealthOps(makeCtx(sim), patron, 60));
+    expect(sim.objectives.get(patron.key)?.status).toBe("Active");
+    expect(decodeObjHealth(sim.state!.more.obj_health, markers).get(patron.key)).toEqual({ pct: 60, stage: 1 });
+
+    // Dragging upward on a Destroyed objective in a group toggle revives cleanly and clears any stale partial health.
     sim = applyOps(sim, setObjectiveHealthOps(makeCtx(sim), walker, 45));
     sim = applyOps(sim, setObjectiveHealthOps(makeCtx(sim), guardian, 25));
     const grp = groupToggleOps(walker, [walker, guardian], markers, sim.objectives as Current, "sc1", (() => { let i = 0; return () => `g${i++}`; })(), undefined, makeCtx(sim));
     sim = applyOps(sim, grp);
     expect(sim.objectives.get(walker.key)?.status).toBe("Destroyed");
     expect(sim.objectives.get(guardian.key)?.status).toBe("Destroyed");
-    expect(sim.state!.more.obj_health).toBeUndefined();
+    expect(decodeObjHealth(sim.state!.more.obj_health, markers).has(walker.key)).toBe(false);
+    expect(decodeObjHealth(sim.state!.more.obj_health, markers).has(guardian.key)).toBe(false);
   });
 
   it("preserves -1 unknown entries for untouched objectives on partial-timeline scenes", () => {

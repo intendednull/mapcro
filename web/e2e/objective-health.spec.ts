@@ -127,6 +127,42 @@ test("short click (< 6 px) preserves 1-click Destroyed <-> Active toggle and cle
   await a.mouse.up();
   await expect(g).toHaveAttribute("data-status", "Active");
   await expect(g).toHaveAttribute("data-health", "60");
+
+  // Patron: 1-click into Stage 2, then vertical drag down preserves Stage2 with "Patron (Weakened) · 55%" readout;
+  // dragging to 0% destroys Patron, and dragging upward revives it cleanly into Stage 1 (Active).
+  const patronKey = "patron:amber:lane0:1";
+  const p = marker(a, patronKey);
+  const pc = await centre(p);
+  await a.mouse.click(pc.x, pc.y);
+  await expect(p).toHaveAttribute("data-status", "Stage2");
+
+  await a.mouse.move(pc.x, pc.y);
+  await a.mouse.down();
+  await a.mouse.move(pc.x, pc.y + 36, { steps: 6 });
+  await expect(p).toHaveAttribute("data-status", "Stage2");
+  await expect(p).toHaveAttribute("data-health", "55");
+  await expect(a.getByTestId("hover-label")).toHaveText("Patron (Weakened) · 55%");
+  await a.mouse.up();
+  await expect(p).toHaveAttribute("data-status", "Stage2");
+  await expect(p).toHaveAttribute("data-health", "55");
+
+  // Drag Stage 2 Patron to 0% -> Destroyed, then drag upward 48 px -> revives as Stage 1 (Active) at 60%.
+  await a.mouse.move(pc.x, pc.y);
+  await a.mouse.down();
+  await a.mouse.move(pc.x, pc.y + 60, { steps: 6 });
+  await expect(a.getByTestId("hover-label")).toHaveText("Patron · Destroyed");
+  await a.mouse.up();
+  await expect(p).toHaveAttribute("data-status", "Destroyed");
+
+  await a.mouse.move(pc.x, pc.y);
+  await a.mouse.down();
+  await a.mouse.move(pc.x, pc.y - 48, { steps: 6 });
+  await expect(p).toHaveAttribute("data-status", "Active");
+  await expect(p).toHaveAttribute("data-health", "60");
+  await expect(a.getByTestId("hover-label")).toHaveText("Patron · 60%");
+  await a.mouse.up();
+  await expect(p).toHaveAttribute("data-status", "Active");
+  await expect(p).toHaveAttribute("data-health", "60");
 });
 
 test("right-click obj-menu presets, Patron Stage 2, Mid-Boss Cleared/revive, showHealth auto-enable, and .mapcro export/import round-trip", async ({ browser }) => {

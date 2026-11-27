@@ -130,7 +130,7 @@ const DORMANT_FLAG_ROWS: ReadonlyArray<readonly [keyof typeof ROWS, keyof typeof
 const currentDoors = (state: { more: More | undefined } | undefined): DoorNow[] =>
   captured(state?.more).doors ? decodeDoors(state?.more?.doors) : [];
 
-const sameDoorInts = (prev: unknown, next: readonly number[]): boolean => {
+const sameInts = (prev: unknown, next: readonly number[]): boolean => {
   if (next.length === 0) return prev === undefined || (Array.isArray(prev) && prev.length === 0);
   return Array.isArray(prev) && prev.length === next.length && prev.every((v, i) => v === next[i]);
 };
@@ -157,7 +157,7 @@ function writeDoorsOps(ctx: SceneDoorContext, nextDoors: readonly DoorNow[]): Op
   const needBumpRows = curRows < DOOR_ROWS;
   const hadDoorsKey = have.doors !== undefined;
   if (encoded.length === 0 && have.has_doors !== true && !hadDoorsKey) return [];
-  if (have.has_doors === true && !needBumpRows && sameDoorInts(have.doors, encoded)) return [];
+  if (have.has_doors === true && !needBumpRows && sameInts(have.doors, encoded)) return [];
   const ops: Op[] = [];
   const expectDoors = hadDoorsKey ? have.doors! : null;
   // Emit clears first so raising `rows` never activates dormant `has_*` flags and stays within per-op caps.
@@ -183,7 +183,7 @@ function writeDoorsOps(ctx: SceneDoorContext, nextDoors: readonly DoorNow[]): Op
         },
       });
     }
-  } else if (!sameDoorInts(have.doors, encoded)) {
+  } else if (!sameInts(have.doors, encoded)) {
     ops.push({
       SetIf: {
         id: ctx.state.id,
@@ -377,7 +377,7 @@ function writeObjHealthOpsInternal(
   const hadKey = have.obj_health !== undefined;
   const wasCaptured = captured(have).obj_health;
   if (encoded.length === 0 && !wasCaptured) return { ops: [], ok: true };
-  if (wasCaptured && !needBumpRows && sameDoorInts(have.obj_health, encoded)) return { ops: [], ok: true };
+  if (wasCaptured && !needBumpRows && sameInts(have.obj_health, encoded)) return { ops: [], ok: true };
   const ops: Op[] = [];
   const expectVal = hadKey ? have.obj_health! : null;
   // Emit clears first so raising `rows` never activates dormant `has_*` flags and stays within per-op caps.
@@ -403,7 +403,7 @@ function writeObjHealthOpsInternal(
         },
       });
     }
-  } else if (!sameDoorInts(have.obj_health, encoded)) {
+  } else if (!sameInts(have.obj_health, encoded)) {
     ops.push({
       SetIf: {
         id: ctx.state.id,
@@ -413,7 +413,16 @@ function writeObjHealthOpsInternal(
     });
   }
   if (have.has_obj_health !== true) ops.push({ Set: { id: ctx.state.id, value: { More: { key: "has_obj_health", value: true } } } });
-  if (needBumpRows) ops.push({ Set: { id: ctx.state.id, value: { More: { key: "rows", value: OBJ_HEALTH_ROWS } } } });
+  if (needBumpRows) {
+    // Watermark uses `SetIf` on the observed value so a stale health writer can never regress a higher `rows`.
+    ops.push({
+      SetIf: {
+        id: ctx.state.id,
+        expect: { More: { key: "rows", value: have.rows ?? null } },
+        value: { More: { key: "rows", value: OBJ_HEALTH_ROWS } },
+      },
+    });
+  }
   // Preflight every intermediate `SceneState.more` state against `max_more_bytes` (matching server validation).
   const sim: More = { ...have };
   for (const op of ops) {
@@ -494,7 +503,13 @@ export function setObjectiveHealthOps(
   const statusOps: Op[] = [];
   if (curObj) {
     if (curObj.status !== targetStatus) {
-      statusOps.push({ Set: { id: curObj.id, value: { ObjectiveStatus: targetStatus } } });
+      statusOps.push({
+        SetIf: {
+          id: curObj.id,
+          expect: { ObjectiveStatus: curObj.status },
+          value: { ObjectiveStatus: targetStatus },
+        },
+      });
     }
   } else if (effBefore !== targetStatus && (targetStatus !== "Active" || effBefore === "Destroyed")) {
     statusOps.push({ Create: { id: ctx.mint(), record: { ObjectiveState: { scene: ctx.scene, key: marker.key, status: targetStatus } } } });

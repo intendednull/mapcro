@@ -63,28 +63,26 @@ const OBJ_HEALTH_ROWS = ROWS.obj_health.index + 1; // 33
 
 3. **Existing `SceneState` (`ctx.state`):**
    - Let `have = ctx.state.more ?? {}` and `curRows = have.rows ?? 0`.
-   - **Dormant flag clearing (preventing `MoreRowOrder` / `MoreOrphanPayload` validation rejection):**
+   - **Dormant flag clearing (preventing dormant `has_*` flags from falsely activating when advancing `rows`):**
      - If `curRows < OBJ_HEALTH_ROWS`:
        - If `curRows === 0 && have.has_builds === true`, push `Set { value: { More: { key: "has_builds", value: null } } }`.
-       - For every `[flag, last]` in `DORMANT_FLAG_ROWS` (`edit.ts:44-52`) where `flag !== "has_obj_health"`, if `have[flag] === true && ROWS[last].index >= curRows`, push `Set { value: { More: { key: flag, value: null } } }`.
+       - For every `[flag, last]` in `DORMANT_FLAG_ROWS` (`edit.ts:112-125`) where `flag !== "has_obj_health"`, if `have[flag] === true && ROWS[last].index >= curRows`, push `Set { value: { More: { key: flag, value: null } } }`.
    - **Compare-and-swap (`Op::SetIf`) on `obj_health`:**
      - Emit `Op::SetIf` on `ctx.state.id` with:
        - `value: { More: { key: "obj_health", value: encoded.length > 0 ? encoded : null } }`
        - `expect: { More: { key: "obj_health", value: have.obj_health ?? null } }`
-   - **Presence flag & row watermark:**
+   - **Presence flag & CAS row watermark:**
      - If `have.has_obj_health !== true`, emit `Op::Set` setting `More: { key: "has_obj_health", value: true }`.
-     - If `curRows < OBJ_HEALTH_ROWS`, emit `Op::Set` setting `More: { key: "rows", value: OBJ_HEALTH_ROWS }`.
-   - **Byte-budget preflight:** Verify every intermediate `More` state satisfies `moreBytes(sim) <= LIMITS.max_more_bytes` (`6144` B); return `[]` if exceeded.
+     - If `curRows < OBJ_HEALTH_ROWS`, emit `Op::SetIf` setting `More: { key: "rows", value: OBJ_HEALTH_ROWS }` expecting `have.rows ?? null` (preventing a stale health writer from ever regressing a peer's higher watermark such as `rows: 42`).
+   - **Byte-budget preflight:** Verify every intermediate `More` state satisfies `moreBytes(sim) <= LIMITS.max_more_bytes` (`8192` B); return `[]` if exceeded.
 
 4. **Coordinated status + health transaction (`setObjectiveHealthOps`):**
    - **Standing objective (`pct` in `1..100`):**
-     - For `t1 | t2 | barracks | shrine | t3`: if `curObjState?.status === "Destroyed"` (or if `t3`stage changes via context menu), emit `ObjectiveState` `Set` / `Create` (`"Active"` or `"Stage2"`) in the same `Op[]` transaction as `writeObjHealthOps`.
-     - For `midboss`: if Mid-Boss is currently cleared (`down === true`, encoded in `SceneState.more.camps` hash list), remove `fnv1a32(marker.key)` from `SceneState.more.camps` in the same `Op[]` transaction so Mid-Boss becomes alive at `pct%`.
+     - For all `isHealthKind` objectives (`t1 | t2 | barracks | shrine | t3 | midboss`): if the objective is currently `"Destroyed"` (including Mid-Boss cleared via `ObjectiveState: "Destroyed"` or replay `SceneState.more.camps` baseline) or if Patron (`t3`) stage changes via context menu, emit `ObjectiveState` `Op::SetIf` (expecting the observed `curObj.status`) or `Op::Create` (`"Active"` or `"Stage2"`) in the same `Op[]` transaction as `writeObjHealthOps`. Using `ObjectiveState` for Mid-Boss matches `objectives.ts` 1-click toggles and avoids fabricating a fake `camps` respawn timer (`effectiveCamp("Active", cleared)` suppresses any stale baseline respawn timer).
    - **Dragged to `0%` (`pct === 0`):**
-     - For `t1 | t2 | barracks | shrine | t3`: emit `ObjectiveState` `Set` / `Create` with `status: "Destroyed"` and remove `marker.key` from `obj_health` in the same transaction.
-     - For `midboss`: add `fnv1a32(marker.key)` to `SceneState.more.camps` (marking Mid-Boss cleared) and remove `marker.key` from `obj_health` in the same transaction.
-   - **1-click toggle interaction (`clickObjective` / `toggleObjectivesOps` in `web/src/board/objectives.ts`):**
-     - When an objective is 1-click toggled to `"Destroyed"`, or when a Patron (`t3`) 1-click cycles stage (`Active` → `Stage2` → `Destroyed` → `Active`), also clear that marker's entry from `SceneState.more.obj_health` in the same transaction so the next stage or revival starts cleanly at `100%`.
+     - For all `isHealthKind` objectives (`t1 | t2 | barracks | shrine | t3 | midboss`): emit `ObjectiveState` `Op::SetIf` / `Op::Create` with `status: "Destroyed"` and remove `marker.key` from `obj_health` in the same transaction.
+   - **1-click toggle interaction (`clickObjective` / `toggleOps` / `groupToggleOps` in `web/src/board/objectives.ts`):**
+     - When an objective is 1-click toggled (or group-toggled) to `"Destroyed"`, revived, or when a Patron (`t3`) 1-click cycles stage (`Active` → `Stage2` → `Destroyed` → `Active`), also clear that marker's entry from `SceneState.more.obj_health` in the same transaction so the next stage or revival starts cleanly at `100%`.
 
 ---
 
@@ -97,7 +95,7 @@ const OBJ_HEALTH_ROWS = ROWS.obj_health.index + 1; // 33
 | `barracks` | `Base guardian` | 6 | Single | `1..100%` + `Destroyed` (`0%`) |
 | `shrine` | `Shrine` | 4 | Single | `1..100%` + `Destroyed` (`0%`) |
 | `t3` | `Patron` (`Hidden King` / `Archmother`) | 2 | Stage 1 (`Active`, shield) · Stage 2 (`Stage2`, weakened core) | `1..100%` per stage + `Destroyed` (`0%`) |
-| `midboss` | `Mid-Boss` | 1 | Single (`camps` bit for alive/cleared) | `1..100%` when alive + `Cleared` (`0%`) |
+| `midboss` | `Mid-Boss` | 1 | Single (`ObjectiveState` override over baseline `camps`) | `1..100%` when alive + `Cleared` (`0%`) |
 | `camp` (`small`/`medium`/`large`/`vault`) | `Neutral camp` / `Sinner's Sacrifice` | 45 | Alive / Cleared only | **No health bar** (`isHealthKind` is `false`; 1-click toggle only) |
 | `powerup` / `soul_urn` / `teleporter` | `Bridge buff` / `Soul Urn` / `Teleporter` | — | Active / Inactive | **No health bar** (1-click toggle only) |
 
@@ -198,7 +196,7 @@ On desktop, right-clicking (`e.button === 2`, stationary release `< 4 px`) on an
   - Each completed drag or context-menu preset commits a single `st.edit(...)` batch containing `Op::SetIf` on `SceneState.more.obj_health` (and any accompanying `ObjectiveState` status change).
   - Server-side `invert_op` in `crates/engine/src/replica.rs` automatically reverses both the `SetIf` on `More` and the `ObjectiveState` change in one `Ctrl+Z` step.
 - **Multi-user CAS conflict handling:**
-  - `writeObjHealthOps` uses `Op::SetIf` with `expect: { More: { key: "obj_health", value: have.obj_health ?? null } }`. If two coaches edit objective health simultaneously, the second op whose `expect` does not match the first's committed array is cleanly rejected by the server (`SetIf` mismatch) and rolled back on the losing client without corrupting the stride-3 array.
+  - `writeObjHealthOps` uses per-op `Op::SetIf` on `obj_health` (`expect: { More: { key: "obj_health", value: have.obj_health ?? null } }`) and on `rows` (`expect: { More: { key: "rows", value: have.rows ?? null } }`), and `setObjectiveHealthOps` uses `Op::SetIf` on existing `ObjectiveState` status (`expect: { ObjectiveStatus: curObj.status }`). Per `crates/schema/src/validate.rs`, any `SetIf` whose `expect` does not match the server's current field value is cleanly skipped (`OpOutcome::Skipped`) rather than clobbering a peer's concurrent edit, half-applying a stale status change, or regressing a peer's higher `rows` watermark.
 - **`.mapcro` export & import compatibility:**
   - `has_obj_health` (row `31`) and `obj_health` (row `32`) are well below `map_state::WRITTEN = 42` (`board-file version: 6`). Exported `.mapcro` files already serialize and validate `SceneState.more.obj_health` via `crates/schema/src/validate.rs`.
 - **§4b Labels & Tooltips Compliance:**
