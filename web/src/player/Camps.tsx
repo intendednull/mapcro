@@ -233,7 +233,7 @@ export function MarkerTips(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; 
     return u?.state === "ground" && u.at ? { u, at: worldToView(u.at, p.vp) } : undefined;
   };
   const visibleDoors = () =>
-    shownDoors(p.frame.ms(), p.frame.shown().vision, !p.frame.player())
+    shownDoors(p.frame.ms(), p.frame.shown().vision, !p.frame.player() || !!p.frame.pausedEdit?.())
       .filter((d) => d.draw !== "hidden")
       .map((d) => ({ d, at: worldToView(d.at, p.vp) }));
   const near = (at: Pt) => {

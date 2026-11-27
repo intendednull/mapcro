@@ -8,8 +8,9 @@
 // columns. The scene's name editor ("Rename…") opens in place under the portrait while it is open.
 
 import { type JSX, Show, createSignal, onCleanup, onMount, splitProps } from "solid-js";
+import { capture } from "../ui/capture";
 import { cx } from "../ui/cx";
-import { formatSouls } from "../core/souls";
+import { formatSouls, ultFromVector, ultStep } from "../core/souls";
 import { rosterTeamName } from "../map/model";
 import type { Art, Hero } from "../map/pack";
 import { type RejuvNow, clockLabel } from "../match/timeline";
@@ -147,7 +148,7 @@ export function UltDial(p: {
   adjusting?: boolean;
   editable?: boolean;
   /** No native title: a richer hover (Player's ult tooltip) stands in. */
-  untitled?: boolean;
+  untitled?: boolean | undefined;
   ref?: (el: HTMLDivElement) => void;
   onPointerDown?: (e: PointerEvent) => void;
   onWheel?: (e: WheelEvent) => void;
@@ -176,6 +177,85 @@ export function UltDial(p: {
       <i class="tb-ult-fb" />
       {p.children}
     </div>
+  );
+}
+
+/**
+ * Interactive ult cooldown ring (shared by Scene `TopBar` and paused `PlayerTopBar`):
+ * drag around the dial or scroll to adjust 0..100%, click to mark ready (`0`).
+ */
+export function UltRing(p: {
+  left: number | null;
+  editable: boolean;
+  label: string;
+  untitled?: boolean | undefined;
+  onFocus?: (on: boolean) => void;
+  onCommit: (pct: number | null) => void;
+}) {
+  const [preview, setPreview] = createSignal<number | null | undefined>();
+  const value = () => (preview() !== undefined ? preview()! : p.left);
+  let el!: HTMLDivElement;
+  let wheelTimer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => clearTimeout(wheelTimer));
+
+  const down = (e: PointerEvent) => {
+    if (!p.editable || e.button !== 0) return;
+    e.preventDefault();
+    capture(el, e.pointerId);
+    const r = el.getBoundingClientRect();
+    const cxPt = r.left + r.width / 2;
+    const cyPt = r.top + r.height / 2;
+    let moved = false;
+    p.onFocus?.(true);
+    const move = (ev: PointerEvent) => {
+      const dx = ev.clientX - cxPt;
+      const dy = ev.clientY - cyPt;
+      if (!moved && Math.hypot(ev.clientX - e.clientX, ev.clientY - e.clientY) < 3) return;
+      moved = true;
+      setPreview(ultFromVector(dx, dy));
+    };
+    const up = (ev: PointerEvent) => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
+      if (ev.type === "pointerup") p.onCommit(moved ? (preview() ?? 0) : 0);
+      setPreview(undefined);
+      p.onFocus?.(false);
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+  };
+
+  const wheel = (e: WheelEvent) => {
+    if (!p.editable) return;
+    e.preventDefault();
+    setPreview(ultStep(value(), e.deltaY > 0));
+    clearTimeout(wheelTimer);
+    wheelTimer = setTimeout(() => {
+      const v = preview();
+      setPreview(undefined);
+      if (v !== undefined) p.onCommit(v);
+    }, 350);
+  };
+
+  const u = () => value();
+  return (
+    <UltDial
+      ref={(e) => (el = e)}
+      left={u()}
+      label={p.label}
+      editable={p.editable}
+      untitled={p.untitled}
+      adjusting={preview() !== undefined}
+      onPointerDown={down}
+      onWheel={wheel}
+    >
+      <Show when={preview() !== undefined}>
+        <i class="tb-ult-handle" style={{ transform: `translate(-50%, -50%) rotate(${(u() ?? 0) * 3.6}deg) translateY(calc(-14 * var(--u)))` }} />
+        <b class="tb-ult-pct">{u() == null ? "untracked" : u()! <= 0 ? "ready" : `${Math.round(u()!)}% left`}</b>
+      </Show>
+    </UltDial>
   );
 }
 

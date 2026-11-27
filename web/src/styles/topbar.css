@@ -110,6 +110,10 @@
 /* Editing in place (board only): souls and the clock edit as text; the ult ring drags or scrolls */
 .tb-host.editable .tb-souls, .tb-host.editable .tb-clock { cursor: text; }
 .tb-host.editable .tb-souls:hover, .tb-host.editable .tb-clock:hover { outline: calc(1.5 * var(--u)) dashed #FFEFD7aa; outline-offset: calc(2 * var(--u)); }
+.pl-topbar.editable .tb-clock { cursor: default; }
+.pl-topbar.editable .tb-clock:hover { outline: none; }
+.pl-topbar.editable .tb-souls { cursor: pointer; }
+.pl-topbar .tb-ult.adjusting { transition: none; }
 .tb-host.editable .tb-ult { cursor: grab; }
 .tb-host.editable .tb-ult.untracked { display: block; border: calc(1.5 * var(--u)) dashed #FFEFD766; background: none; }   /* untracked: a faint empty ring to click */
 .tb-host.editable .tb-ult.untracked > i { display: none; }

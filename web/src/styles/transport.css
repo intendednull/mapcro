@@ -124,7 +124,11 @@
   font: 700 17px / 42px var(--ui); color: var(--text);
 }
 .board-app .dock .match-clock .clock-of { font-size: 12px; font-weight: 600; color: var(--faint); }
+.pl-save-group { display: flex; align-items: center; gap: 6px; }
 .board-app .dock .pl-transport [data-testid=match-save] { height: 44px; padding: 0 16px; font-size: 13px; border-radius: 12px; }
+.board-app .dock .pl-transport [data-testid=match-reset] { height: 44px; padding: 0 12px; font-size: 13px; border-radius: 12px; }
+[data-testid=match-save].dirty { border-color: var(--accent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent); }
+.save-dirty-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-right: 6px; flex: none; }
 
 /* Too narrow for one row: the keys take a centred row of their own, the rest goes under them. */
 @container dock (width < 840px) {
@@ -169,7 +173,8 @@
   .board-app .dock .pl-transport > .pl-tail { display: contents; }
   .board-app .dock .pl-transport .match-clock { grid-area: clock; justify-self: end; margin-bottom: 8px; padding: 0 8px; font-size: 16px; }
   .board-app .dock > .pl-bar:has(> .pl-transport) > .pl-source { margin-bottom: 8px; }
-  .board-app .dock .pl-transport [data-testid=match-save] { grid-area: save; justify-self: stretch; padding: 0 12px; }
+  .board-app .dock .pl-transport .pl-save-group { grid-area: save; display: flex; gap: 6px; justify-self: stretch; }
+  .board-app .dock .pl-transport [data-testid=match-save] { flex: 1; padding: 0 12px; }
   /* The word stays for a screen reader. */
   .board-app .dock .pl-source-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .board-app .dock .pl-bar .pl-source > summary { padding: 0 10px; }
@@ -203,7 +208,7 @@
   .board-app .dock .pl-keys .pl-skip { width: min(36px, 18cqi); height: min(36px, 18cqi); }
   .board-app .dock .pl-keys .pl-skip .pl-skip-arc { width: 68%; height: 68%; }
   .board-app .dock .pl-keys .pl-step { width: min(32px, 16.5cqi); min-width: 0; height: min(32px, 16.5cqi); }
-  .board-app .dock .pl-bar .pl-source > summary, .board-app .dock .pl-transport [data-testid=match-save] { height: 36px; }
+  .board-app .dock .pl-bar .pl-source > summary, .board-app .dock .pl-transport [data-testid=match-save], .board-app .dock .pl-transport [data-testid=match-reset] { height: 36px; }
   .board-app .dock .pl-transport .match-clock { height: 36px; font-size: 15px; line-height: 34px; }
   @container dock (width < 840px) {
     .board-app .dock .pl-transport > .pl-keys { margin-bottom: 6px; }

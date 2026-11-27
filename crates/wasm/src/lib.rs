@@ -202,6 +202,16 @@ impl BoardReplica {
         self.update(&before, result.as_ref().ok().cloned().flatten(), result.err().map(|e| e.to_string()))
     }
 
+    /// Strip local undo and redo entries whose inverse touches any of `ids_json` (`RecordId[]`).
+    /// Purely local; emits no wire frames and changes no records.
+    #[wasm_bindgen(js_name = dropHistoryFor)]
+    pub fn drop_history_for(&mut self, ids_json: &str) -> Result<String, JsError> {
+        let ids: Vec<RecordId> = serde_json::from_str(ids_json).map_err(js_err)?;
+        self.inner.drop_history_for(&ids);
+        let u = self.changes(Vec::new(), Vec::new(), None);
+        serde_json::to_string(&u).map_err(js_err)
+    }
+
     /// The socket opened and `Ready` arrived: frames to send (hello, then pending work).
     pub fn connect(&mut self) -> Result<String, JsError> {
         let frames: Vec<WireIn> = self.inner.connect().into_iter().map(|msg| WireIn::Msg { msg }).collect();
@@ -464,6 +474,26 @@ mod changed_tests {
         let (ids, _) = step(&mut r, "rebase", |r| r.receive(&rebase));
         assert_eq!(ids, vec![RecordId(900), RecordId(100), RecordId(101), RecordId(200), RecordId(201), RecordId(300)]);
         assert!(step(&mut r, "disconnect", |r| r.disconnect()).0.is_empty());
+    }
+
+    #[test]
+    fn drop_history_for_updates_flags_and_persists_across_restore() {
+        let mut r = replica();
+        let _ = r.edit(&ops(&[note(100, "keep")])).unwrap_or_else(|_| panic!("edit keep"));
+        let _ = r.edit(&ops(&[note(101, "drop")])).unwrap_or_else(|_| panic!("edit drop"));
+        let _ = r.undo().unwrap_or_else(|_| panic!("undo drop"));
+        let ids_json = serde_json::to_string(&[RecordId(101)]).expect("ids");
+        let out = r.drop_history_for(&ids_json).unwrap_or_else(|_| panic!("dropHistoryFor"));
+        let update: Value = serde_json::from_str(&out).expect("update");
+        assert_eq!(update["frames"], Value::Array(vec![]));
+        assert_eq!(update["changed"], Value::Array(vec![]));
+        assert_eq!(update["canUndo"], Value::Bool(true));
+        assert_eq!(update["canRedo"], Value::Bool(false));
+
+        let saved = r.state().unwrap_or_else(|_| panic!("state"));
+        let restored = BoardReplica::restore(&saved).unwrap_or_else(|_| panic!("restore"));
+        assert!(restored.inner.can_undo());
+        assert!(!restored.inner.can_redo());
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::protocol::{ClientMsg, Hello, ServerMsg};
-use mapcro_schema::{ClientId, Doc, Op, Reject, Tx, TxKind, apply_tx, apply_tx_with_inverse, op_target};
+use mapcro_schema::{ClientId, Doc, Op, RecordId, Reject, Tx, TxKind, apply_tx, apply_tx_with_inverse, op_target};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
@@ -189,6 +189,19 @@ impl Replica {
         let msg = self.connected.then(|| ClientMsg::Submit(tx.clone()));
         self.pending.push_back(tx);
         Ok(msg)
+    }
+
+    /// Remove local undo and redo entries whose inverse touches any record in `records`
+    /// (e.g., ephemeral `liveScene` entity overrides cleared on Play, Scrub, or reload).
+    /// Purely local to this replica's history stacks; sends nothing on the wire.
+    pub fn drop_history_for(&mut self, records: &[RecordId]) {
+        if records.is_empty() {
+            return;
+        }
+        let targets: std::collections::BTreeSet<RecordId> = records.iter().copied().collect();
+        let keep = |e: &HistoryEntry| !e.inverse.iter().any(|op| targets.contains(&op_target(op)));
+        self.undo.retain(keep);
+        self.redo.retain(keep);
     }
 
     /// Undo this client's most recent transaction that still has an undo entry.
@@ -734,5 +747,170 @@ mod view_tests {
         assert!(r.view_is_rebuilt());
         r.pending.clear();
         assert!(!r.view_is_rebuilt());
+    }
+}
+
+#[cfg(test)]
+mod drop_history_tests {
+    use super::*;
+    use mapcro_schema::{
+        Callout, FieldValue, LaneKey, ObjectiveState, ObjectiveStatus, OrderKey, PlayerState,
+        Record, RecordId, Scene, SceneState, WorldPos, genesis,
+    };
+
+    const REAL_SCENE: RecordId = RecordId(14);
+    const LIVE_SCENE: RecordId = RecordId(500);
+    const LIVE_PLAYER: RecordId = RecordId(501);
+    const LIVE_STATE: RecordId = RecordId(502);
+    const LIVE_WAVE: RecordId = RecordId(503);
+    const LIVE_OBJ: RecordId = RecordId(504);
+    const LIVE_INK: RecordId = RecordId(505);
+    const REAL_INK: RecordId = RecordId(506);
+
+    fn replica_with_live() -> Replica {
+        let mut n = 0u128;
+        let doc = genesis(
+            || {
+                n += 1;
+                RecordId(n)
+            },
+            "t",
+        );
+        let slots: Vec<RecordId> = doc
+            .iter_live()
+            .filter_map(|(id, r)| match r {
+                Record::RosterSlot(_) => Some(id),
+                _ => None,
+            })
+            .collect();
+        let mut r = Replica::new(ClientId(7), "secret".into(), doc, 0);
+        let mut init = vec![Op::Create {
+            id: LIVE_SCENE,
+            record: Record::Scene(Scene {
+                name: "Live".into(),
+                order: OrderKey::between(Some(&OrderKey::first()), None),
+                clock: None,
+                source: None,
+                live: true,
+                parent: None,
+            }),
+        }];
+        for (i, slot) in slots.into_iter().enumerate() {
+            let pid = if i == 0 { LIVE_PLAYER } else { RecordId(600 + i as u128) };
+            init.push(Op::Create {
+                id: pid,
+                record: Record::PlayerState(PlayerState {
+                    scene: LIVE_SCENE,
+                    slot,
+                    pos: WorldPos { x: 0, y: 0 },
+                    alive: true,
+                    placed: false,
+                    souls: None,
+                    ult_cooldown: None,
+                    visible: true,
+                    respawn: None,
+                    more: Default::default(),
+                }),
+            });
+        }
+        r.edit_silent(init).expect("live layer");
+        r
+    }
+
+    fn callout(id: RecordId, scene: RecordId, text: &str) -> Op {
+        Op::Create {
+            id,
+            record: Record::Callout(Callout {
+                scene,
+                pos: WorldPos { x: 10, y: 20 },
+                text: text.into(),
+                color: None,
+                side: Default::default(),
+            }),
+        }
+    }
+
+    #[test]
+    fn drops_undo_and_redo_for_target_live_entities_while_keeping_ink_and_real_scene() {
+        let mut r = replica_with_live();
+        // 1. Real scene edit (must survive)
+        r.edit(vec![callout(REAL_INK, REAL_SCENE, "plan")]).expect("real ink");
+        // 2. Live ink edit (must survive per D1)
+        r.edit(vec![callout(LIVE_INK, LIVE_SCENE, "live note")]).expect("live ink");
+        // 3. Pause entity edits: SceneClock + PlayerState + SceneState + Wave + ObjectiveState
+        r.edit(vec![
+            Op::Set { id: LIVE_SCENE, value: FieldValue::SceneClock(Some(600)) },
+            Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerPlaced(true) },
+            Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerPos(WorldPos { x: 100, y: 200 }) },
+        ])
+        .expect("move hero");
+        r.edit(vec![Op::Create {
+            id: LIVE_STATE,
+            record: Record::SceneState(SceneState { scene: LIVE_SCENE, more: Default::default() }),
+        }])
+        .expect("scene state");
+        r.edit(vec![Op::Create {
+            id: LIVE_WAVE,
+            record: Record::Wave(mapcro_schema::Wave {
+                scene: LIVE_SCENE,
+                lane: LaneKey("lane4".into()),
+                t: 400,
+                more: Default::default(),
+            }),
+        }])
+        .expect("wave");
+        r.edit(vec![Op::Create {
+            id: LIVE_OBJ,
+            record: Record::ObjectiveState(ObjectiveState {
+                scene: LIVE_SCENE,
+                key: mapcro_schema::ObjectiveKey("walker:amber:lane4:1".into()),
+                status: ObjectiveStatus::Destroyed,
+                more: Default::default(),
+            }),
+        }])
+        .expect("obj");
+
+        // Undo the last two so both undo and redo stacks hold live entity entries.
+        r.undo().expect("undo obj");
+        r.undo().expect("undo wave");
+        assert!(r.can_undo());
+        assert!(r.can_redo());
+
+        // Silent clear + drop_history_for live entity ids (not LIVE_INK, not REAL_INK).
+        r.edit_silent(vec![
+            Op::Set { id: LIVE_SCENE, value: FieldValue::SceneClock(None) },
+            Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerPlaced(false) },
+            Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerPos(WorldPos { x: 0, y: 0 }) },
+            Op::Delete { id: LIVE_STATE },
+        ])
+        .expect("clear");
+        r.drop_history_for(&[LIVE_SCENE, LIVE_PLAYER, LIVE_STATE, LIVE_WAVE, LIVE_OBJ]);
+
+        assert!(!r.can_redo(), "live entity redo entries were stripped");
+        assert!(r.can_undo(), "ink and real-scene undo entries survive");
+
+        // First undo removes LIVE_INK, not any live entity.
+        r.undo().expect("undo live ink");
+        assert!(r.view().live(LIVE_INK).is_none());
+        assert!(r.view().live(REAL_INK).is_some());
+        assert_eq!(r.view().live(LIVE_SCENE).map(|rec| match rec { Record::Scene(s) => s.clock, _ => unreachable!() }), Some(None));
+
+        // Second undo removes REAL_INK; nothing left after.
+        r.undo().expect("undo real ink");
+        assert!(r.view().live(REAL_INK).is_none());
+        assert!(!r.can_undo());
+    }
+
+    #[test]
+    fn empty_targets_is_a_noop_and_pruned_stacks_persist_through_state_roundtrip() {
+        let mut r = replica_with_live();
+        r.edit(vec![Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerSouls(Some(5000)) }]).expect("souls");
+        r.drop_history_for(&[]);
+        assert!(r.can_undo());
+        r.drop_history_for(&[LIVE_PLAYER]);
+        assert!(!r.can_undo());
+        let restored = Replica::from_state(r.state());
+        assert!(!restored.can_undo());
+        assert!(!restored.can_redo());
     }
 }

@@ -14,7 +14,7 @@ import type { RoomKind } from "../gen/RoomKind";
 import type { Via } from "../gen/Via";
 import { BoardReplica, buildId, newClientId, newClientSecret, presenceFrameOk } from "../wasm/mapcro_wasm.js";
 import { decideStep } from "../mapstate/undo";
-import { isLiveLayerCreate } from "../player/live";
+import { isLiveEntityCreate, isLiveLayerCreate } from "../player/live";
 import { MemoryPersist, type Persist } from "./persist";
 import { pageSeat } from "./seat";
 import type { SaveStatus, Update } from "./update";
@@ -379,7 +379,20 @@ export class BoardSession {
 
   /** Apply an edit; false if it was refused locally (the server may still refuse it later). */
   edit(ops: Op[]): boolean {
-    return this.local((r) => r.edit(JSON.stringify(ops)));
+    const r = this.replica;
+    const cseq = r?.nextCseq();
+    const ok = this.local((r) => r.edit(JSON.stringify(ops)));
+    if (ok && r && cseq !== undefined && r.nextCseq() === cseq + 1 && isLiveEntityCreate(this.o.board, this.records, { kind: "Edit", ops })) {
+      this.ensures.add(cseq);
+    }
+    return ok;
+  }
+
+  /** Strip local undo and redo entries touching `ids` (e.g. cleared live-scene entity overrides). */
+  dropHistoryFor(ids: RecordId[]): void {
+    if (!this.replica || this.ended || !ids.length) return;
+    this.apply(this.replica.dropHistoryFor(JSON.stringify(ids)));
+    this.saveState().catch((e) => this.problems.push(`could not save locally: ${e}`));
   }
 
   /** An edit that isn't the user's to undo (spec §6b: Player's live layer); redo is kept. */
@@ -415,7 +428,11 @@ export class BoardSession {
    * (TD-35), and forget ensures below `pending_from` (the server no longer reports them). */
   private connected(frames: WireIn[]) {
     for (const f of frames) {
-      if (f.t === "msg" && "Submit" in f.msg && isLiveLayerCreate(this.o.board, f.msg.Submit)) {
+      if (
+        f.t === "msg" &&
+        "Submit" in f.msg &&
+        (isLiveLayerCreate(this.o.board, f.msg.Submit) || isLiveEntityCreate(this.o.board, this.records, f.msg.Submit))
+      ) {
         this.ensures.add(f.msg.Submit.cseq);
       }
     }

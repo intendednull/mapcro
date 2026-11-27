@@ -15,22 +15,38 @@ import { centreTimer } from "./Camps";
 import { buildAt } from "../match/builds";
 import { tenthOf } from "./buildState";
 
-import { For, Show, createMemo, createResource } from "solid-js";
+import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup } from "solid-js";
 import { ladderKeyFor, loadStatTable, tableKeyFor, type LoadedTable } from "../match/stats";
 import { cx } from "../ui/cx";
+import { ContextMenu, type MenuItem } from "../ui/ContextMenu";
+import { LIMITS } from "../gen/limits";
+import type { RecordId } from "../gen/RecordId";
+import type { WorldPos } from "../gen/WorldPos";
 import { buildPanels } from "../board/buildPanels";
 import { playerBuildView } from "../mapstate/buildView";
-import { teamTotal } from "../core/souls";
+import { parseSouls, teamTotal } from "../core/souls";
 import type { MapState } from "../mapstate/state";
+import {
+  pauseKillOps,
+  pauseRenameOps,
+  pauseReviveOps,
+  pauseSoulsOps,
+  pauseToggleSightOps,
+  pauseUltOps,
+  prepareLivePauseEdit,
+} from "../mapstate/paused";
 import { clockLabel, scoreboardValueAt } from "../match/timeline";
 import { slotKey } from "../match/save";
 import type { Art } from "../map/pack";
-import type { Viewpoint } from "../map/transform";
-import type { BoardState } from "../board/state";
-import { BarClock, EyeIcon, PortraitSlot, RejuvBadge, RejuvTimer, RespawnTimer, Souls, TeamColumn, TeamScore, TopBarFrame, UltDial, portraitTitle } from "../board/TopBarParts";
+import { type Viewpoint, clampToDisc, viewToWorld } from "../map/transform";
+import type { BoardState, Player, Slot } from "../board/state";
+import { BarClock, EyeIcon, PortraitSlot, RejuvBadge, RejuvTimer, RespawnTimer, Souls, TeamColumn, TeamScore, TopBarFrame, UltRing, portraitTitle } from "../board/TopBarParts";
+import { svgPoint } from "../board/Tokens";
 import { slotName, slotPlaceholder } from "../board/roster";
 import { easedNumber } from "../board/smooth";
+import { DOORMAN_HERO_ID } from "./Doors";
 import type { PlayerHost } from "./host";
+import { pauseClock } from "./live";
 import { barSlot } from "./barSlot";
 
 /**
@@ -56,8 +72,114 @@ export function PlayerTopBar(p: {
   onTrackHero?: (slotKey: string) => void;
   /** A build-order row: seek the replay there. */
   onSeek?: (t: number) => void;
+  /** Paused Player full scene editing (spec #61 §3.2). */
+  pausedEdit?: () => boolean;
+  liveScene?: () => RecordId | undefined;
+  svg?: () => SVGSVGElement | undefined;
+  onPickHero?: (slot: RecordId) => void;
+  bindMenu?: (open: ((player: RecordId, at: { x: number; y: number }, fromToken?: boolean) => void) | undefined) => void;
+  onPlaceDoorway?: (team: "amber" | "sapphire", fromPos?: WorldPos) => void;
+  onClearDoorways?: (team: "amber" | "sapphire") => void;
+  onDropPortrait?: (slot: Slot, pos: WorldPos) => void;
 }) {
   let el!: HTMLDivElement;
+  const canPauseEdit = () => !p.compact && !!p.pausedEdit?.() && !!p.liveScene?.();
+  const livePlayers = createMemo(() => new Map(p.state.playersIn(p.liveScene?.()).map((pl) => [pl.state.slot, pl])));
+  const livePlayer = (slotId: RecordId) => livePlayers().get(slotId);
+  const pauseEdit = (build: (liveId: RecordId, clock: number) => import("../gen/Op").Op[]) => {
+    const liveId = p.liveScene?.();
+    if (!canPauseEdit() || !liveId) return;
+    const clock = pauseClock(p.host.t());
+    prepareLivePauseEdit(p.state, liveId, clock);
+    const ops = build(liveId, clock);
+    if (ops.length) p.state.edit(ops);
+  };
+  const [menu, setMenu] = createSignal<{ slot: Slot; player: Player; label: string; at: { x: number; y: number }; fromToken?: boolean }>();
+  const [renaming, setRenaming] = createSignal<RecordId>();
+  const [soulsEdit, setSoulsEdit] = createSignal<RecordId>();
+  let suppressClickSlot: RecordId | undefined;
+
+  // Bind hero menu so right-clicking a map token or skull opens the same menu while paused.
+  if (p.bindMenu) {
+    const bind = p.bindMenu;
+    bind((id, at, fromToken) => {
+      if (!canPauseEdit()) return;
+      const pl = [...livePlayers().values()].find((x) => x.id === id);
+      const slot = pl && p.state.roster().find((s) => s.id === pl.state.slot);
+      if (!pl || !slot) return;
+      const h = p.ms.hero(slotKey(slot.slot.team, slot.slot.slot));
+      const heroId = h.hero();
+      const hero = heroId != null ? p.art.heroes.get(heroId) : undefined;
+      const nm = (typeof pl.state.more?.name === "string" && pl.state.more.name) || (p.host.showNames() && h.name()) || undefined;
+      const label = portraitTitle(slotName(nm ?? "", slot.slot.name) || slotPlaceholder(slot.slot.team, slot.slot.slot), hero);
+      setMenu({ slot, player: pl, label, at, ...(fromToken ? { fromToken: true } : {}) });
+    });
+    onCleanup(() => bind(undefined));
+  }
+  const menuPlayer = () => {
+    const m = menu();
+    const pl = m && livePlayers().get(m.slot.id);
+    return pl && pl.id === m.player.id ? pl : undefined;
+  };
+  createEffect(() => {
+    if (!canPauseEdit()) {
+      setMenu(undefined);
+      setRenaming(undefined);
+      setSoulsEdit(undefined);
+    } else if (menu() && !menuPlayer()) {
+      setMenu(undefined);
+    }
+  });
+
+  const openMenu = (e: MouseEvent, slot: Slot, label: string) => {
+    const t = e.target as HTMLElement;
+    if (!canPauseEdit() || t.closest("input, textarea, [contenteditable]")) return;
+    const pl = livePlayer(slot.id);
+    if (!pl) return;
+    e.preventDefault();
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const at = e.clientX === 0 && e.clientY === 0 ? { x: r.left + 4, y: r.bottom - 4 } : { x: e.clientX, y: e.clientY };
+    setMenu({ slot, player: pl, label, at });
+  };
+
+  /** Dragging a dead portrait >= 6 px onto the minimap revives that hero at the drop spot. */
+  const startPortraitDrag = (e: PointerEvent, slot: Slot, isDead: boolean) => {
+    if (!canPauseEdit() || !isDead || e.button !== 0 || !p.onDropPortrait) return;
+    const svg = p.svg?.();
+    if (!svg) return;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let moved = false;
+    const move = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
+      if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) < 6) return;
+      if (!moved) {
+        moved = true;
+        document.body.style.cursor = "grabbing";
+      }
+    };
+    const up = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
+      window.removeEventListener("pointermove", move, true);
+      window.removeEventListener("pointerup", up, true);
+      window.removeEventListener("pointercancel", up, true);
+      document.body.style.cursor = "";
+      if (ev.type === "pointerup" && moved) {
+        suppressClickSlot = slot.id;
+        queueMicrotask(() => {
+          if (suppressClickSlot === slot.id) suppressClickSlot = undefined;
+        });
+        const rect = svg.getBoundingClientRect();
+        if (ev.clientX >= rect.left && ev.clientX <= rect.right && ev.clientY >= rect.top && ev.clientY <= rect.bottom) {
+          const pos = clampToDisc(viewToWorld(svgPoint(svg, ev), p.vp));
+          p.onDropPortrait?.(slot, pos);
+        }
+      }
+    };
+    window.addEventListener("pointermove", move, true);
+    window.addEventListener("pointerup", up, true);
+    window.addEventListener("pointercancel", up, true);
+  };
   // The host's, so a follower opens the builds its presenter opens (spec §8); the keys and
   // clicks are the scene bar's too (board/buildPanels.ts).
   const { openBuild, allBuilds, tabHeld } = p.host;
@@ -119,8 +241,12 @@ export function PlayerTopBar(p: {
           const h = heroOf(t, s.slot.slot);
           const x = barSlot(h);
           const hero = () => (x() ? p.art.heroes.get(x()!.hero_id) : undefined);
-          // The match's name, under Names (spec §6b).
-          const nameOf = () => (p.host.showNames() && h.name()) || undefined;
+          // Explicit pause rename shows immediately; otherwise the match's name under Names (spec §6b).
+          const pausedName = () => {
+            const n = livePlayer(s.id)?.state.more?.name;
+            return typeof n === "string" && n ? n : undefined;
+          };
+          const nameOf = () => pausedName() ?? ((p.host.showNames() && h.name()) || undefined);
           // As the scene's bar and the tokens: the match's name, else the one typed into the slot.
           const label = () => slotName(nameOf() ?? "", s.slot.name) || slotPlaceholder(t, s.slot.slot);
           const dead = () => !!x()?.dead;
@@ -142,6 +268,22 @@ export function PlayerTopBar(p: {
           // value; the data attributes keep the exact one.
           const souls = easedNumber(() => x()?.souls ?? null);
           const respawn = easedNumber(() => (dead() ? (x()?.respawn ?? null) : null));
+          const commitSouls = (text: string) => {
+            setSoulsEdit(undefined);
+            const v = parseSouls(text);
+            if (v === undefined) return;
+            pauseEdit((liveId, clock) => {
+              const pl = livePlayer(s.id);
+              return pl ? pauseSoulsOps(p.state.records as never, liveId, clock, pl, v) : [];
+            });
+          };
+          const commitRename = (text: string) => {
+            setRenaming(undefined);
+            pauseEdit((liveId, clock) => {
+              const pl = livePlayer(s.id);
+              return pl ? pauseRenameOps(p.state.records as never, liveId, clock, pl, text) : [];
+            });
+          };
           return (
             <PortraitSlot
               team={t}
@@ -159,23 +301,96 @@ export function PlayerTopBar(p: {
               data-alive={x() ? String(!dead()) : "unknown"}
               data-seen={String(!unseen())}
               title={portraitTitle(label(), hero())}
+              onContextMenu={(e) => openMenu(e, s, portraitTitle(label(), hero()))}
               souls={
-                <button type="button" class="tb-souls tb-build-trigger" data-testid="souls-banner"
-                  aria-label={`${hero()?.name ?? label()} build`} aria-expanded={expanded(key)}
-                  aria-controls={`build-${t}-${s.slot.slot}`} onClick={() => toggleBuild(key)}>
-                  <span class="tb-souls-value" data-testid="souls" data-souls={x()?.souls ?? "untracked"}>
-                    <Show when={souls() != null} fallback={"–"}>
-                      <Souls n={Math.round(souls()!)} />
-                    </Show>
-                  </span>
-                </button>
+                <Show
+                  when={canPauseEdit() && soulsEdit() === s.id}
+                  fallback={
+                    <button
+                      type="button"
+                      class="tb-souls tb-build-trigger"
+                      data-testid="souls-banner"
+                      aria-label={`${hero()?.name ?? label()} build`}
+                      aria-expanded={expanded(key)}
+                      aria-controls={`build-${t}-${s.slot.slot}`}
+                      onClick={() => toggleBuild(key)}
+                      onDblClick={(e) => {
+                        if (!canPauseEdit()) return;
+                        e.stopPropagation();
+                        setSoulsEdit(s.id);
+                      }}
+                    >
+                      <span class="tb-souls-value" data-testid="souls" data-souls={x()?.souls ?? "untracked"}>
+                        <Show when={souls() != null} fallback={"–"}>
+                          <Souls n={Math.round(souls()!)} />
+                        </Show>
+                      </span>
+                    </button>
+                  }
+                >
+                  <div class="tb-souls" data-testid="souls-banner">
+                    <input
+                      class="ie-input tb-souls-value"
+                      data-testid="souls-input"
+                      aria-label={`${label()} souls`}
+                      value={x()?.souls == null ? "" : String(x()!.souls)}
+                      maxLength={9}
+                      ref={(input) => queueMicrotask(() => { input.focus(); input.select(); })}
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                        if (e.key === "Enter") commitSouls(e.currentTarget.value);
+                        if (e.key === "Escape") setSoulsEdit(undefined);
+                      }}
+                      onBlur={(e) => soulsEdit() === s.id && commitSouls(e.currentTarget.value)}
+                    />
+                  </div>
+                </Show>
               }
             >
-              <Show when={unseen()}><span class="tb-vis off" data-testid="tb-vision" title="Not seen" role="img" aria-label="Not seen">
-                <EyeIcon off />
-              </span></Show>
+              <Show
+                when={canPauseEdit()}
+                fallback={
+                  <Show when={unseen()}>
+                    <span class="tb-vis off" data-testid="tb-vision" title="Not seen" role="img" aria-label="Not seen">
+                      <EyeIcon off />
+                    </span>
+                  </Show>
+                }
+              >
+                <button
+                  type="button"
+                  class={cx("tb-vis", !h.inSight() && "off")}
+                  data-testid="tb-vision"
+                  title={h.inSight() ? "In vision" : "Not seen"}
+                  aria-label={h.inSight() ? `${label()}, In vision` : `${label()}, Not seen`}
+                  aria-pressed={!h.inSight()}
+                  onClick={() =>
+                    pauseEdit((liveId, clock) => {
+                      const pl = livePlayer(s.id);
+                      return pl ? pauseToggleSightOps(p.state.records as never, liveId, clock, pl, h.inSight()) : [];
+                    })
+                  }
+                >
+                  <EyeIcon off={!h.inSight()} />
+                </button>
+              </Show>
               <Show when={x()}>
-                <button class="tb-focus" data-testid="focus-hero" title={`Inspect ${hero()?.name ?? label()}`} aria-label={`Inspect ${label()}${hero() ? `, ${hero()!.name}` : ""}`} aria-expanded={expanded(key)} aria-controls={`build-${t}-${s.slot.slot}`} onClick={(e) => clickPortrait(e, t, s.slot.slot)} />
+                <button
+                  class="tb-focus"
+                  data-testid="focus-hero"
+                  title={`Inspect ${hero()?.name ?? label()}`}
+                  aria-label={`Inspect ${label()}${hero() ? `, ${hero()!.name}` : ""}`}
+                  aria-expanded={expanded(key)}
+                  aria-controls={`build-${t}-${s.slot.slot}`}
+                  onPointerDown={(e) => startPortraitDrag(e, s, dead())}
+                  onClick={(e) => {
+                    if (suppressClickSlot === s.id) {
+                      suppressClickSlot = undefined;
+                      return;
+                    }
+                    clickPortrait(e, t, s.slot.slot);
+                  }}
+                />
               </Show>
               <Show when={dead() && x()?.respawn != null && respawn() != null}>
                 <span class="tb-respawn" data-testid="tb-respawn" data-respawn={Math.ceil(x()!.respawn!)} aria-label={`${label()} respawn, ${Math.ceil(x()!.respawn!)} s`}>
@@ -211,7 +426,22 @@ export function PlayerTopBar(p: {
                 };
                 return (
                   <Hover testid="ult-hover" tip={() => has() && <GameTip id={ult()!} art={p.art} tips={tips()!} ctx={{ tiers: tiers() }} />}>
-                    <UltDial left={x()?.ult ?? null} label={label()} untitled={has()} />
+                    <UltRing
+                      left={x()?.ult ?? null}
+                      editable={canPauseEdit()}
+                      label={label()}
+                      untitled={has()}
+                      onFocus={(on) => {
+                        const pl = livePlayer(s.id);
+                        if (pl) p.state.presence({ focus: on ? pl.id : null });
+                      }}
+                      onCommit={(v) =>
+                        pauseEdit((liveId, clock) => {
+                          const pl = livePlayer(s.id);
+                          return pl ? pauseUltOps(p.state.records as never, liveId, clock, pl, v) : [];
+                        })
+                      }
+                    />
                   </Hover>
                 );
               })()}
@@ -223,11 +453,31 @@ export function PlayerTopBar(p: {
                 }}
               </Show>
               {/* Never under the bar (styles/topbar.css): the name is the portrait's hover label's,
-                  and the expanded column's. */}
-              <Show when={nameOf()}>
-                <span class="pl-tb-name" data-testid="tb-name">
-                  {nameOf()}
-                </span>
+                  and the expanded column's. Inline editor opens in place when renaming while paused. */}
+              <Show
+                when={canPauseEdit() && renaming() === s.id}
+                fallback={
+                  <Show when={nameOf()}>
+                    <span class="pl-tb-name" data-testid="tb-name">
+                      {nameOf()}
+                    </span>
+                  </Show>
+                }
+              >
+                <input
+                  class="ie-input pl-tb-name"
+                  data-testid="tb-name-input"
+                  aria-label={`${slotPlaceholder(t, s.slot.slot)} name`}
+                  value={pausedName() ?? h.name() ?? ""}
+                  maxLength={LIMITS.max_name}
+                  ref={(input) => queueMicrotask(() => { input.focus(); input.select(); })}
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (e.key === "Enter") commitRename(e.currentTarget.value);
+                    if (e.key === "Escape") setRenaming(undefined);
+                  }}
+                  onBlur={(e) => renaming() === s.id && commitRename(e.currentTarget.value)}
+                />
               </Show>
             </PortraitSlot>
           );
@@ -335,13 +585,84 @@ export function PlayerTopBar(p: {
     </div>
   );
 
+  const menuView = (m: NonNullable<ReturnType<typeof menu>>) => {
+    const pl = () => menuPlayer() ?? m.player;
+    const h = () => p.ms.hero(slotKey(m.slot.slot.team, m.slot.slot.slot));
+    const items: MenuItem[] = [
+      {
+        get label() {
+          return h().alive() ? "Kill" : "Revive";
+        },
+        testid: "hero-menu-life",
+        run: () =>
+          pauseEdit((liveId, clock) => {
+            const cur = pl();
+            const pos = h().pos() ?? h().last() ?? { x: 0, y: 0 };
+            return h().alive()
+              ? pauseKillOps(p.state.records as never, liveId, clock, cur, pos)
+              : pauseReviveOps(p.state.records as never, liveId, clock, cur, pos);
+          }),
+      },
+      {
+        get label() {
+          return h().inSight() ? "Mark not seen" : "Mark in vision";
+        },
+        testid: "hero-menu-vision",
+        run: () =>
+          pauseEdit((liveId, clock) =>
+            pauseToggleSightOps(p.state.records as never, liveId, clock, pl(), h().inSight()),
+          ),
+      },
+      {
+        label: "Set souls…",
+        testid: "hero-menu-souls",
+        run: () => setSoulsEdit(m.slot.id),
+      },
+    ];
+    if (p.onTrackHero) {
+      const slotK = slotKey(m.slot.slot.team, m.slot.slot.slot);
+      items.push({
+        get label() {
+          return p.trackedHero?.() === slotK ? "Stop tracking" : "Track hero";
+        },
+        testid: "hero-menu-track",
+        run: () => p.onTrackHero!(slotK),
+      });
+    }
+    items.push({ label: "Rename…", testid: "hero-menu-rename", run: () => setRenaming(m.slot.id) });
+    if (p.onPickHero) items.push({ label: "Change hero…", testid: "hero-menu-hero", run: () => p.onPickHero!(m.slot.id) });
+    if (h().hero() === DOORMAN_HERO_ID) {
+      const doorTeam = m.slot.slot.team === "Amber" ? "amber" : "sapphire";
+      if (p.onPlaceDoorway) {
+        items.push({
+          label: "Place doorway",
+          testid: "hero-menu-doorway",
+          run: () => p.onPlaceDoorway!(doorTeam, m.fromToken ? (h().pos() ?? h().last() ?? undefined) : undefined),
+        });
+      }
+      if (p.onClearDoorways && p.ms.scene().doors().some((d) => d.team === doorTeam)) {
+        items.push({
+          label: "Clear doorways",
+          testid: "hero-menu-clear-doors",
+          run: () => p.onClearDoorways!(doorTeam),
+        });
+      }
+    }
+    return <ContextMenu at={m.at} label={m.label} testid="hero-menu" onClose={() => setMenu(undefined)} items={items} />;
+  };
+
   return (
     <TopBarFrame
       ref={(e) => (el = e)}
       art={p.art}
       compact={p.compact}
-      class={cx("pl-topbar", (allBuilds() || tabHeld()) && "all-builds")}
+      class={cx("pl-topbar", canPauseEdit() && "editable", (allBuilds() || tabHeld()) && "all-builds")}
       mode="player"
+      overlay={
+        <Show when={menu()} keyed>
+          {menuView}
+        </Show>
+      }
       friend={column(friend(), "friend")}
       enemy={column(enemy(), "enemy")}
     >

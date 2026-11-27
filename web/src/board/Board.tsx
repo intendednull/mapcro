@@ -61,6 +61,7 @@ import { type Place, placeToWire } from "../player/layers";
 import { recapOf } from "../player/recap";
 import { RiftRings } from "../player/Rift";
 import { liveLayer } from "../player/layer";
+import { clearPauseOverridesOps, hasMoreKeys, isBaselinePlayerState, liveEntityRecordIds, pauseClock } from "../player/live";
 import { PlayerTopBar } from "../player/PlayerTopBar";
 import { MoreMenu, type MoreRow } from "./MoreMenu";
 import { openInAppHref } from "../core/applink";
@@ -71,6 +72,14 @@ import { TOKEN_R, type TokenFrame } from "./Tokens";
 import { FRESH_BOARD, randomRosterOps, sceneMatchName, slotPlaceholder } from "./roster";
 import { modalOpen } from "../ui/modal";
 import { fromScene, sceneRecords } from "../mapstate/scene";
+import {
+  fromPausedPlayer,
+  pauseClockOps,
+  pauseHeroOps,
+  pauseReviveOps,
+  prepareLivePauseEdit,
+  preparePausedSceneState,
+} from "../mapstate/paused";
 import { decodeEdges } from "../mapstate/codec";
 import { clearTeamDoorsOps, pickHeroOps, resolveDoorIndex } from "../mapstate/edit";
 import { captured } from "../mapstate/build";
@@ -567,7 +576,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
    * ghost, under Last seen), else the scene's token, dead or alive, once placed. */
   const heroAt = (team: string, n: number): WorldPos | undefined => {
     const key = slotKey(team, n);
-    return inPlayer() ? playerPlace(matchState, key, player.shown()) : (sceneState.hero(key).last() ?? undefined);
+    return inPlayer() ? playerPlace(mapState(), key, player.shown()) : (sceneState.hero(key).last() ?? undefined);
   };
   let pingAt: ((w: WorldPos) => void) | undefined;
   // The top bar's hero menu, opened from a token on the map too (feedback #53); unset in Player.
@@ -592,6 +601,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   /** A build-order row: the replay to that moment, as a scrub does (following stops). */
   const seekMatch = (t: number) => {
     stopFollowing("changed the playback");
+    if (inPlayer()) beforePauseSeek(player.t(), t);
     player.control.seek(t);
   };
   /** The death recap opened from a skull on the map (SkullRecap.tsx): the host's, so followers
@@ -660,17 +670,37 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       () => p.art.model.markers,
     ),
   );
-  /** The frame the map draws (map-state spec §6): Player's, computed from the match at t, or the
-   * open scene's, read from its records. One interface; a reader asks it the same in both. */
-  const mapState = (): MapState => (inPlayer() ? matchState : sceneState);
+  /** Player's paused overlay: passes through `matchState` while playing, layers `liveScene` edits while paused. */
+  const pausedMapState = fromPausedPlayer(
+    matchState,
+    state,
+    liveScene,
+    () => !player.playback().playing,
+    () => pauseClock(player.t()),
+    () => p.art.model.markers,
+  );
+  /** The frame the map draws (map-state spec §6): Player's (with paused overrides), or the open scene's. */
+  const mapState = (): MapState => (inPlayer() ? pausedMapState : sceneState);
+  /** The scene targeted by entity edits (tokens, objectives, waves, doorways): liveScene in Player, active scene in Sandbox. */
+  const activeEditScene = () => (inPlayer() ? liveScene() : scene()?.id);
+  const currentPauseClock = () => (inPlayer() && !player.playback().playing ? pauseClock(player.t()) : undefined);
   /** What the hero tokens draw: the frame and the viewer's choices over it. */
-  const tokenFrame: TokenFrame = { ms: mapState, player: inPlayer, shown: player.shown, smooth: () => inPlayer() && player.continuous() };
+  const tokenFrame: TokenFrame = {
+    ms: mapState,
+    player: inPlayer,
+    shown: player.shown,
+    smooth: () => inPlayer() && player.continuous(),
+    pausedEdit: () => pausedEditable(),
+    pauseClock: currentPauseClock,
+  };
 
   // ---- hero camera tracking (spec #16): smooth entry/re-sight glide + synchronous lock, free
   // zooming without breaking tracking, strict FOW anti-leak via playerPlace ----
   const remoteTrackedPos = (key: string): WorldPos | undefined => {
-    const sc = scene()?.id;
+    const sc = activeEditScene();
     if (!sc) return undefined;
+    const myClock = inPlayer() ? currentPauseClock() : undefined;
+    if (inPlayer() && myClock === undefined) return undefined;
     const slot = state.roster().find((s) => slotKey(s.slot.team, s.slot.slot) === key);
     if (!slot) return undefined;
     const pl = state.playersIn(sc).find((x) => x.state.slot === slot.id);
@@ -678,11 +708,23 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     for (const peer of state.peerList()) {
       const s = peer.state;
       if (!s?.drag || s.scene !== sc) continue;
+      if (inPlayer()) {
+        if (!s.playback || s.playback.playing || pauseClock(s.playback.t) !== myClock) continue;
+      }
       if (s.drag.id === pl.id) return s.drag.pos;
       if (s.drag_group?.includes(pl.id)) {
         const lead = state.records[s.drag.id];
-        const from = lead && "PlayerState" in lead.record ? lead.record.PlayerState.pos : undefined;
-        if (from) return clampToDisc({ x: pl.state.pos.x + (s.drag.pos.x - from.x), y: pl.state.pos.y + (s.drag.pos.y - from.y) });
+        const leadPs = lead && "PlayerState" in lead.record ? lead.record.PlayerState : undefined;
+        let from = leadPs?.pos;
+        if (inPlayer() && leadPs && !leadPs.placed) {
+          const leadSlot = state.roster().find((x) => x.id === leadPs.slot);
+          if (leadSlot) {
+            const lh = mapState().hero(slotKey(leadSlot.slot.team, leadSlot.slot.slot));
+            from = lh.pos() ?? lh.last() ?? from;
+          }
+        }
+        const myBase = inPlayer() && !pl.state.placed ? (mapState().hero(key).pos() ?? mapState().hero(key).last() ?? pl.state.pos) : pl.state.pos;
+        if (from) return clampToDisc({ x: myBase.x + (s.drag.pos.x - from.x), y: myBase.y + (s.drag.pos.y - from.y) });
       }
     }
     return undefined;
@@ -691,10 +733,10 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const trackedWorldPos = createMemo((): WorldPos | undefined => {
     const key = trackedHero();
     if (!key) return undefined;
-    if (inPlayer()) return playerPlace(matchState, key, player.shown());
+    if (inPlayer()) return remoteTrackedPos(key) ?? playerPlace(mapState(), key, player.shown());
     return remoteTrackedPos(key) ?? sceneState.hero(key).last() ?? undefined;
   });
-  const isTrackable = (key: string): boolean => (inPlayer() ? matchState.hero(key).present() : sceneState.hero(key).last() != null);
+  const isTrackable = (key: string): boolean => (inPlayer() ? mapState().hero(key).present() : sceneState.hero(key).last() != null);
   const stepTrackGlide = (now: number) => {
     trackRaf = 0;
     const g = trackGlide;
@@ -740,7 +782,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     const v = untrack(view);
     const vp = untrack(viewpoint);
     const pos = inPlayer()
-      ? untrack(() => playerPlace(matchState, key, player.shown()))
+      ? untrack(() => remoteTrackedPos(key) ?? playerPlace(mapState(), key, player.shown()))
       : untrack(() => remoteTrackedPos(key) ?? sceneState.hero(key).last() ?? undefined);
     const targetW = v.w > TRACK_ZOOM_THRESHOLD_W ? TRACK_DEFAULT_W : v.w;
     cancelAnimationFrame(trackRaf);
@@ -1079,7 +1121,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const CLEARED: Record<ClearKind, string> = { ink: "Ink cleared", arrows: "Arrows cleared", comments: "Comments cleared", all: "Scene cleared" };
   const objectives = createMemo(() => {
     const m = new Map<string, { id: RecordId; status: ObjectiveStatus }>();
-    for (const [id, r] of state.inScene("ObjectiveState", scene()?.id))
+    for (const [id, r] of state.inScene("ObjectiveState", activeEditScene()))
       if ("ObjectiveState" in r) m.set(r.ObjectiveState.key, { id, status: r.ObjectiveState.status });
     return m;
   });
@@ -1090,7 +1132,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const [erasingDoors, setErasingDoors] = createSignal<Set<number>>(new Set());
   const [dragObjHealth, setDragObjHealth] = createSignal<DragObjHealth | undefined>();
   const startPlaceDoorway = (team: "amber" | "sapphire", fromPos?: WorldPos) => {
-    if (!state.canEdit() || inPlayer() || (phone() && !phoneEdit())) return;
+    if (!state.canEdit() || !canEditEntities() || (phone() && !phoneEdit())) return;
     let door1: WorldPos | undefined;
     if (fromPos) {
       const vp = viewpoint();
@@ -1108,8 +1150,19 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     });
   };
   const clearTeamDoorways = (team: "amber" | "sapphire") => {
-    const sc = scene()?.id;
-    if (!sc || !state.canEdit() || inPlayer() || (phone() && !phoneEdit())) return;
+    const sc = activeEditScene();
+    if (!sc || !state.canEdit() || !canEditEntities() || (phone() && !phoneEdit())) return;
+    if (inPlayer()) {
+      const clock = currentPauseClock();
+      const matchId = player.matchId() ? Number(player.matchId()) : undefined;
+      if (clock === undefined || matchId === undefined) return;
+      prepareLivePauseEdit(state, sc, clock);
+      const { state: ss, prefix } = preparePausedSceneState(state, p.board, matchId, sc);
+      const seed = captured(ss.more).doors ? undefined : mapState().scene().doors();
+      const ops = clearTeamDoorsOps({ scene: sc, state: ss, mint: newRecordId, ...(seed ? { seed } : {}) }, team);
+      if (ops.length) state.edit([...pauseClockOps(state.records as never, sc, clock), ...prefix, ...ops]);
+      return;
+    }
     const row = state.rowsIn<SceneState>("SceneState", sc)[0];
     const ops = clearTeamDoorsOps({ scene: sc, state: row ? { id: row.id, more: row.r.more } : undefined, mint: newRecordId }, team);
     if (ops.length) state.edit(ops);
@@ -1203,7 +1256,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   });
   const waves = createMemo(() => {
     const m = new Map<string, { id: RecordId; t: number; more?: More }>();
-    for (const [id, r] of state.inScene("Wave", scene()?.id))
+    for (const [id, r] of state.inScene("Wave", activeEditScene()))
       if ("Wave" in r) m.set(r.Wave.lane, { id, t: r.Wave.t, ...(r.Wave.more ? { more: r.Wave.more } : {}) });
     return m;
   });
@@ -1211,10 +1264,17 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   /** Others' live split drags, by lane: a known wave's id, or a new one matched by position. */
   const remoteWaves = createMemo(() => {
     const m = new Map<string, number>();
+    const targetScene = activeEditScene();
+    const myClock = inPlayer() ? currentPauseClock() : undefined;
+    if (inPlayer() && myClock === undefined) return m;
     const byId = new Map([...waves()].map(([k, w]) => [w.id, k]));
     for (const x of state.peerList()) {
       const d = x.state?.drag;
-      if (!d || x.state?.scene !== scene()?.id) continue;
+      if (!d || x.state?.scene !== targetScene) continue;
+      if (inPlayer()) {
+        const pb = x.state?.playback;
+        if (!pb || pb.playing || pauseClock(pb.t) !== myClock) continue;
+      }
       const at = worldToMap(d.pos);
       for (const l of p.art.model.lanes) {
         const q = project(l.line, at);
@@ -1235,9 +1295,9 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     }
     return m;
   });
-  /** Player (replay tier): each lane's zipline colours, easing to each second's edges.
-   *  Scene (when `has("lanes")`): stored raw edges shifted by the effective split (local drag,
-   *  remote drag, or committed `Wave.t`, Q7). */
+  /** Player (replay tier): each lane's zipline colours, easing to each second's edges (or shifted
+   *  by paused wave drag/override while paused). Scene (when `has("lanes")`): stored raw edges
+   *  shifted by the effective split (local drag, remote drag, or committed `Wave.t`, Q7). */
   const laneEdges = createMemo(() => {
     const m = new Map<string, () => { amber: number; sapphire: number } | undefined>();
     for (const l of p.art.model.lanes) {
@@ -1250,6 +1310,12 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
           const raw = decodeEdges(waves().get(l.key)?.more?.edges);
           return raw ? shiftEdges(raw, splitOf(l.key)) : undefined;
         }
+        if (currentPauseClock() !== undefined) {
+          const raw = playerEdges();
+          if (raw && (waveDrag()?.key === l.key || remoteSmooth().get(l.key)?.() !== undefined || mapState().lane(l.key).split() !== matchState.lane(l.key).split())) {
+            return shiftEdges(raw, splitOf(l.key));
+          }
+        }
         const a = amber();
         const s = sapphire();
         return a == null || s == null ? undefined : { amber: a, sapphire: s };
@@ -1261,9 +1327,10 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     const mine = waveDrag();
     if (mine?.key === key) return mine.t;
     const lane = p.art.model.lanes.find((l) => l.key === key);
-    // The frame's split: in Player the middle of the match's colours' gap (replay tier; drawn by
-    // `laneEdges`), never the scene's (spec §6b); in a scene its own, or another editor's drag.
-    const split = (inPlayer() ? undefined : remoteSmooth().get(key)?.()) ?? mapState().lane(key).split();
+    // The frame's split: while playing, the match's colours' gap; while paused or in a scene,
+    // another editor's drag or the effective split from mapState().
+    const remote = inPlayer() && currentPauseClock() === undefined ? undefined : remoteSmooth().get(key)?.();
+    const split = remote ?? mapState().lane(key).split();
     return split ?? (lane ? defaultSplit(lane.line) : 500);
   };
 
@@ -1280,9 +1347,16 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   // Whose heroes the scene draws (map-state spec D2): its own once its snapshot holds them,
   // else the board roster's. The picker reads and writes the same.
   const ownHeroes = createMemo(() => captured(state.rowsIn<SceneState>("SceneState", scene()?.id)[0]?.r?.more).heroes);
-  const heroIn = (s: ReturnType<typeof state.roster>[number]) => (scene() ? sceneState.hero(slotKey(s.slot.team, s.slot.slot)).hero() : s.slot.hero);
+  const heroIn = (s: ReturnType<typeof state.roster>[number]) =>
+    inPlayer()
+      ? mapState().hero(slotKey(s.slot.team, s.slot.slot)).hero()
+      : scene()
+        ? sceneState.hero(slotKey(s.slot.team, s.slot.slot)).hero()
+        : s.slot.hero;
   const slotDisplayName = (s: ReturnType<typeof state.roster>[number]) =>
-    (scene() ? sceneState.hero(slotKey(s.slot.team, s.slot.slot)).name() : null) || s.slot.name.trim() || undefined;
+    (inPlayer() ? mapState().hero(slotKey(s.slot.team, s.slot.slot)).name() : scene() ? sceneState.hero(slotKey(s.slot.team, s.slot.slot)).name() : null) ||
+    s.slot.name.trim() ||
+    undefined;
   /** Heroes held by other slots than `slot`, with who holds them: a hero is unique in a match. */
   const takenBy = (slot: RecordId | undefined) =>
     new Map(
@@ -1331,6 +1405,89 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const onMq = () => setPhone(mq.matches);
   mq.addEventListener("change", onMq);
   onCleanup(() => mq.removeEventListener("change", onMq));
+
+  // ---- Paused Player editing state & discard/reset lifecycle (spec #61) ----
+  const pausedEditable = createMemo(() =>
+    inPlayer() && !player.playback().playing && state.canEdit() && !!liveScene() && (!phone() || phoneEdit()),
+  );
+  const canEditEntities = () => !inPlayer() || pausedEditable();
+  const hasPauseEntityOverrides = createMemo(() => {
+    if (!inPlayer() || player.playback().playing) return false;
+    const live = liveScene();
+    if (!live) return false;
+    const entry = state.records[live];
+    if (!entry || entry.deleted || !("Scene" in entry.record)) return false;
+    const liveClock = entry.record.Scene.clock ?? null;
+    if (liveClock !== pauseClock(player.t())) return false;
+    for (const pl of state.playersIn(live)) {
+      if (!isBaselinePlayerState(pl.state, liveClock)) return true;
+    }
+    for (const ss of state.rowsIn<SceneState>("SceneState", live)) {
+      if (hasMoreKeys(ss.r.more)) return true;
+    }
+    if (state.inScene("Wave", live).length > 0) return true;
+    if (state.inScene("ObjectiveState", live).length > 0) return true;
+    return false;
+  });
+  const hasPauseEdits = createMemo(
+    () => hasPauseEntityOverrides() || (inPlayer() && (inkIds().length > 0 || arrowIds().length > 0 || commentIds().length > 0)),
+  );
+  let savePauseScene: (() => void) | undefined;
+  const dismissEditUi = () => {
+    setSelection(new Set<RecordId>());
+    setObjSelection(new Set<string>());
+    setPlacingDoor(undefined);
+    setDragDoor(undefined);
+    setErasingDoors(new Set<number>());
+    setWaveDrag(undefined);
+    cancelObjHealthDrag();
+  };
+  const clearPausedIfMine = (prevSec = player.t()) => {
+    if (!state.canEdit()) return;
+    const live = liveScene();
+    if (!live) return;
+    const entry = state.records[live];
+    const liveClock = entry && !entry.deleted && "Scene" in entry.record ? (entry.record.Scene.clock ?? null) : null;
+    if (liveClock === pauseClock(prevSec)) {
+      dismissEditUi();
+      const txs = clearPauseOverridesOps(state.records as never, live);
+      for (const tx of txs) state.editSilent(tx);
+    }
+    if (state.canUndo() || state.canRedo()) {
+      const entityIds = liveEntityRecordIds(state.records as never, live);
+      if (entityIds.length) state.dropHistoryFor(entityIds);
+    }
+  };
+  const beforePauseSeek = (prevT: number, nextT: number) => {
+    if (!player.playback().playing && pauseClock(nextT) !== pauseClock(prevT)) {
+      clearPausedIfMine(prevT);
+    }
+  };
+  const resetPauseEdits = () => {
+    if (!state.canEdit()) return;
+    const live = liveScene();
+    if (!live) return;
+    dismissEditUi();
+    const txs = clearPauseOverridesOps(state.records as never, live);
+    for (const tx of txs) state.edit(tx);
+  };
+  const dropPortrait = (slot: ReturnType<typeof state.roster>[number], pos: WorldPos) => {
+    const live = liveScene();
+    const clock = currentPauseClock();
+    if (!live || clock === undefined || !pausedEditable()) return;
+    const pl = state.playersIn(live).find((x) => x.state.slot === slot.id);
+    if (!pl) return;
+    prepareLivePauseEdit(state, live, clock);
+    const ops = pauseReviveOps(state.records as never, live, clock, pl, pos);
+    if (ops.length) state.edit(ops);
+  };
+  createEffect(() => {
+    if (!canEditEntities()) {
+      setSelection(new Set<RecordId>());
+      setObjSelection(new Set<string>());
+      setWaveDrag(undefined);
+    }
+  });
   // Sheets sit on the transport (one row or two, by orientation) and stop at the roster: live.
   let phoneEl: HTMLDivElement | undefined;
   createEffect(() => {
@@ -1377,33 +1534,33 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       cancelObjHealthDrag();
     }
   });
-  // Cancel doorway placement/drag on tool switch, Player mode, phone view mode, lost edit access, or vanished/changed target.
+  // Cancel doorway placement/drag on tool switch, playing state, phone view mode, lost edit access, or vanished/changed target.
   createEffect(() => {
     const pl = placingDoor();
     if (!pl) return;
-    if (inPlayer() || !state.canEdit() || (phone() && !phoneEdit()) || tool() !== "select") {
+    if (!canEditEntities() || !state.canEdit() || (phone() && !phoneEdit()) || tool() !== "select") {
       setPlacingDoor(undefined);
       return;
     }
     if (pl.linkIndex !== undefined) {
-      const doors = sceneState.scene().doors();
+      const doors = mapState().scene().doors();
       const idx = resolveDoorIndex(doors, pl.linkIndex, pl.linkExpect);
       if (idx === undefined || doors[idx]!.partner !== null) setPlacingDoor(undefined);
     }
   });
   createEffect(() => {
-    if (inPlayer() || !state.canEdit() || (phone() && !phoneEdit()) || tool() !== "select") {
+    if (!canEditEntities() || !state.canEdit() || (phone() && !phoneEdit()) || tool() !== "select") {
       cancelObjHealthDrag();
     }
   });
   createEffect(() => {
-    if (inPlayer() || !state.canEdit() || (phone() && !phoneEdit())) {
+    if (!canEditEntities() || !state.canEdit() || (phone() && !phoneEdit())) {
       setDragDoor(undefined);
       setErasingDoors(new Set<number>());
       return;
     }
     const dr = dragDoor();
-    if (dr && resolveDoorIndex(sceneState.scene().doors(), dr.index, dr.expect) === undefined) {
+    if (dr && resolveDoorIndex(mapState().scene().doors(), dr.index, dr.expect) === undefined) {
       setDragDoor(undefined);
     }
   });
@@ -1550,15 +1707,37 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
           <button class="btn ghost" data-testid="phone-redo" onClick={redo}>Redo</button>
         </Show>
         </div>
-        {/* Pinned outside the scrolling tools: the ink and the way out are always on screen. */}
+        {/* Pinned outside the scrolling tools: the ink, pause-edit Save/Reset, and the way out are always on screen. */}
         <Show when={state.canEdit() && phoneEdit()}><Palette value={ink()} set={setInk} /></Show>
+        <Show when={state.canEdit() && phoneEdit() && hasPauseEdits()}>
+          <Show when={hasPauseEntityOverrides()}>
+            <button class="btn ghost p-rail-reset" data-testid="match-reset" title="Reset" onClick={resetPauseEdits}>Reset</button>
+          </Show>
+          <button
+            class={cx("btn ghost p-rail-save", hasPauseEntityOverrides() && "dirty")}
+            data-testid="match-save"
+            aria-label="Save as scene"
+            title="Save as scene"
+            onClick={() => savePauseScene?.()}
+          >
+            <Show when={hasPauseEntityOverrides()}>
+              <i class="save-dirty-dot" aria-hidden="true" />
+            </Show>
+            Save
+          </button>
+        </Show>
         <button class="btn ghost" data-testid="phone-done" onClick={() => { setPhoneEdit(false); setTool("select"); }}>Done</button>
       </div>
     }>
       <div class="p-tail">
         <button class="btn ghost" data-testid="phone-events" aria-expanded={sheet() === "events"} onClick={() => openSheet("events")}>Events</button>
         <button class="btn ghost" data-testid="phone-layers" aria-expanded={phoneSheet() === "layers"} onClick={() => openSheet("layers")}>Map layers</button>
-        <button class="btn ghost" data-testid="phone-more" aria-label="More" aria-expanded={phoneSheet() === "more"} onClick={() => openSheet("more")}>⋯</button>
+        <button class="btn ghost p-more-btn" data-testid="phone-more" aria-label="More" aria-expanded={phoneSheet() === "more"} onClick={() => openSheet("more")}>
+          ⋯
+          <Show when={hasPauseEntityOverrides()}>
+            <i class="save-dirty-dot p-more-dot" aria-hidden="true" />
+          </Show>
+        </button>
       </div>
     </Show>
   );
@@ -1588,7 +1767,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       </Show>
       <Show when={sheet() === "events"}>
         <PhoneSheet title="Events" testid="phone-events-sheet">
-          <PlayerSide host={player} state={state} art={p.art} scene={scene()} mint={newRecordId} onSaved={savedScene} onUserPlayback={() => stopFollowing("changed the playback")} />
+          <PlayerSide host={player} state={state} art={p.art} scene={scene()} mint={newRecordId} onSaved={savedScene} onUserPlayback={() => stopFollowing("changed the playback")} onBeforeSeek={beforePauseSeek} />
         </PhoneSheet>
       </Show>
       <Show when={phoneSheet() === "layers"}>
@@ -1620,6 +1799,12 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
               <button class="btn ghost" data-testid="phone-laser" onClick={() => { setPhoneSheet(undefined); setTool("laser"); }}>Laser</button>
               <Show when={state.canEdit()}>
                 <button class="btn ghost" data-testid="phone-edit" aria-pressed={phoneEdit()} onClick={() => { setPhoneSheet(undefined); setPhoneEdit(true); }}>Edit</button>
+              </Show>
+              <Show when={state.canEdit() && hasPauseEdits()}>
+                <button class="btn ghost" data-testid="phone-match-save" onClick={() => { setPhoneSheet(undefined); savePauseScene?.(); }}>Save as scene</button>
+                <Show when={hasPauseEntityOverrides()}>
+                  <button class="btn ghost" data-testid="phone-match-reset" onClick={() => { setPhoneSheet(undefined); resetPauseEdits(); }}>Reset</button>
+                </Show>
               </Show>
               <FeedbackButton variant="bar" match={feedbackMatch} />
             </Show>
@@ -1670,7 +1855,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
         </h1>
       </div>
       </Show>
-      <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} ms={matchState} art={p.art} vp={viewpoint()} compact onFocus={focusHero} trackedHero={trackedHero} onTrackHero={toggleTrackHero} onSeek={seekMatch} />}>
+      <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} ms={mapState()} art={p.art} vp={viewpoint()} compact onFocus={focusHero} trackedHero={trackedHero} onTrackHero={toggleTrackHero} onSeek={seekMatch} />}>
         <TopBar state={state} host={player} art={p.art} vp={viewpoint()} scene={scene()?.id} ms={sceneState} compact readOnly onPickHero={setHeroPick} onFocus={focusHero} trackedHero={trackedHero} onTrackHero={toggleTrackHero} />
       </Show>
       <div class="p-map-wrap">
@@ -1813,6 +1998,13 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
         }}
         onUserPlayback={() => stopFollowing("changed the playback")}
         tail={tail}
+        phone={phone()}
+        hasPauseOverrides={hasPauseEntityOverrides}
+        onResetPause={resetPauseEdits}
+        onBeforePlay={() => clearPausedIfMine(player.t())}
+        onBeforeSeek={beforePauseSeek}
+        isDraggingEntity={() => !!waveDrag() || !!dragDoor() || !!dragObjHealth() || !!placingDoor() || !!localDraggingSlots?.size}
+        bindSave={(f) => (savePauseScene = f)}
       />
     </Show>
   );
@@ -1827,6 +2019,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       label: sc?.clock === src.t ? "▶" : `▶ ${formatClock(src.t)}`,
       go: () => {
         stopFollowing("changed the playback");
+        if (inPlayer()) beforePauseSeek(player.t(), src.t);
         player.setMode("player");
         player.control.seek(src.t);
       },
@@ -1881,7 +2074,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
                     timeline={player.tl()!}
                     t={player.t()}
                     vision={player.vision()}
-                    ms={matchState}
+                    ms={mapState()}
                     art={p.art}
                     name={player.playerName}
                     onSeek={seekMatch}
@@ -1944,7 +2137,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
                   vp={viewpoint()}
                   frame={tokenFrame}
                   k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)}
-                  editable={() => !inPlayer() && state.canEdit() && (!phone || phoneEdit()) && !placingDoor() && (tool() === "select" || tool() === "erase" || tool() === "arrow")}
+                  editable={() => canEditEntities() && state.canEdit() && (!phone || phoneEdit()) && !placingDoor() && (tool() === "select" || tool() === "erase" || tool() === "arrow")}
                   phone={phone}
                   unitsPerPx={() => view().w / (mapPx() * 0.9)}
                   dragDoor={dragDoor}
@@ -1957,9 +2150,15 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
                 editing={!phone || phoneEdit()}
                 art={p.art}
                 vp={viewpoint()}
-                // In Player, annotation goes to the live layer (spec §6b).
+                // In Player, annotation and paused entity edits go to the live layer (spec §6b, #61).
                 scene={annScene()}
-                tokenScene={scene()?.id}
+                tokenScene={activeEditScene()}
+                pauseCtx={{
+                  board: p.board,
+                  matchId: () => (player.matchId() ? Number(player.matchId()) : undefined),
+                  tl: player.tl,
+                  t: player.t,
+                }}
                 tool={tool()}
                 ink={ink()}
                 myColor={me()?.color ?? 0}
@@ -2216,7 +2415,30 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
               </h1>
             </div>
           </div>
-          <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} ms={matchState} art={p.art} vp={viewpoint()} onFocus={focusHero} trackedHero={trackedHero} onTrackHero={toggleTrackHero} onSeek={seekMatch} />}>
+          <Show
+            when={!inPlayer()}
+            fallback={
+              <PlayerTopBar
+                host={player}
+                state={state}
+                ms={mapState()}
+                art={p.art}
+                vp={viewpoint()}
+                onFocus={focusHero}
+                trackedHero={trackedHero}
+                onTrackHero={toggleTrackHero}
+                onSeek={seekMatch}
+                pausedEdit={pausedEditable}
+                liveScene={liveScene}
+                svg={overlay}
+                onPickHero={setHeroPick}
+                bindMenu={(f) => (heroMenu = f)}
+                onPlaceDoorway={startPlaceDoorway}
+                onClearDoorways={clearTeamDoorways}
+                onDropPortrait={dropPortrait}
+              />
+            }
+          >
             <TopBar state={state} host={player} art={p.art} vp={viewpoint()} scene={scene()?.id} ms={sceneState} onPickHero={setHeroPick} onFocus={focusHero} trackedHero={trackedHero} onTrackHero={toggleTrackHero} bindMenu={(f) => (heroMenu = f)} onPlaceDoorway={startPlaceDoorway} onClearDoorways={clearTeamDoorways} />
           </Show>
           {/* The map takes all the room left, as the largest square that fits. */}
@@ -2277,7 +2499,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
           {/* Player: the events list. A scene: its note (feedback #57). */}
           <Show when={inPlayer()}>
           <Show when={player.tl()} fallback={<section class="side-empty">Load a match to browse its events.</section>}>
-            <PlayerSide host={player} state={state} art={p.art} scene={scene()} mint={newRecordId} onSaved={savedScene} onUserPlayback={() => stopFollowing("changed the playback")} />
+            <PlayerSide host={player} state={state} art={p.art} scene={scene()} mint={newRecordId} onSaved={savedScene} onUserPlayback={() => stopFollowing("changed the playback")} onBeforeSeek={beforePauseSeek} />
           </Show>
           </Show>
           <section class="people-section">
@@ -2364,12 +2586,23 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
         slot={pickedSlot()}
         name={pickedSlot() ? slotDisplayName(pickedSlot()!) : undefined}
         current={pickedSlot() ? heroIn(pickedSlot()!) : null}
-        clearable={!ownHeroes()}
+        clearable={!inPlayer() && !ownHeroes()}
         takenBy={takenBy(heroPick())}
         onPick={(hero) => {
           const id = heroPick();
           setHeroPick(undefined);
           if (!id) return;
+          if (inPlayer()) {
+            const live = liveScene();
+            const clock = currentPauseClock();
+            if (!live || clock === undefined || hero == null || !pausedEditable()) return;
+            const pl = state.playersIn(live).find((x) => x.state.slot === id);
+            if (!pl) return;
+            prepareLivePauseEdit(state, live, clock);
+            const ops = pauseHeroOps(state.records as never, live, clock, pl, hero);
+            if (ops.length) state.edit(ops);
+            return;
+          }
           // In a scene that holds its heroes the pick is the scene's; else the board's.
           const pl = state.playersIn(scene()?.id).find((x) => x.state.slot === id);
           const ops = pickHeroOps(ownHeroes(), id, pl && { id: pl.id, more: pl.state.more }, hero);

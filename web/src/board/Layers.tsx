@@ -38,7 +38,18 @@ import { ContextMenu, type MenuItem } from "../ui/ContextMenu";
 import type { Art } from "../map/pack";
 import { type Pt, type Viewpoint, clampShift, clampToBoard, clampToDisc, clampToMap, mapToView, mapToWorld, viewToMap, viewToWorld, worldToMap, worldToView } from "../map/transform";
 import { slotKey } from "../match/save";
+import type { Timeline } from "../match/timeline";
+import { captured } from "../mapstate/build";
 import { isHealthKind } from "../mapstate/codec";
+import {
+  liveObjUpsert,
+  liveWaveUpsertOps,
+  pauseClockOps,
+  prepareLivePauseEdit,
+  preparePausedSceneState,
+  seedObjHealthMap,
+} from "../mapstate/paused";
+import { liveWaveId, pauseClock } from "../player/live";
 import {
   type DoorIdentity,
   type SceneDoorContext,
@@ -167,8 +178,16 @@ export function Layers(p: {
   setDragObjHealth?: (next: DragObjHealth | undefined) => void;
   /** Called after committing an objective health edit so the board auto-enables `showHealth`. */
   onEditObjHealth?: () => void;
+  /** Paused Player context for deterministic live-scene upserts and frame seeding (spec #61). */
+  pauseCtx?: {
+    board: string;
+    matchId: () => number | undefined;
+    tl: () => Timeline | undefined;
+    t: () => number;
+  };
 }) {
   const st = p.state;
+  const canEditEntities = () => !p.frame.player() || !!p.frame.pausedEdit?.();
   const view = (w: WorldPos) => worldToView(w, p.vp);
   // Ink, arrows, comments and pointers may go in the notes margin round the map.
   const world = (v: Pt) => clampToBoard(viewToWorld(v, p.vp));
@@ -220,9 +239,14 @@ export function Layers(p: {
   /** Others dragging a split that has no record yet: matched to a lane by where it is. */
   const remoteNew = createMemo(() => {
     const m = new Map<string, PeerPresence>();
+    const myClock = p.frame.player() ? p.frame.pauseClock?.() : undefined;
     for (const x of st.peerList()) {
       const d = x.state?.drag;
       if (!d || st.records[d.id] || x.state?.scene !== p.scene) continue;
+      if (p.frame.player()) {
+        const pb = x.state?.playback;
+        if (myClock === undefined || !pb || pb.playing || pauseClock(pb.t) !== myClock) continue;
+      }
       const at = worldToMap(d.pos);
       for (const l of p.art.model.lanes) if (project(l.line, at).dist < 4) m.set(l.key, x);
     }
@@ -283,7 +307,7 @@ export function Layers(p: {
     for (const el of document.elementsFromPoint(x, y)) {
       const id = (el as HTMLElement).closest?.("[data-erase]")?.getAttribute("data-erase");
       if (id) return { kind: "record", id };
-      if (!p.frame.player()) {
+      if (canEditEntities()) {
         const doorRaw = (el as HTMLElement).closest?.("[data-erase-door]")?.getAttribute("data-erase-door");
         if (doorRaw != null) {
           const index = Number(doorRaw);
@@ -294,13 +318,33 @@ export function Layers(p: {
     return undefined;
   };
 
-  // ---- Doorman doorways (Scenes only): direct manipulation, placement & menus ----
-  const sceneDoors = () => (p.frame.player() ? [] : p.frame.ms().scene().doors());
+  // ---- Doorman doorways (Scenes & paused Player): direct manipulation, placement & menus ----
+  const sceneDoors = () => (!canEditEntities() ? [] : p.frame.ms().scene().doors());
   const doorCtx = (): SceneDoorContext | undefined => {
     const scene = p.scene;
-    if (!scene || p.frame.player()) return undefined;
+    if (!scene || !canEditEntities()) return undefined;
     const row = st.rowsIn<SceneState>("SceneState", scene)[0];
     return { scene, state: row ? { id: row.id, more: row.r.more } : undefined, mint: newRecordId };
+  };
+  const commitDoorEdit = (build: (ctx: SceneDoorContext) => Op[], extraOps: Op[] = []): boolean => {
+    const scene = p.scene;
+    if (!scene || !canEditEntities()) return false;
+    if (p.frame.player()) {
+      const clock = p.frame.pauseClock?.();
+      const matchId = p.pauseCtx?.matchId();
+      if (!p.pauseCtx || clock === undefined || matchId === undefined) return false;
+      prepareLivePauseEdit(st, scene, clock);
+      const { state: ss, prefix } = preparePausedSceneState(st, p.pauseCtx.board, matchId, scene);
+      const seed = captured(ss.more).doors ? undefined : p.frame.ms().scene().doors();
+      const ops = build({ scene, state: ss, mint: newRecordId, ...(seed ? { seed } : {}) });
+      if (!ops.length && !extraOps.length) return false;
+      const clockOps = ops.length ? pauseClockOps(st.records as never, scene, clock) : [];
+      return st.edit([...extraOps, ...clockOps, ...(ops.length ? prefix : []), ...ops]);
+    }
+    const ctx = doorCtx();
+    const ops = ctx ? build(ctx) : [];
+    const all = [...extraOps, ...ops];
+    return all.length ? st.edit(all) : false;
   };
   const inPlayableDisc = (pt: Pt) => Math.hypot(pt.x - 500, pt.y - 500) <= 498;
   const doorAtEl = (target: Element | null): number | undefined => {
@@ -310,7 +354,7 @@ export function Layers(p: {
     return Number.isInteger(n) ? n : undefined;
   };
   const doorNearView = (pt: Pt): number | undefined => {
-    if (p.frame.player()) return undefined;
+    if (!canEditEntities()) return undefined;
     let best: { id: number; d: number } | undefined;
     const r = Math.max(8, DOOR_R * p.k);
     for (const d of sceneDoors()) {
@@ -321,7 +365,7 @@ export function Layers(p: {
     return best?.id;
   };
   const doorNearClient = (svg: SVGSVGElement, x: number, y: number): number | undefined => {
-    if (p.frame.player()) return undefined;
+    if (!canEditEntities()) return undefined;
     for (const q of reachPoints(x, y)) {
       const el = document.elementFromPoint(q.x, q.y);
       const idx = el && svg.contains(el) ? doorAtEl(el) : undefined;
@@ -354,10 +398,7 @@ export function Layers(p: {
         const d = p.dragDoor?.();
         p.setDragDoor?.(undefined);
         if (!ok || !moved || !d) return;
-        const ctx = doorCtx();
-        if (!ctx) return;
-        const ops = moveDoorOps(ctx, d.index, d.pos, d.expect);
-        if (ops.length) st.edit(ops);
+        commitDoorEdit((ctx) => moveDoorOps(ctx, d.index, d.pos, d.expect));
       },
     );
   };
@@ -385,7 +426,7 @@ export function Layers(p: {
   };
   const objHealthCtx = (): SceneObjHealthContext | undefined => {
     const scene = p.scene;
-    if (!scene || p.frame.player()) return undefined;
+    if (!scene || !canEditEntities()) return undefined;
     const row = st.rowsIn<SceneState>("SceneState", scene)[0];
     return {
       scene,
@@ -397,6 +438,36 @@ export function Layers(p: {
     };
   };
   const commitObjHealth = (m: Marker, pct: number, stage?: 1 | 2) => {
+    const scene = p.scene;
+    if (!scene || !canEditEntities()) return;
+    if (p.frame.player()) {
+      const clock = p.frame.pauseClock?.();
+      const matchId = p.pauseCtx?.matchId();
+      if (!p.pauseCtx || clock === undefined || matchId === undefined) return;
+      prepareLivePauseEdit(st, scene, clock);
+      const { state: ss, prefix } = preparePausedSceneState(st, p.pauseCtx.board, matchId, scene);
+      const seed = captured(ss.more).obj_health ? undefined : seedObjHealthMap(p.pauseCtx.tl(), Math.floor(p.pauseCtx.t()), p.art.model.markers);
+      const upsertObjective = liveObjUpsert(st.records as never, p.pauseCtx.board, matchId, scene, p.objectives());
+      const ops = setObjectiveHealthOps(
+        {
+          scene,
+          state: ss,
+          objectives: p.objectives(),
+          markers: p.art.model.markers,
+          mint: newRecordId,
+          ...(p.markerStatus ? { shownStatus: p.markerStatus } : {}),
+          ...(seed ? { seed } : {}),
+          upsertObjective,
+        },
+        m,
+        pct,
+        stage,
+      );
+      if (!ops.length) return;
+      const clockOps = pauseClockOps(st.records as never, scene, clock);
+      if (st.edit([...clockOps, ...prefix, ...ops]) && pct > 0) p.onEditObjHealth?.();
+      return;
+    }
     const ctx = objHealthCtx();
     if (!ctx) return;
     const ops = setObjectiveHealthOps(ctx, m, pct, stage);
@@ -406,10 +477,20 @@ export function Layers(p: {
   /** A click on an objective: the whole group if it's in your selection, else just it. */
   const clickObjective = (m: Marker) => {
     const scene = p.scene;
-    if (!scene) return;
+    if (!scene || !canEditEntities()) return;
     const sel = p.objSelection();
     if (sel.has(m.key)) {
       const group = p.art.model.markers.filter((x) => sel.has(x.key));
+      if (p.frame.player()) {
+        const clock = p.frame.pauseClock?.();
+        const matchId = p.pauseCtx?.matchId();
+        if (!p.pauseCtx || clock === undefined || matchId === undefined) return;
+        prepareLivePauseEdit(st, scene, clock);
+        const upsert = liveObjUpsert(st.records as never, p.pauseCtx.board, matchId, scene, p.objectives());
+        const ops = groupToggleOps(m, group, p.art.model.markers, p.objectives(), scene, newRecordId, p.markerStatus, objHealthCtx(), upsert);
+        if (ops.length) st.edit([...pauseClockOps(st.records as never, scene, clock), ...ops]);
+        return;
+      }
       const ops = groupToggleOps(m, group, p.art.model.markers, p.objectives(), scene, newRecordId, p.markerStatus, objHealthCtx());
       if (ops.length) st.edit(ops); // one transaction: one undo puts the whole group back
       return;
@@ -419,7 +500,17 @@ export function Layers(p: {
   };
   const toggleObjective = (m: Marker) => {
     const scene = p.scene;
-    if (!scene) return;
+    if (!scene || !canEditEntities()) return;
+    if (p.frame.player()) {
+      const clock = p.frame.pauseClock?.();
+      const matchId = p.pauseCtx?.matchId();
+      if (!p.pauseCtx || clock === undefined || matchId === undefined) return;
+      prepareLivePauseEdit(st, scene, clock);
+      const upsert = liveObjUpsert(st.records as never, p.pauseCtx.board, matchId, scene, p.objectives());
+      const ops = toggleOps(m, p.art.model.markers, p.objectives(), scene, newRecordId, p.markerStatus, objHealthCtx(), upsert);
+      if (ops.length) st.edit([...pauseClockOps(st.records as never, scene, clock), ...ops]);
+      return;
+    }
     const ops = toggleOps(m, p.art.model.markers, p.objectives(), scene, newRecordId, p.markerStatus, objHealthCtx());
     if (ops.length) st.edit(ops);
   };
@@ -439,11 +530,12 @@ export function Layers(p: {
   const dragWave = (e: PointerEvent, key: string, t0: number) => {
     const lane = p.art.model.lanes.find((l) => l.key === key);
     const scene = p.scene;
-    if (!lane || !scene) return;
+    if (!lane || !scene || !canEditEntities()) return;
     e.preventDefault();
     e.stopPropagation();
     const existing = p.waves().get(key);
-    const id = existing?.id ?? newRecordId();
+    const matchId = p.frame.player() ? p.pauseCtx?.matchId() : undefined;
+    const id = existing?.id ?? (p.frame.player() && p.pauseCtx && matchId !== undefined ? liveWaveId(p.pauseCtx.board, matchId, key) : newRecordId());
     const svg = p.svg()!;
     const start = svgPoint(svg, e);
     let travelled = 0;
@@ -468,6 +560,14 @@ export function Layers(p: {
         const m = travelled < 4 ? objectiveAt(start) : undefined;
         if (m) return clickObjective(m);
         clearObjects();
+        if (p.frame.player()) {
+          const clock = p.frame.pauseClock?.();
+          if (!p.pauseCtx || matchId === undefined || clock === undefined) return;
+          prepareLivePauseEdit(st, scene, clock);
+          const ops = liveWaveUpsertOps(st.records as never, p.pauseCtx.board, matchId, scene, clock, p.waves(), key, d.t);
+          if (ops.length) st.edit(ops);
+          return;
+        }
         if (existing) {
           if (existing.t !== d.t) st.edit([{ Set: { id, value: { WavePos: d.t } } }]);
         } else st.edit([{ Create: { id, record: { Wave: { scene, lane: key, t: d.t } } } }]);
@@ -543,6 +643,7 @@ export function Layers(p: {
   const [movingStroke, setMovingStroke] = createSignal<{ id: RecordId; d: { x: number; y: number } }>();
   /** A press that didn't move: what a press on the map there would have done (an objective). */
   const pressThrough = (at: Pt) => {
+    if (!canEditEntities()) return;
     const m = objectiveAt(at);
     if (m) clickObjective(m);
   };
@@ -630,13 +731,25 @@ export function Layers(p: {
         }
         const rect = { x0: Math.min(b.a.x, b.b.x), x1: Math.max(b.a.x, b.b.x), y0: Math.min(b.a.y, b.b.y), y1: Math.max(b.a.y, b.b.y) };
         // Heroes inside win; with none inside, every objective inside is picked up.
-        const picked = marqueePick(
-          rect,
-          st.playersIn(p.scene).flatMap((pl) => (pl.state.placed ? [{ id: pl.id, at: view(pl.state.pos) }] : [])),
-          p.art.model.markers
-            .filter((m) => !isFurniture(m.kind) && (p.showHidden || p.objectives().get(m.key)?.status !== "Hidden"))
-            .map((m) => ({ key: m.key, at: mapToView(m.at, p.vp) })),
-        );
+        const slotById = new Map(st.roster().map((s) => [s.id, s.slot]));
+        const heroHits = !canEditEntities()
+          ? []
+          : st.playersIn(p.tokenScene ?? p.scene).flatMap((pl) => {
+              if (p.frame.player()) {
+                const sl = slotById.get(pl.state.slot);
+                if (!sl) return [];
+                const h = p.frame.ms().hero(slotKey(sl.team, sl.slot));
+                const pos = h.pos() ?? (!h.alive() && !pl.state.alive && pl.state.placed ? h.last() : null);
+                return pos ? [{ id: pl.id, at: view(pos) }] : [];
+              }
+              return pl.state.placed ? [{ id: pl.id, at: view(pl.state.pos) }] : [];
+            });
+        const objHits = !canEditEntities()
+          ? []
+          : p.art.model.markers
+              .filter((m) => !isFurniture(m.kind) && (p.showHidden || p.objectives().get(m.key)?.status !== "Hidden"))
+              .map((m) => ({ key: m.key, at: mapToView(m.at, p.vp) }));
+        const picked = marqueePick(rect, heroHits, objHits);
         if (picked.heroes.length) {
           p.setObjSelection(new Set());
           p.setSelection(new Set([...base, ...picked.heroes]));
@@ -734,14 +847,14 @@ export function Layers(p: {
   const [mapMenu, setMapMenu] = createSignal<{ at: { x: number; y: number }; pos: WorldPos }>();
   createEffect(() => {
     const m = doorMenu();
-    if (m && (!editor() || p.frame.player() || resolveDoorIndex(sceneDoors(), m.index, m.expect) === undefined)) setDoorMenu(undefined);
+    if (m && (!editor() || !canEditEntities() || resolveDoorIndex(sceneDoors(), m.index, m.expect) === undefined)) setDoorMenu(undefined);
   });
   createEffect(() => {
     const m = objMenu();
-    if (m && (!editor() || p.frame.player() || m.scene !== p.scene)) setObjMenu(undefined);
+    if (m && (!editor() || !canEditEntities() || m.scene !== p.scene)) setObjMenu(undefined);
   });
   createEffect(() => {
-    if (mapMenu() && (!editor() || p.frame.player())) setMapMenu(undefined);
+    if (mapMenu() && (!editor() || !canEditEntities())) setMapMenu(undefined);
   });
   const doorMenuView = (m: { index: number; expect: DoorIdentity; at: { x: number; y: number } }) => {
     const resolved = () => resolveDoorIndex(sceneDoors(), m.index, m.expect);
@@ -766,10 +879,7 @@ export function Layers(p: {
         label: "Unlink door",
         testid: "door-menu-unlink",
         run: () => {
-          const ctx = doorCtx();
-          if (!ctx) return;
-          const ops = unlinkDoorOps(ctx, m.index, m.expect);
-          if (ops.length) st.edit(ops);
+          commitDoorEdit((ctx) => unlinkDoorOps(ctx, m.index, m.expect));
         },
       });
     }
@@ -780,20 +890,14 @@ export function Layers(p: {
         },
         testid: "door-menu-vision",
         run: () => {
-          const ctx = doorCtx();
-          if (!ctx) return;
-          const ops = toggleDoorSightOps(ctx, m.index, m.expect);
-          if (ops.length) st.edit(ops);
+          commitDoorEdit((ctx) => toggleDoorSightOps(ctx, m.index, m.expect));
         },
       },
       {
         label: "Remove doorway",
         testid: "door-menu-remove",
         run: () => {
-          const ctx = doorCtx();
-          if (!ctx) return;
-          const ops = removeDoorwayOps(ctx, m.index, m.expect);
-          if (ops.length) st.edit(ops);
+          commitDoorEdit((ctx) => removeDoorwayOps(ctx, m.index, m.expect));
         },
       },
     );
@@ -925,7 +1029,7 @@ export function Layers(p: {
         setMenu({ ...placed, at });
         return;
       }
-      if (p.frame.player()) return;
+      if (!canEditEntities()) return;
       const doorIdx = doorNearClient(svg, at.x, at.y);
       if (doorIdx !== undefined) {
         const d = sceneDoors().find((x) => x.id === doorIdx);
@@ -980,9 +1084,17 @@ export function Layers(p: {
       // A right drag pans; a right click on a hero's token opens its menu, as on its portrait,
       // and on a placed comment, arrow, stroke, door, or empty map in Select, its own.
       const target = e.target as Element;
-      const tok = e.button === 2 && p.onHeroMenu ? target.closest?.(".tok[data-player]")?.getAttribute("data-player") : undefined;
+      let tok = e.button === 2 && p.onHeroMenu ? target.closest?.(".tok[data-player]")?.getAttribute("data-player") : undefined;
+      if (!tok && e.button === 2 && p.onHeroMenu && p.frame.player() && canEditEntities()) {
+        const skullSlot = target.closest?.(".pl-skull[data-slot]")?.getAttribute("data-slot")?.toLowerCase();
+        if (skullSlot) {
+          const slotRec = st.roster().find((s) => slotKey(s.slot.team, s.slot.slot) === skullSlot);
+          const pl = slotRec && st.playersIn(p.tokenScene ?? p.scene).find((x) => x.state.slot === slotRec.id);
+          if (pl) tok = pl.id;
+        }
+      }
       const placed = e.button === 2 && !tok ? placedAt(target) : undefined;
-      const doorIdx = e.button === 2 && !tok && !placed && !p.frame.player() && editor() && p.tool === "select" ? doorAtEl(target) : undefined;
+      const doorIdx = e.button === 2 && !tok && !placed && canEditEntities() && editor() && p.tool === "select" ? doorAtEl(target) : undefined;
       const at = { x: e.clientX, y: e.clientY };
       const svgPt = svgPoint(svg, e);
       const hitObj =
@@ -990,7 +1102,7 @@ export function Layers(p: {
         !tok &&
         !placed &&
         doorIdx === undefined &&
-        !p.frame.player() &&
+        canEditEntities() &&
         editor() &&
         p.tool === "select" &&
         !target.closest?.(".pl-skull, .co.editing")
@@ -1003,7 +1115,7 @@ export function Layers(p: {
         !placed &&
         doorIdx === undefined &&
         !hitObj &&
-        !p.frame.player() &&
+        canEditEntities() &&
         editor() &&
         p.tool === "select" &&
         !target.closest?.(".pl-skull, .wave-hit, .co.editing") &&
@@ -1030,7 +1142,7 @@ export function Layers(p: {
     if (e.button !== 0) return;
     const start = svgPoint(svg, e);
     // Two-step manual doorway placement (Step 1 armed -> Step 2 Door 1 -> commit pair or unpaired).
-    if (p.placingDoor?.() && !p.frame.player() && editor()) {
+    if (p.placingDoor?.() && canEditEntities() && editor()) {
       e.preventDefault();
       e.stopPropagation();
       const isTouch = e.pointerType === "touch";
@@ -1054,18 +1166,17 @@ export function Layers(p: {
           }
           const dist = Math.hypot(pt.x - view(pl.door1).x, pt.y - view(pl.door1).y);
           const minDist = isTouch ? Math.max(DOOR_PAIR_MIN_DIST, DOOR_R * p.k * 1.5) : DOOR_PAIR_MIN_DIST;
-          const ctx = doorCtx();
-          if (ctx) {
-            if (dist < minDist) {
-              if (pl.linkIndex === undefined) {
-                const ops = placeDoorwayOps(ctx, pl.team, pl.door1);
-                if (ops.length) st.edit(ops);
-              }
-            } else {
-              const door2 = clampToDisc(viewToWorld(pt, p.vp));
-              const ops = pl.linkIndex !== undefined ? linkSecondDoorOps(ctx, pl.linkIndex, door2, pl.linkExpect) : placeDoorwayOps(ctx, pl.team, pl.door1, door2);
-              if (ops.length) st.edit(ops);
+          if (dist < minDist) {
+            if (pl.linkIndex === undefined) {
+              commitDoorEdit((ctx) => placeDoorwayOps(ctx, pl.team, pl.door1!));
             }
+          } else {
+            const door2 = clampToDisc(viewToWorld(pt, p.vp));
+            commitDoorEdit((ctx) =>
+              pl.linkIndex !== undefined
+                ? linkSecondDoorOps(ctx, pl.linkIndex, door2, pl.linkExpect)
+                : placeDoorwayOps(ctx, pl.team, pl.door1!, door2),
+            );
           }
           p.setPlacingDoor?.(undefined);
         },
@@ -1105,80 +1216,80 @@ export function Layers(p: {
         moveStroke(e, stroke);
         return;
       }
-      if (!p.frame.player()) {
+      if (canEditEntities()) {
         const doorIdx = doorAtEl(target);
         if (doorIdx !== undefined) {
           moveDoor(e, doorIdx);
           return;
         }
-      }
-      const m = objectiveAt(start);
-      if (m) {
-        e.preventDefault();
-        if (!p.frame.player() && p.scene && isHealthKind(m.kind) && !e.shiftKey) {
-          const startScene = p.scene;
-          const startClientX = e.clientX;
-          const startClientY = e.clientY;
-          const curStatus = p.markerStatus?.(m.key) ?? p.objectives().get(m.key)?.status;
-          const curDown = curStatus === "Destroyed" || p.frame.ms().marker(m.key).down();
-          const curHealth = p.frame.ms().marker(m.key).health();
-          const startPct = curDown ? 0 : (curHealth?.pct ?? 100);
-          const startStage: 1 | 2 | undefined = m.kind === "t3" ? (curStatus === "Stage2" ? 2 : 1) : undefined;
-          const focusId = p.objectives().get(m.key)?.id ?? startScene;
-          let scrubbing = false;
-          let lastPct = startPct;
+        const m = objectiveAt(start);
+        if (m) {
+          e.preventDefault();
+          if (p.scene && isHealthKind(m.kind) && !e.shiftKey) {
+            const startScene = p.scene;
+            const startClientX = e.clientX;
+            const startClientY = e.clientY;
+            const curStatus = p.markerStatus?.(m.key) ?? p.objectives().get(m.key)?.status;
+            const curDown = curStatus === "Destroyed" || p.frame.ms().marker(m.key).down();
+            const curHealth = p.frame.ms().marker(m.key).health();
+            const startPct = curDown ? 0 : (curHealth?.pct ?? 100);
+            const startStage: 1 | 2 | undefined = m.kind === "t3" ? (curStatus === "Stage2" ? 2 : 1) : undefined;
+            const focusId = p.objectives().get(m.key)?.id ?? startScene;
+            let scrubbing = false;
+            let lastPct = startPct;
+            track(
+              e,
+              (_, ev) => {
+                if (p.scene !== startScene) {
+                  if (scrubbing) {
+                    scrubbing = false;
+                    p.setDragObjHealth?.(undefined);
+                    st.presence({ focus: null });
+                  }
+                  return;
+                }
+                const distPx = Math.hypot(ev.clientX - startClientX, ev.clientY - startClientY);
+                if (!scrubbing) {
+                  if (distPx < 6) return;
+                  scrubbing = true;
+                  holding?.();
+                  holding = undefined;
+                  clearObjects();
+                  st.presence({ focus: focusId });
+                }
+                const dyPx = startClientY - ev.clientY;
+                const raw = Math.max(0, Math.min(100, startPct + (dyPx / 80) * 100));
+                const pct = ev.shiftKey ? Math.round(raw / 5) * 5 : Math.round(raw);
+                lastPct = pct;
+                p.setDragObjHealth?.({ key: m.key, pct, ...(startStage !== undefined ? { stage: startStage } : {}) });
+              },
+              (_, ok, ev) => {
+                p.setDragObjHealth?.(undefined);
+                if (scrubbing) {
+                  st.presence({ focus: null });
+                  if (ok && p.scene === startScene) commitObjHealth(m, lastPct, startStage);
+                } else if (ok && p.scene === startScene && Math.hypot(ev.clientX - startClientX, ev.clientY - startClientY) < 6) {
+                  clickObjective(m);
+                }
+              },
+            );
+            return;
+          }
           track(
             e,
-            (_, ev) => {
-              if (p.scene !== startScene) {
-                if (scrubbing) {
-                  scrubbing = false;
-                  p.setDragObjHealth?.(undefined);
-                  st.presence({ focus: null });
-                }
-                return;
-              }
-              const distPx = Math.hypot(ev.clientX - startClientX, ev.clientY - startClientY);
-              if (!scrubbing) {
-                if (distPx < 6) return;
-                scrubbing = true;
-                holding?.();
-                holding = undefined;
-                clearObjects();
-                st.presence({ focus: focusId });
-              }
-              const dyPx = startClientY - ev.clientY;
-              const raw = Math.max(0, Math.min(100, startPct + (dyPx / 80) * 100));
-              const pct = ev.shiftKey ? Math.round(raw / 5) * 5 : Math.round(raw);
-              lastPct = pct;
-              p.setDragObjHealth?.({ key: m.key, pct, ...(startStage !== undefined ? { stage: startStage } : {}) });
-            },
-            (_, ok, ev) => {
-              p.setDragObjHealth?.(undefined);
-              if (scrubbing) {
-                st.presence({ focus: null });
-                if (ok && p.scene === startScene) commitObjHealth(m, lastPct, startStage);
-              } else if (ok && p.scene === startScene && Math.hypot(ev.clientX - startClientX, ev.clientY - startClientY) < 6) {
-                clickObjective(m);
-              }
+            () => {},
+            (pt, ok) => {
+              if (ok && Math.hypot(pt.x - start.x, pt.y - start.y) < 8) clickObjective(m);
             },
           );
           return;
         }
-        track(
-          e,
-          () => {},
-          (pt, ok) => {
-            if (ok && Math.hypot(pt.x - start.x, pt.y - start.y) < 8) clickObjective(m);
-          },
-        );
-        return;
-      }
-      // A click on a lane's zipline jumps its split there, and a drag slides it.
-      const lane = laneAt(start, 9 * Math.max(p.k, 0.6));
-      if (lane) {
-        dragWave(e, lane.key, lane.t);
-        return;
+        // A click on a lane's zipline jumps its split there, and a drag slides it.
+        const lane = laneAt(start, 9 * Math.max(p.k, 0.6));
+        if (lane) {
+          dragWave(e, lane.key, lane.t);
+          return;
+        }
       }
       // A finger on empty map pans (the marquee stays mouse and pen); a tap clears, as a click.
       if (e.pointerType === "touch") {
@@ -1235,9 +1346,17 @@ export function Layers(p: {
       let from = start;
       let team: "Amber" | "Sapphire" | null = null;
       if (rec && "PlayerState" in rec.record) {
-        from = view(rec.record.PlayerState.pos);
-        team = teamOfSlot().get(rec.record.PlayerState.slot) ?? null;
-      } else if (!p.frame.player()) {
+        const ps = rec.record.PlayerState;
+        team = teamOfSlot().get(ps.slot) ?? null;
+        if (p.frame.player()) {
+          const sl = st.roster().find((s) => s.id === ps.slot);
+          const h = sl ? p.frame.ms().hero(slotKey(sl.slot.team, sl.slot.slot)) : undefined;
+          const pos = h?.pos() ?? h?.last();
+          from = pos ? view(pos) : start;
+        } else {
+          from = view(ps.pos);
+        }
+      } else if (canEditEntities()) {
         const doorIdx = doorAtEl(e.target as Element);
         const door = doorIdx !== undefined ? sceneDoors().find((d) => d.id === doorIdx) : undefined;
         if (door) {
@@ -1290,10 +1409,13 @@ export function Layers(p: {
           if (!ok) return;
           const ops: Op[] = [...hits].map((id): Op => ({ Delete: { id } }));
           if (doorHits.size) {
-            const ctx = doorCtx();
-            if (ctx) ops.push(...removeDoorwaysOps(ctx, [...doorHits.entries()].map(([index, expect]) => ({ index, expect }))));
+            commitDoorEdit(
+              (ctx) => removeDoorwaysOps(ctx, [...doorHits.entries()].map(([index, expect]) => ({ index, expect }))),
+              ops,
+            );
+          } else if (ops.length) {
+            st.edit(ops);
           }
-          if (ops.length) st.edit(ops);
         },
       );
     }
@@ -1329,7 +1451,7 @@ export function Layers(p: {
       if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
       // Active doorway placement handles Escape (cancel) and Enter (commit unpaired Door 1).
       const pl = p.placingDoor?.();
-      if (pl && !p.frame.player() && editor()) {
+      if (pl && canEditEntities() && editor()) {
         if (e.key === "Escape") {
           e.preventDefault();
           e.stopImmediatePropagation();
@@ -1340,11 +1462,7 @@ export function Layers(p: {
           e.preventDefault();
           e.stopImmediatePropagation();
           if (pl.door1 && pl.linkIndex === undefined) {
-            const ctx = doorCtx();
-            if (ctx) {
-              const ops = placeDoorwayOps(ctx, pl.team, pl.door1);
-              if (ops.length) st.edit(ops);
-            }
+            commitDoorEdit((ctx) => placeDoorwayOps(ctx, pl.team, pl.door1!));
           }
           p.setPlacingDoor?.(undefined);
           return;
@@ -1358,18 +1476,16 @@ export function Layers(p: {
         st.edit([{ Delete: { id } }]);
         return;
       }
-      if (!p.frame.player()) {
+      if (canEditEntities()) {
         const target = eraseTargetAtPoint(hover.x, hover.y);
         const doorIdx = target?.kind === "door" ? target.index : doorNearView(svgPoint(svg, { clientX: hover.x, clientY: hover.y }));
         if (doorIdx !== undefined) {
           const d = sceneDoors().find((x) => x.id === doorIdx);
-          const ctx = d ? doorCtx() : undefined;
-          if (ctx && d) {
-            const ops = removeDoorwayOps(ctx, doorIdx, doorIdentity(d));
-            if (ops.length) {
+          if (d) {
+            const committed = commitDoorEdit((ctx) => removeDoorwayOps(ctx, doorIdx, doorIdentity(d)));
+            if (committed) {
               e.preventDefault();
               e.stopImmediatePropagation();
-              st.edit(ops);
             }
           }
         }
@@ -1761,7 +1877,7 @@ export function Layers(p: {
                     <path d={pathOf(halves().sapphire.map((q) => mapToView(q, p.vp)))} stroke={laneStroke(l.lane, "sapphire", p.vp)} />
                   </g>
                 </Show>
-                <Show when={editor() && p.tool === "select"}>
+                <Show when={editor() && canEditEntities() && p.tool === "select"}>
                   <circle
                     class={cx("wave-hit", raised() && "active")}
                     data-testid={`wave-gap-${l.key}`}

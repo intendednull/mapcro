@@ -71,6 +71,8 @@ export interface SceneDoorContext {
   state: { id: RecordId; more: More | undefined } | undefined;
   mint: () => RecordId;
   written?: number;
+  /** Frame-seeded replay doors when editing `liveScene` before `has_doors` is captured (spec #61 §2.5). */
+  seed?: readonly DoorNow[];
 }
 
 export interface DoorIdentity {
@@ -127,8 +129,8 @@ const DORMANT_FLAG_ROWS: ReadonlyArray<readonly [keyof typeof ROWS, keyof typeof
   ["has_rejuv", "rejuv"],
 ];
 
-const currentDoors = (state: { more: More | undefined } | undefined): DoorNow[] =>
-  captured(state?.more).doors ? decodeDoors(state?.more?.doors) : [];
+const currentDoors = (ctx: Pick<SceneDoorContext, "state" | "seed">): DoorNow[] =>
+  captured(ctx.state?.more).doors ? decodeDoors(ctx.state?.more?.doors) : [...(ctx.seed ?? [])];
 
 const sameInts = (prev: unknown, next: readonly number[]): boolean => {
   if (next.length === 0) return prev === undefined || (Array.isArray(prev) && prev.length === 0);
@@ -139,9 +141,10 @@ function writeDoorsOps(ctx: SceneDoorContext, nextDoors: readonly DoorNow[]): Op
   const written = ctx.written ?? WRITTEN;
   if (ROWS.doors.index >= written) return [];
   const encoded = encodeDoors(nextDoors);
+  const seeded = !!(ctx.seed && ctx.seed.length > 0);
   if (!ctx.state) {
-    if (encoded.length === 0) return [];
-    const more: More = { rows: DOOR_ROWS, has_doors: true, doors: encoded };
+    if (encoded.length === 0 && !seeded) return [];
+    const more: More = encoded.length ? { rows: DOOR_ROWS, has_doors: true, doors: encoded } : { rows: DOOR_ROWS, has_doors: true };
     if (moreBytes(more) > LIMITS.max_more_bytes) return [];
     return [
       {
@@ -156,7 +159,7 @@ function writeDoorsOps(ctx: SceneDoorContext, nextDoors: readonly DoorNow[]): Op
   const curRows = typeof have.rows === "number" && Number.isInteger(have.rows) ? have.rows : 0;
   const needBumpRows = curRows < DOOR_ROWS;
   const hadDoorsKey = have.doors !== undefined;
-  if (encoded.length === 0 && have.has_doors !== true && !hadDoorsKey) return [];
+  if (encoded.length === 0 && have.has_doors !== true && !hadDoorsKey && !seeded) return [];
   if (have.has_doors === true && !needBumpRows && sameInts(have.doors, encoded)) return [];
   const ops: Op[] = [];
   const expectDoors = hadDoorsKey ? have.doors! : null;
@@ -213,7 +216,7 @@ function writeDoorsOps(ctx: SceneDoorContext, nextDoors: readonly DoorNow[]): Op
  * One atomic transaction = one undo/redo step.
  */
 export function placeDoorwayOps(ctx: SceneDoorContext, team: DoorTeam, door1: WorldPos, door2?: WorldPos): Op[] {
-  const cur = currentDoors(ctx.state);
+  const cur = currentDoors(ctx);
   const addedCount = door2 ? 2 : 1;
   const other = cur.filter((d) => d.team !== team).slice(0, MAX_DOORS - addedCount);
   const at1 = clampToMap(door1);
@@ -232,7 +235,7 @@ export function placeDoorwayOps(ctx: SceneDoorContext, team: DoorTeam, door1: Wo
  * inheriting Door 1's enemy sight state in lockstep.
  */
 export function linkSecondDoorOps(ctx: SceneDoorContext, index: number, door2: WorldPos, expect?: DoorIdentity): Op[] {
-  const cur = currentDoors(ctx.state);
+  const cur = currentDoors(ctx);
   const resolved = resolveDoorIndex(cur, index, expect);
   const target = resolved !== undefined ? cur[resolved] : undefined;
   if (!target || target.role !== "unpaired" || target.partner !== null) return [];
@@ -254,7 +257,7 @@ export function linkSecondDoorOps(ctx: SceneDoorContext, index: number, door2: W
 
 /** Move one door at `index` to `pos` (clamped to map bounds). */
 export function moveDoorOps(ctx: SceneDoorContext, index: number, pos: WorldPos, expect?: DoorIdentity): Op[] {
-  const cur = currentDoors(ctx.state);
+  const cur = currentDoors(ctx);
   const resolved = resolveDoorIndex(cur, index, expect);
   const target = resolved !== undefined ? cur[resolved] : undefined;
   if (!target) return [];
@@ -268,7 +271,7 @@ export function moveDoorOps(ctx: SceneDoorContext, index: number, pos: WorldPos,
 
 /** Remove one door of a linked pair and convert its partner to an unpaired Door 1 in place. */
 export function unlinkDoorOps(ctx: SceneDoorContext, index: number, expect?: DoorIdentity): Op[] {
-  const cur = currentDoors(ctx.state);
+  const cur = currentDoors(ctx);
   const resolved = resolveDoorIndex(cur, index, expect);
   const target = resolved !== undefined ? cur[resolved] : undefined;
   if (!target || target.role === "unpaired" || target.partner === null) return [];
@@ -283,7 +286,7 @@ export function unlinkDoorOps(ctx: SceneDoorContext, index: number, expect?: Doo
  * Writes ONLY `doors` — never sets `has_sight` (preserving `canRetake` for hero sight).
  */
 export function toggleDoorSightOps(ctx: SceneDoorContext, index: number, expect?: DoorIdentity): Op[] {
-  const cur = currentDoors(ctx.state);
+  const cur = currentDoors(ctx);
   const resolved = resolveDoorIndex(cur, index, expect);
   const target = resolved !== undefined ? cur[resolved] : undefined;
   if (!target) return [];
@@ -294,7 +297,7 @@ export function toggleDoorSightOps(ctx: SceneDoorContext, index: number, expect?
 
 /** Remove every doorway touched by `targets` (each unpaired door, or both doors of any linked pair). */
 export function removeDoorwaysOps(ctx: SceneDoorContext, targets: Iterable<DoorTarget>): Op[] {
-  const cur = currentDoors(ctx.state);
+  const cur = currentDoors(ctx);
   const drop = new Set<number>();
   for (const t of targets) {
     const resolved = typeof t === "number" ? resolveDoorIndex(cur, t) : resolveDoorIndex(cur, t.index, t.expect);
@@ -317,7 +320,7 @@ export function removeDoorwayOps(ctx: SceneDoorContext, index: number, expect?: 
 
 /** Remove all doors belonging to `team`, preserving the other team's doors. */
 export function clearTeamDoorsOps(ctx: SceneDoorContext, team: DoorTeam): Op[] {
-  const cur = currentDoors(ctx.state);
+  const cur = currentDoors(ctx);
   const next = cur.filter((d) => d.team !== team);
   if (next.length === cur.length) return [];
   return writeDoorsOps(ctx, next);
@@ -335,19 +338,22 @@ export interface SceneObjHealthContext {
   mint: () => RecordId;
   /** Effective marker status (`ObjectiveState ?? baseline detail`), if already computed by the caller. */
   shownStatus?: (key: string) => ObjectiveStatus | undefined;
+  /** Frame-seeded replay `obj_health` when editing `liveScene` before `has_obj_health` is captured (spec #61 §2.5). */
+  seed?: ReadonlyMap<string, ObjHealthEntry | null>;
+  /** Optional deterministic tombstone-aware ObjectiveState upserter (used for `liveScene`). */
+  upsertObjective?: (key: string, status: ObjectiveStatus) => Op[];
   written?: number;
 }
 
 const OBJ_HEALTH_ROWS = ROWS.obj_health.index + 1;
 
 const currentObjHealth = (
-  state: { more: More | undefined } | undefined,
-  markers: FrameMarkers,
+  ctx: Pick<SceneObjHealthContext, "state" | "markers" | "seed">,
 ): Map<string, ObjHealthEntry | null> =>
-  captured(state?.more).obj_health ? decodeObjHealth(state?.more?.obj_health, markers) : new Map();
+  captured(ctx.state?.more).obj_health ? decodeObjHealth(ctx.state?.more?.obj_health, ctx.markers) : new Map(ctx.seed ?? []);
 
 function writeObjHealthOpsInternal(
-  ctx: Pick<SceneObjHealthContext, "scene" | "state" | "markers" | "mint" | "written">,
+  ctx: Pick<SceneObjHealthContext, "scene" | "state" | "markers" | "mint" | "written" | "seed">,
   nextHealth: ReadonlyMap<string, ObjHealthEntry | null>,
 ): { ops: Op[]; ok: boolean } {
   const written = ctx.written ?? WRITTEN;
@@ -355,9 +361,10 @@ function writeObjHealthOpsInternal(
   const res = encodeObjHealth(nextHealth, ctx.markers);
   if (res.overflow) return { ops: [], ok: false };
   const encoded = res.ints;
+  const seeded = !!(ctx.seed && ctx.seed.size > 0);
   if (!ctx.state) {
-    if (encoded.length === 0) return { ops: [], ok: true };
-    const more: More = { rows: OBJ_HEALTH_ROWS, has_obj_health: true, obj_health: encoded };
+    if (encoded.length === 0 && !seeded) return { ops: [], ok: true };
+    const more: More = encoded.length ? { rows: OBJ_HEALTH_ROWS, has_obj_health: true, obj_health: encoded } : { rows: OBJ_HEALTH_ROWS, has_obj_health: true };
     if (moreBytes(more) > LIMITS.max_more_bytes) return { ops: [], ok: false };
     return {
       ops: [
@@ -376,7 +383,7 @@ function writeObjHealthOpsInternal(
   const needBumpRows = curRows < OBJ_HEALTH_ROWS;
   const hadKey = have.obj_health !== undefined;
   const wasCaptured = captured(have).obj_health;
-  if (encoded.length === 0 && !wasCaptured) return { ops: [], ok: true };
+  if (encoded.length === 0 && !wasCaptured && !seeded) return { ops: [], ok: true };
   if (wasCaptured && !needBumpRows && sameInts(have.obj_health, encoded)) return { ops: [], ok: true };
   const ops: Op[] = [];
   const expectVal = hadKey ? have.obj_health! : null;
@@ -472,7 +479,7 @@ export function setObjectiveHealthOps(
 ): Op[] {
   if (!isHealthKind(marker.kind)) return [];
   const nextPct = Math.max(0, Math.min(100, Math.round(pct)));
-  const curHealth = currentObjHealth(ctx.state, ctx.markers);
+  const curHealth = currentObjHealth(ctx);
   const curObj = ctx.objectives.get(marker.key);
   let curStatus: ObjectiveStatus | undefined;
   if (ctx.shownStatus) {
@@ -512,7 +519,8 @@ export function setObjectiveHealthOps(
       });
     }
   } else if (effBefore !== targetStatus && (targetStatus !== "Active" || effBefore === "Destroyed")) {
-    statusOps.push({ Create: { id: ctx.mint(), record: { ObjectiveState: { scene: ctx.scene, key: marker.key, status: targetStatus } } } });
+    if (ctx.upsertObjective) statusOps.push(...ctx.upsertObjective(marker.key, targetStatus));
+    else statusOps.push({ Create: { id: ctx.mint(), record: { ObjectiveState: { scene: ctx.scene, key: marker.key, status: targetStatus } } } });
   }
 
   const healthRes = writeObjHealthOpsInternal(ctx, nextHealth);

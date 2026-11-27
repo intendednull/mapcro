@@ -13,6 +13,7 @@
 import { keyBetween } from "../core/order";
 import { TX_SLACK, chunkByBytes, fitsTx, opsBytes } from "../core/txChunk";
 import type { Op } from "../gen/Op";
+import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { RecordId } from "../gen/RecordId";
 import type { MoreValue } from "../gen/MoreValue";
 import type { PlayerState } from "../gen/PlayerState";
@@ -30,7 +31,7 @@ import {
 } from "../mapstate/build";
 import {
   encodeCC, encodeCamps, encodeDoors, encodeEdges, encodeObjHealth, encodePowerups, encodeRejuv, encodeRift, encodeSkulls, encodeUrn,
-  isCampKind,
+  isCampKind, isHealthKind,
 } from "../mapstate/codec";
 import { type FrameMarkers, type SecondPart, savedPart, secondPart, tenthPart } from "../mapstate/frame";
 import { type Feature, featuresOf, urnOf } from "../mapstate/state";
@@ -312,6 +313,71 @@ export function matchSceneOps(
   const written = opts.written ?? WRITTEN;
   const usePhase5 = opts.builds !== false && written > 16;
   const fd = usePhase5 ? captureFrameData(tl, second, markers, written) : undefined;
+  const ov = opts.overrides;
+  const editedFeatures = new Set<Phase5Feature>();
+  if (fd && ov) {
+    const liveCap = captured(ov.state);
+    if (ov.state && liveCap.doors && ROWS.doors.index < written) {
+      fd.available.add("doors");
+      fd.doorsData = Array.isArray(ov.state.doors) ? [...ov.state.doors] : [];
+      editedFeatures.add("doors");
+    }
+    if (ov.state && liveCap.obj_health && ROWS.obj_health.index < written) {
+      fd.available.add("obj_health");
+      fd.objHealthData = Array.isArray(ov.state.obj_health) ? [...ov.state.obj_health] : [];
+      editedFeatures.add("obj_health");
+    } else if (fd.available.has("obj_health") && ov.objectives.size > 0 && fd.sec.health) {
+      // Clear stale replay obj_health triples for any health objective explicitly toggled while paused.
+      const adjHealth = new Map(fd.sec.health);
+      const adjDown = new Set(fd.sec.down);
+      const kindMap = new Map(markers.map((m) => [m.key, m.kind]));
+      let touched = false;
+      for (const [key, status] of ov.objectives) {
+        const k = kindMap.get(key);
+        if (!k || !isHealthKind(k)) continue;
+        touched = true;
+        if (status === "Destroyed") {
+          adjDown.add(key);
+          adjHealth.delete(key);
+        } else {
+          adjDown.delete(key);
+          if (status === "Stage2") adjHealth.set(key, { pct: 100, stage: 2 });
+          else adjHealth.delete(key);
+        }
+      }
+      if (touched) {
+        const res = encodeObjHealth(adjHealth, markers, adjDown);
+        if (!res.overflow) fd.objHealthData = res.ints;
+      }
+    }
+    if (ov.state && liveCap.camps && ROWS.camps.index < written) {
+      fd.available.add("camps");
+      fd.campsData = Array.isArray(ov.state.camps) ? [...ov.state.camps] : [];
+      fd.skippedCamps = new Set();
+      editedFeatures.add("camps");
+    }
+    if (ov.state && liveCap.rifts && ROWS.rift.index < written) {
+      fd.available.add("rifts");
+      fd.riftData = Array.isArray(ov.state.rift) ? [...ov.state.rift] : [];
+      editedFeatures.add("rifts");
+    }
+    if (ROWS.unseen.index < written) {
+      const slotById = new Map(roster.map((s) => [s.id, slotKey(s.slot.team, s.slot.slot)]));
+      let anySight = false;
+      for (const [slotId, ps] of ov.players) {
+        if (typeof ps.more?.unseen !== "boolean") continue;
+        anySight = true;
+        const k = slotById.get(slotId);
+        if (!k) continue;
+        if (ps.more.unseen) fd.heroSight.set(k, { unseen: true });
+        else fd.heroSight.delete(k);
+      }
+      if (anySight) {
+        fd.available.add("sight");
+        editedFeatures.add("sight");
+      }
+    }
+  }
   // The frame's facts, unfiltered (map-state spec D9): what Player's second's part is built on
   // (mapstate/frame.ts). At a whole second a hero's place and respawn time are its sample's.
   const frame = fd ? fd.sec : savedPart(tl, second, markers);
@@ -319,12 +385,36 @@ export function matchSceneOps(
   const heroes: Array<{ PlayerState: PlayerState }> = [];
   for (const s of roster) {
     const p = at.get(slotKey(s.slot.team, s.slot.slot));
-    const where = p?.pos ?? p?.last;
+    const pov = ov?.players.get(s.id);
+    const where = pov?.placed ? pov.pos : (p?.pos ?? p?.last);
     const pos = where ? clampToMap({ x: where.x, y: where.y }) : { x: 0, y: 0 };
+    const baseAlive = p ? p.pos !== null : true;
+    const alive = pov ? (!pov.alive ? false : pov.more?.health === 100 ? true : baseAlive) : baseAlive;
     // A dead hero keeps its respawn time (map-state spec D4), in whole seconds rounded up, as
     // Player's bar counts it down.
-    const respawn = p && p.pos === null && p.respawn != null ? Math.min(MAX_RESPAWN, Math.ceil(p.respawn)) : null;
-    const record = { PlayerState: { scene: id, slot: s.id, pos, alive: p ? p.pos !== null : true, placed: !!where, souls: p?.souls ?? null, ult_cooldown: p?.ult ?? null, visible: true, ...(respawn != null ? { respawn } : {}) } as PlayerState };
+    const baseRespawn = p && p.pos === null && p.respawn != null ? Math.min(MAX_RESPAWN, Math.ceil(p.respawn)) : null;
+    const respawn = pov
+      ? pov.alive && pov.more?.health === 100
+        ? null
+        : !pov.alive
+          ? (pov.respawn ?? null)
+          : (pov.respawn ?? baseRespawn)
+      : baseRespawn;
+    const souls = pov?.souls != null ? pov.souls : (p?.souls ?? null);
+    const ult_cooldown = pov?.ult_cooldown != null ? pov.ult_cooldown : (p?.ult ?? null);
+    const record = {
+      PlayerState: {
+        scene: id,
+        slot: s.id,
+        pos,
+        alive,
+        placed: !!where,
+        souls,
+        ult_cooldown,
+        visible: true,
+        ...(respawn != null ? { respawn } : {}),
+      } as PlayerState,
+    };
     heroes.push(record);
     sceneAndHeroes.push({ Create: { id: mint(), record } });
   }
@@ -333,6 +423,14 @@ export function matchSceneOps(
   for (const [lane, w] of frame.lanes) {
     if (lanes.length === 0 || lanes.includes(lane)) {
       waveRecs.push({ lane, rec: { Wave: { scene: id, lane, t: Math.round((w.amber + w.sapphire) / 2) } } });
+    }
+  }
+  if (ov?.waves.size) {
+    for (const [lane, w] of ov.waves) {
+      if (lanes.length > 0 && !lanes.includes(lane)) continue;
+      const existing = waveRecs.find((x) => x.lane === lane);
+      if (existing) existing.rec.Wave.t = w.t;
+      else waveRecs.push({ lane, rec: { Wave: { scene: id, lane, t: w.t } } });
     }
   }
   // A scene that holds its own heroes (spec D2) leaves the board's roster alone: no other
@@ -347,7 +445,7 @@ export function matchSceneOps(
   //   pass (plan §3: never replace dropped baseline features with `ObjectiveState`s), and budget any
   //   uncovered optional site fallbacks as whole feature buckets (`urn`, `rifts`, `powerups`, `camps`)
   //   so an overflowing bucket is omitted whole rather than prefix-truncated or crowding out smaller sites.
-  type ObjEntry = { key: string; status: "Active" | "Destroyed" };
+  type ObjEntry = { key: string; status: ObjectiveStatus };
   type SiteBucket = "urn" | "rifts" | "powerups" | "camps";
   const BUCKET_ORDER: readonly SiteBucket[] = ["urn", "rifts", "powerups", "camps"];
   // Key sites by board marker `kind` (falling back to key prefix only when markers aren't passed),
@@ -375,16 +473,29 @@ export function matchSceneOps(
   };
 
   const splitObjectives = (covered: ReadonlySet<string>) => {
+    const ovObjs = ov?.objectives;
     const mandatory: ObjEntry[] = [];
     for (const key of frame.down) {
+      if (ovObjs?.has(key)) continue;
       if (!covered.has(key)) mandatory.push({ key, status: "Destroyed" });
+    }
+    if (ovObjs) {
+      for (const [key, status] of ovObjs) {
+        if (status === "Destroyed" || status === "Stage2" || status === "Hidden") {
+          mandatory.push({ key, status });
+        } else if (status === "Active") {
+          const kind = kindByKey.get(key);
+          const off = kind === "koth" || kind === "urn" || (!kind && (key.startsWith("rift:") || key.startsWith("urn:")));
+          if (off || covered.has(key)) mandatory.push({ key, status: "Active" });
+        }
+      }
     }
     const optional: Array<ObjEntry & { bucket: SiteBucket }> = [];
     const byBucket: Record<SiteBucket, ObjEntry[]> = { urn: [], rifts: [], powerups: [], camps: [] };
     // Only what differs from a new scene's defaults: the rift that's up and the open urn point
     // (both default off), and taken powerups/camps (they default available).
     for (const [key, status] of frame.sites) {
-      if (covered.has(key)) continue;
+      if (covered.has(key) || ovObjs?.has(key)) continue;
       const kind = kindByKey.get(key);
       const off = kind === "koth" || kind === "urn" || (!kind && (key.startsWith("rift:") || key.startsWith("urn:")));
       if ((off && status === "Active") || (!off && status === "Destroyed")) {
@@ -447,7 +558,7 @@ export function matchSceneOps(
       if (fixedCount + legacyObjs.length < LIMITS.max_ops_per_tx) {
         const stateMore = captureScene(tl, { written });
         const room = txBudget - opsBytes(previewOps(legacyObjs, stateMore));
-        const builds = sceneBuilds(roster, tl, second, room, tier);
+        const builds = sceneBuilds(roster, tl, second, room, tier, undefined, true, ov?.players);
         if (builds) {
           roster.forEach((s, idx) => {
             const more = builds.get(s.id);
@@ -475,12 +586,16 @@ export function matchSceneOps(
           syncWaves();
           const stateMore = captureScene(tl, { written, ...sceneCaptureFrom(fd, active) });
           const room = txBudget - opsBytes(previewOps(objs, stateMore));
-          const builds = sceneBuilds(roster, tl, second, room, tier, (slot) => heroExtraFrom(fd, active, slot), allowTrim);
+          const builds = sceneBuilds(roster, tl, second, room, tier, (slot) => heroExtraFrom(fd, active, slot), allowTrim, ov?.players);
           return builds ? { builds, stateMore } : undefined;
         };
+        // User-edited pause features move to the end of DROP_ORDER so unedited replay features drop first.
+        const dropOrder = editedFeatures.size
+          ? [...DROP_ORDER.filter((f) => !editedFeatures.has(f)), ...DROP_ORDER.filter((f) => editedFeatures.has(f))]
+          : DROP_ORDER;
         let fitted = tryFit(false);
         if (!fitted) {
-          for (const drop of DROP_ORDER) {
+          for (const drop of dropOrder) {
             if (!active.has(drop)) continue;
             active.delete(drop);
             fitted = tryFit(false);
@@ -511,14 +626,23 @@ export function matchSceneOps(
   let held = !own || stored;
   if (!stored && own && fixedCount < LIMITS.max_ops_per_tx) {
     const players = new Map(tl.players.map((p) => [slotKey(p.team, p.slot), p]));
-    const mine = roster.map((s) => players.get(slotKey(s.slot.team, s.slot.slot))?.hero_id);
+    const mine: Array<More | undefined> = roster.map((s) => {
+      const pov = ov?.players.get(s.id);
+      const baseHero = players.get(slotKey(s.slot.team, s.slot.slot))?.hero_id;
+      const hero = typeof pov?.more?.hero === "number" ? pov.more.hero : baseHero;
+      const name = typeof pov?.more?.name === "string" && pov.more.name ? pov.more.name : undefined;
+      if (hero == null && !name) return undefined;
+      return { ...(hero != null ? { hero } : {}), ...(name ? { name } : {}) };
+    });
     const stateMore = captureScene(tl, { builds: false, written });
-    const bytes = mine.reduce((n: number, hero) => n + (hero == null ? 0 : MORE_KEY + moreBytes({ hero })), 0);
+    const bytes = mine.reduce((n: number, m) => n + (!m ? 0 : MORE_KEY + moreBytes(m)), 0);
     const fitsBytes = (objs: ObjEntry[]) => opsBytes(previewOps(objs, stateMore)) + bytes <= txBudget;
     const fallbackObjs = written > 16 ? fitBuckets(new Set(), maxObjWithState, fitsBytes) : legacyObjs;
     if (fixedCount + fallbackObjs.length < LIMITS.max_ops_per_tx && fitsBytes(fallbackObjs)) {
-      mine.forEach((hero, idx) => {
-        if (hero != null) heroes[idx]!.PlayerState.more = { hero };
+      mine.forEach((m, idx) => {
+        if (m) heroes[idx]!.PlayerState.more = m;
+        const pov = ov?.players.get(roster[idx]!.id);
+        if (pov?.more?.unseen === true) heroes[idx]!.PlayerState.visible = false;
       });
       finalObjs = fallbackObjs;
       finalState = stateMore;
@@ -553,6 +677,7 @@ function sceneBuilds(
   tier: string | null,
   extraOf?: (slot: string) => More,
   allowTrim = true,
+  overridePlayers?: ReadonlyMap<RecordId, PlayerState>,
 ): Map<RecordId, More> | undefined {
   const players = new Map(tl.players.map((p) => [slotKey(p.team, p.slot), p]));
   const mine = roster.flatMap((s) => {
@@ -567,10 +692,24 @@ function sceneBuilds(
     let bytes = 0;
     let ok = true;
     for (const m of mine) {
-      const extra = extraOf?.(m.key);
-      const extraBytes = extra && Object.keys(extra).length ? moreBytes(extra) : 0;
-      const buildBudget = Math.max(0, Math.min(share, LIMITS.max_more_bytes) - extraBytes);
-      const more = extra && extraBytes ? { ...captureBuild(m.build, buildBudget), ...extra } : captureBuild(m.build, buildBudget);
+      const pov = overridePlayers?.get(m.id);
+      const baseExtra = extraOf?.(m.key);
+      const swapped = typeof pov?.more?.hero === "number" && pov.more.hero !== m.build.hero;
+      const mergedExtra: More = { ...(baseExtra ?? {}) };
+      if (typeof pov?.more?.name === "string" && pov.more.name) mergedExtra.name = pov.more.name;
+      let more: More;
+      if (swapped) {
+        // Hero swapped while paused: drop the old hero's BUILD_KEYS (matching pickHeroOps / holdsBuild).
+        more = { hero: pov!.more!.hero!, ...mergedExtra };
+        if (pov!.more?.health === 100 && holdsHealth(tier)) more.health = 100;
+      } else {
+        if (pov?.more?.health === 100) mergedExtra.health = 100;
+        const extraBytes = Object.keys(mergedExtra).length ? moreBytes(mergedExtra) : 0;
+        const buildBudget = Math.max(0, Math.min(share, LIMITS.max_more_bytes) - extraBytes);
+        more = extraBytes ? { ...captureBuild(m.build, buildBudget), ...mergedExtra } : captureBuild(m.build, buildBudget);
+        // Killed while paused: drop pre-death partial health so a later revive in the scene starts at 100%.
+        if (pov && !pov.alive) delete more.health;
+      }
       const len = moreBytes(more);
       if (len > LIMITS.max_more_bytes) {
         ok = false;
@@ -1065,6 +1204,18 @@ export function retakeOps(
  * as captured, `tl` holds (the health of a scene saved from the replay). */
 const retakesFrom = (tier: string | null | undefined, tl: Pick<Timeline, "tier">) => !holdsHealth(tier) || holdsHealth(tl.tier);
 
+/** Active pause-edit overrides collected from `liveScene` to bake into `Save as scene` (spec #61 §4.1). */
+export interface PauseOverrides {
+  /** Dirty `liveScene` `PlayerState` records, keyed by roster slot `RecordId`. */
+  players: ReadonlyMap<RecordId, PlayerState>;
+  /** Live `ObjectiveState` overrides on `liveScene`, keyed by marker key. */
+  objectives: ReadonlyMap<string, ObjectiveStatus>;
+  /** Live `Wave` overrides on `liveScene`, keyed by `LaneKey` string. */
+  waves: ReadonlyMap<string, { t: number; more?: More }>;
+  /** Live `SceneState.more` on `liveScene` (seeded + edited map-state rows). */
+  state?: More;
+}
+
 export interface SceneOpts {
   /** The scene's name (default "Match moment"). */
   name?: string;
@@ -1081,6 +1232,8 @@ export interface SceneOpts {
   builds?: boolean;
   /** Override the per-tx byte budget (tests of DROP_ORDER pass a tighter cap). */
   txBudget?: number;
+  /** Optional paused-Player overrides from `liveScene` to composite into the saved scene. */
+  overrides?: PauseOverrides;
 }
 
 /**

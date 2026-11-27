@@ -59,6 +59,11 @@ export const SIGNALS: Record<string, Entries> = {
     why: ["local", "a disclosure in the replay notice"],
     fresh: ["local", "the replay notice"],
   },
+  "player/PlayerTopBar.tsx": {
+    menu: ["local", "hero context menu while paused"],
+    renaming: ["local", "text being typed while paused"],
+    soulsEdit: ["local", "text being typed while paused"],
+  },
   "player/ReplaysFolder.tsx": { state: ["local", "this device's folder"], now: ["local", "a clock"], note: ["local", "a message"] },
   "player/ReplayPrompt.tsx": { picking: ["local", "a dialog"] },
   "player/ReplayPicker.tsx": {

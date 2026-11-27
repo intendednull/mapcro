@@ -13,6 +13,7 @@ import { type SceneObjHealthContext, clearObjHealthOps } from "../mapstate/edit"
 export type Current = Map<string, { id: RecordId; status: ObjectiveStatus }>;
 export type ShownStatus = (key: string) => ObjectiveStatus | undefined;
 export type ObjHealthClearCtx = Pick<SceneObjHealthContext, "scene" | "state" | "markers" | "mint" | "written">;
+export type ObjUpsert = (key: string, status: ObjectiveStatus) => Op[];
 
 /** Whether a marker is "on" (active, alive) in a scene. Rifts and urn points default to off;
  * the rest to on. `shown` supplies the effective status (`ObjectiveState ?? baseline detail`). */
@@ -35,9 +36,11 @@ export function toggleOps(
   mint: () => RecordId,
   shown?: ShownStatus,
   healthCtx?: ObjHealthClearCtx,
+  upsert?: ObjUpsert,
 ): Op[] {
   const statusOf: ShownStatus = shown ?? ((k) => cur.get(k)?.status);
   const set = (key: string, status: ObjectiveStatus): Op[] => {
+    if (upsert) return upsert(key, status);
     const c = cur.get(key);
     if (c) return c.status === status ? [] : [{ Set: { id: c.id, value: { ObjectiveStatus: status } } }];
     return [{ Create: { id: mint(), record: { ObjectiveState: { scene, key, status } } } }];
@@ -69,6 +72,7 @@ export function groupToggleOps(
   mint: () => RecordId,
   shown?: ShownStatus,
   healthCtx?: ObjHealthClearCtx,
+  upsert?: ObjUpsert,
 ): Op[] {
   const statusOf: ShownStatus = shown ?? ((k) => cur.get(k)?.status);
   const set = (key: string, status: ObjectiveStatus): Op[] => {
@@ -79,6 +83,7 @@ export function groupToggleOps(
     const off = !!kind && offByDefault(kind);
     const eff = statusOf(key) ?? (off ? "Destroyed" : "Active");
     if (eff === status) return [];
+    if (upsert) return upsert(key, status);
     return [{ Create: { id: mint(), record: { ObjectiveState: { scene, key, status } } } }];
   };
   const turnOn = !isOn(clicked, cur, statusOf);
