@@ -7,9 +7,12 @@ import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { Op } from "../gen/Op";
 import type { RecordId } from "../gen/RecordId";
 import { type Marker, offByDefault } from "../map/model";
+import { isHealthKind } from "../mapstate/codec";
+import { type SceneObjHealthContext, clearObjHealthOps } from "../mapstate/edit";
 
 export type Current = Map<string, { id: RecordId; status: ObjectiveStatus }>;
 export type ShownStatus = (key: string) => ObjectiveStatus | undefined;
+export type ObjHealthClearCtx = Pick<SceneObjHealthContext, "scene" | "state" | "markers" | "mint" | "written">;
 
 /** Whether a marker is "on" (active, alive) in a scene. Rifts and urn points default to off;
  * the rest to on. `shown` supplies the effective status (`ObjectiveState ?? baseline detail`). */
@@ -31,6 +34,7 @@ export function toggleOps(
   scene: RecordId,
   mint: () => RecordId,
   shown?: ShownStatus,
+  healthCtx?: ObjHealthClearCtx,
 ): Op[] {
   const statusOf: ShownStatus = shown ?? ((k) => cur.get(k)?.status);
   const set = (key: string, status: ObjectiveStatus): Op[] => {
@@ -39,8 +43,9 @@ export function toggleOps(
     return [{ Create: { id: mint(), record: { ObjectiveState: { scene, key, status } } } }];
   };
   const on = isOn(m, cur, statusOf);
-  if (m.kind === "t3") return set(m.key, nextPatron(statusOf(m.key)));
-  if (!offByDefault(m.kind)) return set(m.key, on ? "Destroyed" : "Active");
+  const clearHealth = healthCtx && isHealthKind(m.kind) ? clearObjHealthOps(healthCtx, [m.key]) : [];
+  if (m.kind === "t3") return [...set(m.key, nextPatron(statusOf(m.key))), ...clearHealth];
+  if (!offByDefault(m.kind)) return [...set(m.key, on ? "Destroyed" : "Active"), ...clearHealth];
   if (on) return set(m.key, "Destroyed");
   // Only one rift (one urn point) at a time: the others go off with this one coming on.
   const others = markers.filter((x) => x.kind === m.kind && x.key !== m.key && isOn(x, cur, statusOf)).flatMap((x) => set(x.key, "Destroyed"));
@@ -63,6 +68,7 @@ export function groupToggleOps(
   scene: RecordId,
   mint: () => RecordId,
   shown?: ShownStatus,
+  healthCtx?: ObjHealthClearCtx,
 ): Op[] {
   const statusOf: ShownStatus = shown ?? ((k) => cur.get(k)?.status);
   const set = (key: string, status: ObjectiveStatus): Op[] => {
@@ -77,11 +83,23 @@ export function groupToggleOps(
   };
   const turnOn = !isOn(clicked, cur, statusOf);
   const ops: Op[] = [];
+  const clearKeys: string[] = [];
   if (!turnOn) {
-    for (const m of group) ops.push(...set(m.key, "Destroyed"));
+    for (const m of group) {
+      const mOps = set(m.key, "Destroyed");
+      ops.push(...mOps);
+      if (mOps.length && isHealthKind(m.kind)) clearKeys.push(m.key);
+    }
+    if (healthCtx && clearKeys.length) ops.push(...clearObjHealthOps(healthCtx, clearKeys));
     return ops;
   }
-  for (const m of group) if (!offByDefault(m.kind)) ops.push(...set(m.key, "Active"));
+  for (const m of group) {
+    if (!offByDefault(m.kind)) {
+      const mOps = set(m.key, "Active");
+      ops.push(...mOps);
+      if (mOps.length && isHealthKind(m.kind)) clearKeys.push(m.key);
+    }
+  }
   // Per one-at-a-time kind: the clicked one if it's of that kind, else the group's first.
   for (const kind of ["koth", "urn"] as const) {
     const lit = clicked.kind === kind ? clicked : group.find((m) => m.kind === kind);
@@ -89,6 +107,7 @@ export function groupToggleOps(
     ops.push(...set(lit.key, "Active"));
     for (const r of markers.filter((x) => x.kind === kind && x.key !== lit.key)) ops.push(...set(r.key, "Destroyed"));
   }
+  if (healthCtx && clearKeys.length) ops.push(...clearObjHealthOps(healthCtx, clearKeys));
   return ops;
 }
 

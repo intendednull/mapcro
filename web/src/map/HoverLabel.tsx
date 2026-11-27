@@ -109,8 +109,10 @@ export function hoverFromWire(s: string | null | undefined): HoverRef | undefine
 }
 
 /** The label itself, drawn over everything on the map. `k`: the markers' scale for zoom. */
-export function HoverLabels(p: { k: number }) {
+export function HoverLabels(p: { k: number; override?: () => { ref: HoverRef; spot: HoverSpot } | undefined }) {
   const shown = createMemo(() => {
+    const ov = p.override?.();
+    if (ov && ov.spot.text) return { ref: ov.ref, spot: ov.spot, by: undefined };
     const l = localHover();
     const ls = l && resolve(l);
     // An empty text: the thing is there, with nothing to say (a camp that's up): no label.

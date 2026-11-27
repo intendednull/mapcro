@@ -58,7 +58,7 @@ function Fb(p: { shape: string; color: string; k: number; part?: string }) {
  * HUD's own fill layer (`hp-fill`) is clipped and the empty part shows its dark frame. Absent:
  * full, as in Sandbox (operator, 2026-11-08).
  */
-function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | undefined; picked: boolean; health?: number | undefined; camp?: string | undefined; buff?: string | undefined }) {
+function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | undefined; picked: boolean; health?: number | undefined; adjusting?: boolean | undefined; camp?: string | undefined; buff?: string | undefined }) {
   const c = () => washFor(p.m, p.vp);
   // The buff that's up, as a value: the preview behind it is new every frame of playback, and
   // the icon is built from it, so reading it raw rebuilt a powerup's icon every frame (#39).
@@ -135,6 +135,7 @@ function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | und
       aria-label={p.m.title}
       data-key={p.m.key}
       data-health={hp() === undefined ? undefined : Math.round(hp()!)}
+      data-adjusting={p.adjusting ? "true" : undefined}
       data-camp={p.camp}
       data-buff={buff()}
       style={{
@@ -223,8 +224,10 @@ export function MapView(p: {
   raisedLane?: string | undefined;
   /** Objectives in your group selection. */
   picked?: (key: string) => boolean;
-  /** Objectives' health in percent (Player, replay tier); absent: full. */
+  /** Objectives' health in percent (Player, replay tier, or scene health); absent: full. */
   health?: (key: string) => number | undefined;
+  /** Objective currently being vertically scrubbed (suppresses easing per spec §4a). */
+  adjusting?: (key: string) => boolean;
   /** Player, replay tier: a lane's zipline colours, which replace its split. */
   laneEdges?: (lane: string) => Edges | undefined;
   /** Player, replay tier: a camp's state ("alive", "cleared", "unspawned"), as `data-camp`. */
@@ -331,6 +334,7 @@ export function MapView(p: {
                     status={offByDefault(m.kind) ? (p.status?.(m.key) === "Active" ? "Active" : "Destroyed") : m.kind === "shop" || m.kind === "teleporter" ? undefined : p.status?.(m.key)}
                     picked={!!p.picked?.(m.key)}
                     health={p.health?.(m.key)}
+                    adjusting={!!p.adjusting?.(m.key)}
                     camp={p.camp?.(m.key)}
                     buff={p.buff?.(m.key)}
                   />

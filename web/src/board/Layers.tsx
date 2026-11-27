@@ -29,7 +29,7 @@ import type { RecordId } from "../gen/RecordId";
 import type { SceneState } from "../gen/SceneState";
 import type { Stroke } from "../gen/Stroke";
 import type { WorldPos } from "../gen/WorldPos";
-import { HUD_PX, type Marker, isFurniture, laneStroke, teamShort } from "../map/model";
+import { HUD_PX, type Marker, isFurniture, laneStroke, teamName, teamShort, washFor } from "../map/model";
 import { pathOf, pointAt, project, splitAt, splitEdges } from "../map/lanes";
 import { LANE_GAP } from "../map/MapView";
 import { groupToggleOps, marqueePick, toggleOps } from "./objectives";
@@ -38,9 +38,11 @@ import { ContextMenu, type MenuItem } from "../ui/ContextMenu";
 import type { Art } from "../map/pack";
 import { type Pt, type Viewpoint, clampShift, clampToBoard, clampToDisc, clampToMap, mapToView, mapToWorld, viewToMap, viewToWorld, worldToMap, worldToView } from "../map/transform";
 import { slotKey } from "../match/save";
+import { isHealthKind } from "../mapstate/codec";
 import {
   type DoorIdentity,
   type SceneDoorContext,
+  type SceneObjHealthContext,
   doorIdentity,
   linkSecondDoorOps,
   moveDoorOps,
@@ -48,9 +50,11 @@ import {
   removeDoorwayOps,
   removeDoorwaysOps,
   resolveDoorIndex,
+  setObjectiveHealthOps,
   toggleDoorSightOps,
   unlinkDoorOps,
 } from "../mapstate/edit";
+import { HEALTH_NAME } from "../player/Camps";
 import { DOORMAN_HERO_ID, DOOR_PAIR_MIN_DIST, DOOR_R, type DragDoor, type PlacingDoor } from "../player/Doors";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { cx } from "../ui/cx";
@@ -73,6 +77,12 @@ type Rec<T> = { id: RecordId; r: T };
 
 /** A comment's side as an attribute: none for Above, so such a comment's DOM is as before sides. */
 const sided = (side: Callout["side"]) => (side && side !== "Above" ? side : undefined);
+
+export interface DragObjHealth {
+  key: string;
+  pct: number;
+  stage?: 1 | 2;
+}
 
 export function Layers(p: {
   state: BoardState;
@@ -152,6 +162,11 @@ export function Layers(p: {
   /** Door indices currently being scrubbed by the Erase tool. */
   erasingDoors?: () => Set<number>;
   setErasingDoors?: (next: Set<number>) => void;
+  /** Live local objective health vertical scrub preview (objective-health-edit.md §3.2). */
+  dragObjHealth?: () => DragObjHealth | undefined;
+  setDragObjHealth?: (next: DragObjHealth | undefined) => void;
+  /** Called after committing an objective health edit so the board auto-enables `showHealth`. */
+  onEditObjHealth?: () => void;
 }) {
   const st = p.state;
   const view = (w: WorldPos) => worldToView(w, p.vp);
@@ -240,7 +255,7 @@ export function Layers(p: {
   onCleanup(() => clearInterval(laserTick));
 
   // ---- one pointer gesture on the map, captured until release ----
-  const track = (e: PointerEvent, move: (pt: Pt, ev: PointerEvent) => void, up: (pt: Pt, ok: boolean) => void) => {
+  const track = (e: PointerEvent, move: (pt: Pt, ev: PointerEvent) => void, up: (pt: Pt, ok: boolean, ev: PointerEvent) => void) => {
     const svg = p.svg();
     if (!svg) return;
     capture(svg, e.pointerId);
@@ -250,7 +265,7 @@ export function Layers(p: {
       svg.removeEventListener("pointermove", onMove);
       svg.removeEventListener("pointerup", onUp);
       svg.removeEventListener("pointercancel", onUp);
-      up(svgPoint(svg, ev), ev.type === "pointerup");
+      up(svgPoint(svg, ev), ev.type === "pointerup", ev);
     };
     svg.addEventListener("pointermove", onMove);
     svg.addEventListener("pointerup", onUp);
@@ -368,6 +383,26 @@ export function Layers(p: {
   const clearObjects = () => {
     if (p.objSelection().size) p.setObjSelection(new Set());
   };
+  const objHealthCtx = (): SceneObjHealthContext | undefined => {
+    const scene = p.scene;
+    if (!scene || p.frame.player()) return undefined;
+    const row = st.rowsIn<SceneState>("SceneState", scene)[0];
+    return {
+      scene,
+      state: row ? { id: row.id, more: row.r.more } : undefined,
+      objectives: p.objectives(),
+      markers: p.art.model.markers,
+      mint: newRecordId,
+      ...(p.markerStatus ? { shownStatus: p.markerStatus } : {}),
+    };
+  };
+  const commitObjHealth = (m: Marker, pct: number, stage?: 1 | 2) => {
+    const ctx = objHealthCtx();
+    if (!ctx) return;
+    const ops = setObjectiveHealthOps(ctx, m, pct, stage);
+    if (!ops.length) return;
+    if (st.edit(ops) && pct > 0) p.onEditObjHealth?.();
+  };
   /** A click on an objective: the whole group if it's in your selection, else just it. */
   const clickObjective = (m: Marker) => {
     const scene = p.scene;
@@ -375,7 +410,7 @@ export function Layers(p: {
     const sel = p.objSelection();
     if (sel.has(m.key)) {
       const group = p.art.model.markers.filter((x) => sel.has(x.key));
-      const ops = groupToggleOps(m, group, p.art.model.markers, p.objectives(), scene, newRecordId, p.markerStatus);
+      const ops = groupToggleOps(m, group, p.art.model.markers, p.objectives(), scene, newRecordId, p.markerStatus, objHealthCtx());
       if (ops.length) st.edit(ops); // one transaction: one undo puts the whole group back
       return;
     }
@@ -385,7 +420,7 @@ export function Layers(p: {
   const toggleObjective = (m: Marker) => {
     const scene = p.scene;
     if (!scene) return;
-    const ops = toggleOps(m, p.art.model.markers, p.objectives(), scene, newRecordId, p.markerStatus);
+    const ops = toggleOps(m, p.art.model.markers, p.objectives(), scene, newRecordId, p.markerStatus, objHealthCtx());
     if (ops.length) st.edit(ops);
   };
 
@@ -693,12 +728,17 @@ export function Layers(p: {
     return <ContextMenu at={m.at} label={m.kind === "Callout" ? "Comment" : m.kind === "Arrow" ? "Arrow" : "Drawing"} testid="placed-menu" items={items} onClose={() => setMenu(undefined)} />;
   };
 
-  // ---- Doorman doorway menu (right-click / long-press on `.pl-door`) & empty-map menu ----
+  // ---- Doorman doorway menu (right-click / long-press on `.pl-door`), objective health menu, & empty-map menu ----
   const [doorMenu, setDoorMenu] = createSignal<{ index: number; expect: DoorIdentity; at: { x: number; y: number } }>();
+  const [objMenu, setObjMenu] = createSignal<{ key: string; scene: RecordId | undefined; at: { x: number; y: number } }>();
   const [mapMenu, setMapMenu] = createSignal<{ at: { x: number; y: number }; pos: WorldPos }>();
   createEffect(() => {
     const m = doorMenu();
     if (m && (!editor() || p.frame.player() || resolveDoorIndex(sceneDoors(), m.index, m.expect) === undefined)) setDoorMenu(undefined);
+  });
+  createEffect(() => {
+    const m = objMenu();
+    if (m && (!editor() || p.frame.player() || m.scene !== p.scene)) setObjMenu(undefined);
   });
   createEffect(() => {
     if (mapMenu() && (!editor() || p.frame.player())) setMapMenu(undefined);
@@ -788,6 +828,73 @@ export function Layers(p: {
     }
     return <ContextMenu at={m.at} label="Map" testid="map-menu" items={items} onClose={() => setMapMenu(undefined)} />;
   };
+  const objMenuView = (m: { key: string; scene: RecordId | undefined; at: { x: number; y: number } }) => {
+    const marker = p.art.model.markers.find((x) => x.key === m.key);
+    if (!marker) return null;
+    const status = () => p.markerStatus?.(marker.key) ?? p.objectives().get(marker.key)?.status;
+    const isDown = () => status() === "Destroyed" || p.frame.ms().marker(marker.key).down();
+    const curPct = () => {
+      if (isDown()) return 0;
+      return p.frame.ms().marker(marker.key).health()?.pct ?? 100;
+    };
+    const isStage2 = () => status() === "Stage2";
+    const items: MenuItem[] =
+      marker.kind === "t3"
+        ? [
+            {
+              label: "Stage 1 · 100%",
+              testid: "obj-menu-stage1",
+              get checked() {
+                return !isDown() && !isStage2() && curPct() === 100;
+              },
+              run: () => commitObjHealth(marker, 100, 1),
+            },
+            {
+              label: "Stage 2 (Weakened) · 100%",
+              testid: "obj-menu-stage2",
+              get checked() {
+                return !isDown() && isStage2() && curPct() === 100;
+              },
+              run: () => commitObjHealth(marker, 100, 2),
+            },
+            ...([75, 50, 25] as const).map((pct) => ({
+              label: `${pct}%`,
+              testid: `obj-menu-hp-${pct}`,
+              get checked() {
+                return !isDown() && curPct() === pct;
+              },
+              run: () => commitObjHealth(marker, pct),
+            })),
+            {
+              label: "Destroyed",
+              testid: "obj-menu-destroyed",
+              get checked() {
+                return isDown();
+              },
+              run: () => commitObjHealth(marker, 0),
+            },
+          ]
+        : [
+            ...([100, 75, 50, 25] as const).map((pct) => ({
+              label: `${pct}%`,
+              testid: `obj-menu-hp-${pct}`,
+              get checked() {
+                return !isDown() && curPct() === pct;
+              },
+              run: () => commitObjHealth(marker, pct),
+            })),
+            {
+              label: marker.kind === "midboss" ? "Cleared" : "Destroyed",
+              testid: "obj-menu-destroyed",
+              get checked() {
+                return isDown();
+              },
+              run: () => commitObjHealth(marker, 0),
+            },
+          ];
+    const menuLabel = marker.kind === "t3" ? teamName(marker.team) : (HEALTH_NAME[marker.kind] ?? "Objective");
+    return <ContextMenu at={m.at} label={menuLabel} testid="obj-menu" items={items} onClose={() => setObjMenu(undefined)} />;
+  };
 
   // A finger held still on or beside a placed thing (Select): the gesture it started (a drag, a
   // tap that opens a comment) ends uncommitted, as a pinch ends it, and the menu opens there. Only
@@ -831,16 +938,19 @@ export function Layers(p: {
       }
       const topEl = document.elementFromPoint(at.x, at.y);
       const svgPt = svgPoint(svg, { clientX: at.x, clientY: at.y });
-      if (
-        topEl &&
-        svg.contains(topEl) &&
-        !topEl.closest?.(".tok[data-player], .pl-skull, .wave-hit, .co.editing") &&
-        inPlayableDisc(svgPt) &&
-        !objectiveAt(svgPt)
-      ) {
-        svg.dispatchEvent(new PointerEvent("pointercancel", { pointerId: e.pointerId, pointerType: "touch", bubbles: true, clientX: at.x, clientY: at.y }));
-        swallowLiftClick(e.pointerId);
-        setMapMenu({ at, pos: clampToDisc(viewToWorld(svgPt, p.vp)) });
+      if (topEl && svg.contains(topEl) && !topEl.closest?.(".tok[data-player], .pl-skull, .co.editing")) {
+        const hitObj = objectiveAt(svgPt);
+        if (hitObj && isHealthKind(hitObj.kind)) {
+          svg.dispatchEvent(new PointerEvent("pointercancel", { pointerId: e.pointerId, pointerType: "touch", bubbles: true, clientX: at.x, clientY: at.y }));
+          swallowLiftClick(e.pointerId);
+          setObjMenu({ key: hitObj.key, scene: p.scene, at });
+          return;
+        }
+        if (!topEl.closest?.(".wave-hit") && inPlayableDisc(svgPt) && !hitObj) {
+          svg.dispatchEvent(new PointerEvent("pointercancel", { pointerId: e.pointerId, pointerType: "touch", bubbles: true, clientX: at.x, clientY: at.y }));
+          swallowLiftClick(e.pointerId);
+          setMapMenu({ at, pos: clampToDisc(viewToWorld(svgPt, p.vp)) });
+        }
       }
     });
   };
@@ -875,7 +985,7 @@ export function Layers(p: {
       const doorIdx = e.button === 2 && !tok && !placed && !p.frame.player() && editor() && p.tool === "select" ? doorAtEl(target) : undefined;
       const at = { x: e.clientX, y: e.clientY };
       const svgPt = svgPoint(svg, e);
-      const canMapMenu =
+      const hitObj =
         e.button === 2 &&
         !tok &&
         !placed &&
@@ -883,9 +993,21 @@ export function Layers(p: {
         !p.frame.player() &&
         editor() &&
         p.tool === "select" &&
+        !target.closest?.(".pl-skull, .co.editing")
+          ? objectiveAt(svgPt)
+          : undefined;
+      const obj = hitObj && isHealthKind(hitObj.kind) ? hitObj : undefined;
+      const canMapMenu =
+        e.button === 2 &&
+        !tok &&
+        !placed &&
+        doorIdx === undefined &&
+        !hitObj &&
+        !p.frame.player() &&
+        editor() &&
+        p.tool === "select" &&
         !target.closest?.(".pl-skull, .wave-hit, .co.editing") &&
-        inPlayableDisc(svgPt) &&
-        !objectiveAt(svgPt);
+        inPlayableDisc(svgPt);
       pan(
         e,
         tok
@@ -897,9 +1019,11 @@ export function Layers(p: {
                   const d = sceneDoors().find((x) => x.id === doorIdx);
                   if (d) setDoorMenu({ index: doorIdx, expect: doorIdentity(d), at });
                 }
-              : canMapMenu
-                ? () => setMapMenu({ at, pos: clampToDisc(viewToWorld(svgPt, p.vp)) })
-                : undefined,
+              : obj
+                ? () => setObjMenu({ key: obj.key, scene: p.scene, at })
+                : canMapMenu
+                  ? () => setMapMenu({ at, pos: clampToDisc(viewToWorld(svgPt, p.vp)) })
+                  : undefined,
       );
       return;
     }
@@ -991,6 +1115,56 @@ export function Layers(p: {
       const m = objectiveAt(start);
       if (m) {
         e.preventDefault();
+        if (!p.frame.player() && p.scene && isHealthKind(m.kind) && !e.shiftKey) {
+          const startScene = p.scene;
+          const startClientX = e.clientX;
+          const startClientY = e.clientY;
+          const curStatus = p.markerStatus?.(m.key) ?? p.objectives().get(m.key)?.status;
+          const curDown = curStatus === "Destroyed" || p.frame.ms().marker(m.key).down();
+          const curHealth = p.frame.ms().marker(m.key).health();
+          const startPct = curDown ? 0 : (curHealth?.pct ?? 100);
+          const startStage: 1 | 2 | undefined = m.kind === "t3" ? (curStatus === "Stage2" ? 2 : 1) : undefined;
+          const focusId = p.objectives().get(m.key)?.id ?? startScene;
+          let scrubbing = false;
+          let lastPct = startPct;
+          track(
+            e,
+            (_, ev) => {
+              if (p.scene !== startScene) {
+                if (scrubbing) {
+                  scrubbing = false;
+                  p.setDragObjHealth?.(undefined);
+                  st.presence({ focus: null });
+                }
+                return;
+              }
+              const distPx = Math.hypot(ev.clientX - startClientX, ev.clientY - startClientY);
+              if (!scrubbing) {
+                if (distPx < 6) return;
+                scrubbing = true;
+                holding?.();
+                holding = undefined;
+                clearObjects();
+                st.presence({ focus: focusId });
+              }
+              const dyPx = startClientY - ev.clientY;
+              const raw = Math.max(0, Math.min(100, startPct + (dyPx / 80) * 100));
+              const pct = ev.shiftKey ? Math.round(raw / 5) * 5 : Math.round(raw);
+              lastPct = pct;
+              p.setDragObjHealth?.({ key: m.key, pct, ...(startStage !== undefined ? { stage: startStage } : {}) });
+            },
+            (_, ok, ev) => {
+              p.setDragObjHealth?.(undefined);
+              if (scrubbing) {
+                st.presence({ focus: null });
+                if (ok && p.scene === startScene) commitObjHealth(m, lastPct, startStage);
+              } else if (ok && p.scene === startScene && Math.hypot(ev.clientX - startClientX, ev.clientY - startClientY) < 6) {
+                clickObjective(m);
+              }
+            },
+          );
+          return;
+        }
         track(
           e,
           () => {},
@@ -1645,12 +1819,45 @@ export function Layers(p: {
           }}
         </For>
       </g>
+      <Show when={p.dragObjHealth?.()}>
+        {(d) => {
+          const mk = () => p.art.model.markers.find((x) => x.key === d().key);
+          return (
+            <Show when={mk()}>
+              {(m) => {
+                const at = () => mapToView(m().at, p.vp);
+                const r = () => 22 * p.k;
+                const color = () => (m().kind === "midboss" ? "#d9b24a" : washFor(m(), p.vp));
+                return (
+                  <g class="obj-hp-dial" data-testid="obj-hp-dial" data-key={m().key} data-pct={d().pct} style={{ "--c": color() }}>
+                    <circle class="obj-hp-dial-bg" cx={at().x} cy={at().y} r={r()} />
+                    <Show when={d().pct > 0}>
+                      <circle
+                        class="obj-hp-dial-arc"
+                        cx={at().x}
+                        cy={at().y}
+                        r={r()}
+                        pathLength={100}
+                        stroke-dasharray={`${d().pct} 100`}
+                        transform={`rotate(-90 ${at().x} ${at().y})`}
+                      />
+                    </Show>
+                  </g>
+                );
+              }}
+            </Show>
+          );
+        }}
+      </Show>
       <Cursors peers={st.peerList()} scene={p.scene} vp={p.vp} k={p.k} />
       <Show when={menu()} keyed>
         {menuView}
       </Show>
       <Show when={doorMenu()} keyed>
         {doorMenuView}
+      </Show>
+      <Show when={objMenu()} keyed>
+        {objMenuView}
       </Show>
       <Show when={mapMenu()} keyed>
         {mapMenuView}

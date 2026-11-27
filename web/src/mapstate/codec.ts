@@ -247,7 +247,7 @@ export function decodePowerups(v: unknown, frame: number, markers: FrameMarkers)
 }
 
 export function encodeObjHealth(
-  health: ReadonlyMap<string, { pct: number; stage?: number }>,
+  health: ReadonlyMap<string, { pct: number; stage?: number } | null>,
   markers: FrameMarkers,
   down?: ReadonlySet<string>,
 ): { ints: number[]; skipped: Set<string>; overflow: boolean } {
@@ -255,6 +255,10 @@ export function encodeObjHealth(
   const skipped = new Set<string>();
   const rows: Array<[string, number, number]> = [];
   for (const [key, o] of health) {
+    if (o === null) {
+      rows.push([key, -1, -1]);
+      continue;
+    }
     const pct = clamp(o.pct, 0, 100);
     const stage = o.stage === 1 || o.stage === 2 ? o.stage : -1;
     // Default (not stored): 100%, no stage.
