@@ -554,7 +554,7 @@ test("scene-mode Play and Play with scene plan (playFrom) do not wipe another co
   // Coach B joins, opens the saved 40s scene, and triggers scene-mode Play (Resume replay).
   const b = await joinNew(browser, url, "CoachB");
   await expect(b.getByTestId("match-tier")).toHaveText("Full replay");
-  await b.locator(".scene-row").last().click();
+  await b.locator(".scene-row", { hasText: "0:40" }).click();
   await expect(b.getByTestId("player")).toHaveAttribute("data-state", "scene");
   await b.getByTestId("match-play").click();
   await expect(b.getByTestId("match-play")).toHaveAttribute("data-playing", "true");
@@ -566,7 +566,7 @@ test("scene-mode Play and Play with scene plan (playFrom) do not wipe another co
   expect(Math.hypot(afterScenePlay.x - movedA.x, afterScenePlay.y - movedA.y)).toBeLessThan(15);
 
   // Coach B goes back to the 40s scene and clicks "Play from here" (Play with scene plan).
-  await b.locator(".scene-row").last().click();
+  await b.locator(".scene-row", { hasText: "0:40" }).click();
   await expect(b.getByTestId("play-from-here")).toBeVisible();
   await b.getByTestId("play-from-here").click();
   await expect(b.getByTestId("match-play")).toHaveAttribute("data-playing", "true");
