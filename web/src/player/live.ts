@@ -540,8 +540,19 @@ export function buildLostPauseRollbackOps(
   records: ReadonlyMap<RecordId, Entry>,
 ): Op[][] {
   const createdById = new Map<RecordId, Entry["record"]>();
+  const expectedWavePos = new Map<RecordId, number>();
+  const expectedObjStatus = new Map<RecordId, ObjectiveStatus>();
   for (const op of txOps) {
-    if ("Create" in op) createdById.set(op.Create.id, op.Create.record);
+    if ("Create" in op) {
+      createdById.set(op.Create.id, op.Create.record);
+      if ("Wave" in op.Create.record) expectedWavePos.set(op.Create.id, op.Create.record.Wave.t);
+      else if ("ObjectiveState" in op.Create.record) expectedObjStatus.set(op.Create.id, op.Create.record.ObjectiveState.status);
+    } else if ("Set" in op || "SetIf" in op) {
+      const id = "Set" in op ? op.Set.id : op.SetIf.id;
+      const value = "Set" in op ? op.Set.value : op.SetIf.value;
+      if ("WavePos" in value) expectedWavePos.set(id, value.WavePos);
+      else if ("ObjectiveStatus" in value) expectedObjStatus.set(id, value.ObjectiveStatus);
+    }
   }
 
   const candidateSetIfs: Array<Extract<Op, { SetIf: unknown }>> = [];
@@ -609,12 +620,16 @@ export function buildLostPauseRollbackOps(
   const deletes: Op[] = [];
   for (const id of deleteIds) {
     if (skippedIds.has(id)) continue;
+    const cur = records.get(id);
     const rec = getSim(id);
-    if (!rec || !("SceneState" in rec || "Wave" in rec || "ObjectiveState" in rec)) continue;
-    const created = createdById.get(id);
-    if (created) {
-      if ("Wave" in created && "Wave" in rec && rec.Wave.t !== created.Wave.t) continue;
-      if ("ObjectiveState" in created && "ObjectiveState" in rec && rec.ObjectiveState.status !== created.ObjectiveState.status) continue;
+    if (!cur || cur.deleted || !rec || !("SceneState" in rec || "Wave" in rec || "ObjectiveState" in rec)) continue;
+    if ("Wave" in cur.record) {
+      const expT = expectedWavePos.get(id);
+      if (expT !== undefined && cur.record.Wave.t !== expT) continue;
+    }
+    if ("ObjectiveState" in cur.record) {
+      const expSt = expectedObjStatus.get(id);
+      if (expSt !== undefined && cur.record.ObjectiveState.status !== expSt) continue;
     }
     if (!hasMoreKeys(moreOf(rec))) {
       deletes.push({ Delete: { id } });
@@ -631,7 +646,11 @@ export function buildLostPauseRollbackOps(
 /**
  * Derive conservative baseline-revert inverse ops directly from a pause-edit transaction's `ops`
  * when no local undo entry exists (e.g., a journal-restored pending edit after reload whose
- * outcome arrived via `ServerMsg::Rebase`). Intended to be filtered by `buildLostPauseRollbackOps`.
+ * outcome arrived via `ServerMsg::Rebase`). Intended to be filtered by `buildLostPauseRollbackOps`,
+ * which also gates `Delete` on matching `WavePos`/`ObjectiveStatus`/`More` writes from `txOps`.
+ * Baseline-valued writes (e.g. `PlayerAlive: true`, `PlayerSouls: null`) are skipped because the
+ * prior value is unavailable after reload + compaction-floor `Rebase` (normal own-`Entry` uses
+ * `takeConfirmedInverse` with the exact prior winner value).
  */
 export function fallbackRollbackInverseFromTxOps(txOps: readonly Op[]): Op[] {
   const out: Op[] = [];

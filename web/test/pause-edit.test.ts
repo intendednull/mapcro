@@ -1546,6 +1546,106 @@ describe("adversarial review regressions (clock CAS + lost-race rollback, tombst
     }
   });
 
+  it("Journal-restored Restore + WavePos/ObjectiveStatus on Rebase deletes leaked records when untouched and preserves winner records when modified", async () => {
+    const base = makeHarness(false);
+    const ids = base.ids;
+    const amber0 = ids.players[0]![0];
+    // Create & clear a deterministic Wave (lane1) and ObjectiveState (WALKER) so both start as clean tombstones at clock = null.
+    const wId = liveWaveId(BOARD_ID, MATCH_ID, "lane1");
+    const oId = liveObjId(BOARD_ID, MATCH_ID, WALKER.key);
+    base.apply([
+      ...liveWaveUpsertOps(base.board.records, BOARD_ID, MATCH_ID, ids.scene, 10, new Map(), "lane1", 300),
+      ...liveObjUpsert(base.board.records, BOARD_ID, MATCH_ID, ids.scene, new Map())(WALKER.key, "Destroyed"),
+    ]);
+    for (const tx of clearPauseOverridesOps(base.board.records, ids.scene)) base.apply(tx, true);
+    expect(base.board.records[wId]?.deleted).toBe(true);
+    expect(base.board.records[oId]?.deleted).toBe(true);
+    const tombDoc = JSON.parse(base.replica.view()) as Doc;
+
+    // Case 1: Winner A (20s) only moves Amber-0 (never touches Wave or ObjectiveState);
+    // Loser B (60s) restores Wave (420) and ObjectiveState (Destroyed), reloads from journal, and receives Rebase -> both deleted cleanly!
+    const hub1 = await createTwoClientHub(tombDoc);
+    try {
+      expect(hub1.a.edit(pauseMoveOps(sessionRecords(hub1.a), ids.scene, 20, [{ id: amber0, pos: { x: 200, y: 200 } }]))).toBe(true);
+      const bWaveOps = liveWaveUpsertOps(sessionRecords(hub1.b), BOARD_ID, MATCH_ID, ids.scene, 60, new Map(), "lane1", 420);
+      const bObjOps = [
+        ...pauseClockOps(sessionRecords(hub1.b), ids.scene, 60),
+        ...liveObjUpsert(sessionRecords(hub1.b), BOARD_ID, MATCH_ID, ids.scene, new Map())(WALKER.key, "Destroyed"),
+      ];
+      expect(bWaveOps.some((o) => "Restore" in o)).toBe(true);
+      expect(bObjOps.some((o) => "Restore" in o)).toBe(true);
+      expect(hub1.b.edit(bWaveOps)).toBe(true);
+      expect(hub1.b.edit(bObjOps)).toBe(true);
+      await hub1.flush();
+
+      await hub1.drop("B");
+      await hub1.deliverAll("A");
+      await hub1.deliverAll("B");
+
+      await hub1.reload("B", { rebase: { decidedBelow: 2 } });
+      expect(hub1.b.canUndo).toBe(false);
+      await hub1.settle();
+
+      for (const s of [hub1.a, hub1.b]) {
+        const recs = sessionRecords(s);
+        expect(sceneClockOf(recs, ids.scene)).toBe(20);
+        expect(recs[wId]?.deleted).toBe(true);
+        expect(recs[oId]?.deleted).toBe(true);
+        expect(s.problems).toEqual([]);
+      }
+    } finally {
+      hub1.stop();
+    }
+
+    // Case 2: Winner A (20s) writes DIFFERENT WavePos (810) and ObjectiveStatus (Standing) on the SAME deterministic Wave & ObjectiveState;
+    // Loser B (60s) reloads from journal and receives Rebase -> MUST NOT delete or clobber Winner A's Wave or ObjectiveState!
+    const hub2 = await createTwoClientHub(tombDoc);
+    try {
+      const bWaveOps = liveWaveUpsertOps(sessionRecords(hub2.b), BOARD_ID, MATCH_ID, ids.scene, 60, new Map(), "lane1", 420);
+      const bObjOps = [
+        ...pauseClockOps(sessionRecords(hub2.b), ids.scene, 60),
+        ...liveObjUpsert(sessionRecords(hub2.b), BOARD_ID, MATCH_ID, ids.scene, new Map())(WALKER.key, "Destroyed"),
+      ];
+      expect(hub2.a.edit(pauseMoveOps(sessionRecords(hub2.a), ids.scene, 20, [{ id: amber0, pos: { x: 200, y: 200 } }]))).toBe(true);
+      expect(hub2.b.edit(bWaveOps)).toBe(true);
+      expect(hub2.b.edit(bObjOps)).toBe(true);
+      await hub2.flush();
+
+      await hub2.drop("B");
+      await hub2.deliverAll("A");
+      await hub2.deliverAll("B");
+      // Winner A (20s) sets Wave lane1 -> 810 and ObjectiveState WALKER -> Active (overwriting B's leaked values before compaction).
+      const liveWavesA = new Map([["lane1", { id: wId, t: 420 }]]);
+      const liveObjsA = new Map([[WALKER.key, { id: oId, status: "Destroyed" as const }]]);
+      expect(hub2.a.edit(liveWaveUpsertOps(sessionRecords(hub2.a), BOARD_ID, MATCH_ID, ids.scene, 20, liveWavesA, "lane1", 810))).toBe(true);
+      expect(
+        hub2.a.edit([
+          ...pauseClockOps(sessionRecords(hub2.a), ids.scene, 20),
+          ...liveObjUpsert(sessionRecords(hub2.a), BOARD_ID, MATCH_ID, ids.scene, liveObjsA)(WALKER.key, "Active"),
+        ]),
+      ).toBe(true);
+      await hub2.deliverAll("A");
+
+      await hub2.reload("B", { rebase: { decidedBelow: 2 } });
+      expect(hub2.b.canUndo).toBe(false);
+      await hub2.settle();
+
+      for (const s of [hub2.a, hub2.b]) {
+        const recs = sessionRecords(s);
+        expect(sceneClockOf(recs, ids.scene)).toBe(20);
+        const wRec = recs[wId]!;
+        const oRec = recs[oId]!;
+        expect(wRec.deleted).toBe(false);
+        expect("Wave" in wRec.record && wRec.record.Wave.t).toBe(810);
+        expect(oRec.deleted).toBe(false);
+        expect("ObjectiveState" in oRec.record && oRec.record.ObjectiveState.status).toBe("Active");
+        expect(s.problems).toEqual([]);
+      }
+    } finally {
+      hub2.stop();
+    }
+  });
+
   it("concurrent 2-replica same-clock tombstone SceneState restore preserves both doors & obj_health and never regresses rows 42 -> 33", () => {
     createRoot((dispose) => {
       // Seed a cycle that creates SceneState with rows: 42 (doors), then clears it via clearPauseOverridesOps -> clean tombstone!

@@ -485,6 +485,9 @@ export class BoardSession {
     const txOps: Op[] = [];
     for (let i = items.length - 1; i >= 0; i--) {
       inv.push(...items[i]!.inv);
+    }
+    // Keep `txOps` chronological so final `WavePos`/`ObjectiveStatus` writes reflect the latest tx.
+    for (let i = 0; i < items.length; i++) {
       txOps.push(...items[i]!.txOps);
     }
     const txs = buildLostPauseRollbackOps(inv, txOps, this.records);
