@@ -15,7 +15,16 @@ import type { Op } from "../gen/Op";
 import { type MatchEvent, type Timeline, clockLabel, playersAt, tierOf } from "../match/timeline";
 import type { MapState } from "../mapstate/state";
 import { matchSceneOps, matchScenesOps, sourceOf } from "../match/save";
-import { MAX_OPS_PER_TX, chunks, playFromTxs, takeAnnotationsOps } from "./live";
+import {
+  MAX_OPS_PER_TX,
+  chunks,
+  clearPauseOverridesOps,
+  collectPauseOverrides,
+  liveEntityRecordIds,
+  pauseClock,
+  playFromTxs,
+  takeAnnotationsOps,
+} from "./live";
 import { FETCH_WHY, busy, jobLabel, queueLabel, staleUpload } from "./api";
 import { PROMPT, noticeFor, sizeLabel } from "./notice";
 import { DropOverlay, ReplayHelp, createDemDrop } from "./ReplayHelp";
@@ -56,6 +65,20 @@ export function Player(p: {
   onUserPlayback: () => void;
   /** The phone's own transport buttons (Events, Map layers, More, or its tool rail). */
   tail?: JSX.Element | undefined;
+  /** True in phone layout (Save/Reset live in `.p-rail` / `.p-more` instead of `.pl-tail`). */
+  phone?: boolean;
+  /** Whether active pause-edit entity overrides exist at the current paused second. */
+  hasPauseOverrides?: () => boolean;
+  /** Explicit undoable Reset while paused. */
+  onResetPause?: () => void;
+  /** Called right before transitioning `playing: false -> true`. */
+  onBeforePlay?: () => void;
+  /** Called right before seeking from `prevT` to `nextT`. */
+  onBeforeSeek?: (prevT: number, nextT: number) => void;
+  /** True while a hero/wave/door/health drag is active (guards Space from unpausing mid-drag). */
+  isDraggingEntity?: () => boolean;
+  /** Hands Board the `saveOne` handler for phone `.p-rail` / `.p-more` Save buttons. */
+  bindSave?: (save: (() => void) | undefined) => void;
 }) {
   const h = p.host;
   let idInput!: HTMLInputElement;
@@ -113,9 +136,13 @@ export function Player(p: {
   const saveOne = () => {
     const m = h.tl();
     if (!m) return;
-    const { id, ops, builds } = matchSceneOps(p.state.roster(), p.state.scenes(), p.scene, m, h.t(), markers(), p.mint, lanes(), { source: sourceOf(m) });
+    const live = p.state.liveScene(m.match_id);
+    const overrides = live ? collectPauseOverrides(p.state.records as never, live, h.playback().playing, h.t()) : undefined;
+    const { id, ops, builds } = matchSceneOps(p.state.roster(), p.state.scenes(), p.scene, m, h.t(), markers(), p.mint, lanes(), {
+      source: sourceOf(m),
+      ...(overrides ? { overrides } : {}),
+    });
     if (!ops.length || !p.state.edit(ops)) return h.setStatus("Not saved");
-    const live = p.state.liveScene(h.tl()?.match_id);
     if (live) {
       const moves = takeAnnotationsOps(rows, live, id, p.mint);
       const pairs: Op[][] = [];
@@ -123,9 +150,18 @@ export function Player(p: {
       const txs = chunks(pairs, MAX_OPS_PER_TX);
       const kept = txs.filter((tx) => p.state.edit(tx)).length;
       if (kept < txs.length) h.setStatus("Some ink not moved");
+      if (overrides) {
+        for (const tx of clearPauseOverridesOps(p.state.records as never, live)) p.state.editSilent(tx);
+        p.state.dropHistoryFor(liveEntityRecordIds(p.state.records as never, live));
+      }
     }
     p.onSaved(id, !builds);
   };
+  if (p.bindSave) {
+    const bind = p.bindSave;
+    bind(saveOne);
+    onCleanup(() => bind(undefined));
+  }
   const watching = () => h.mode() === "player";
   /** The viewed scene's moment in this match, if it has one. */
   const sourceHere = () => {
@@ -135,7 +171,9 @@ export function Player(p: {
   };
   const transportTime = () => !watching() && sourceHere() ? sourceHere()!.t : h.t();
   const seekReplay = (t: number) => user(() => {
+    const prev = h.t();
     const scene = !watching();
+    if (!scene) p.onBeforeSeek?.(prev, t);
     h.setMode("player");
     if (scene) h.control.play(false);
     h.control.seek(t);
@@ -144,7 +182,11 @@ export function Player(p: {
     if (!watching()) {
       const t = transportTime();
       h.setMode("player"); h.control.seek(t); h.control.play(true);
-    } else h.control.play(!h.playback().playing);
+    } else {
+      const nextPlaying = !h.playback().playing;
+      if (nextPlaying) p.onBeforePlay?.();
+      h.control.play(nextPlaying);
+    }
   });
   /** One step slower or faster. At the end the button disables, and a disabled button can't
    * hold the focus: it goes to the other speed button, so a keyboard user keeps their place
@@ -190,6 +232,18 @@ export function Player(p: {
         p.mint,
       );
       if (ensure.length) p.state.ensure(ensure);
+      const liveId = p.state.liveScene(src.match_id);
+      if (liveId) {
+        const sc = p.state.records[liveId];
+        const liveClock = sc && !sc.deleted && "Scene" in sc.record ? (sc.record.Scene.clock ?? null) : null;
+        if (liveClock === pauseClock(src.t)) {
+          const clearTxs = clearPauseOverridesOps(p.state.records as never, liveId);
+          for (const tx of clearTxs) p.state.editSilent(tx);
+          if (clearTxs.length || p.state.canUndo() || p.state.canRedo()) {
+            p.state.dropHistoryFor(liveEntityRecordIds(p.state.records as never, liveId));
+          }
+        }
+      }
       for (const tx of copies) p.state.editSilent(tx);
     }
     user(() => {
@@ -276,7 +330,7 @@ export function Player(p: {
     const space = (e: KeyboardEvent) => e.code === "Space" && plain(e) && boardKeys(e.target as Element | null);
     const spaceDown = (e: KeyboardEvent) => {
       if (e.code !== "Space") return;
-      tap = space(e) && !e.repeat;
+      tap = space(e) && !e.repeat && !p.isDraggingEntity?.();
       if (space(e)) e.preventDefault();
     };
     const key = (e: KeyboardEvent) => {
@@ -285,7 +339,12 @@ export function Player(p: {
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         e.preventDefault();
         const step = (e.shiftKey ? SEEK_KEY_SHIFT : SEEK_KEY) * (e.key === "ArrowLeft" ? -1 : 1);
-        user(() => h.control.seek(h.t() + step));
+        user(() => {
+          const prev = h.t();
+          const next = prev + step;
+          p.onBeforeSeek?.(prev, next);
+          h.control.seek(next);
+        });
       } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
         e.preventDefault();
         const t = h.t();
@@ -307,7 +366,11 @@ export function Player(p: {
       e.preventDefault();
       if (!tap) return;
       tap = false;
-      user(() => h.control.play(!h.playback().playing));
+      user(() => {
+        const nextPlaying = !h.playback().playing;
+        if (nextPlaying) p.onBeforePlay?.();
+        h.control.play(nextPlaying);
+      });
     };
     const cancel = () => (tap = false);
     window.addEventListener("keydown", spaceDown, true);
@@ -326,8 +389,11 @@ export function Player(p: {
   const jumpTo = (e: MatchEvent, lead: number) => {
     const tl = h.tl();
     user(() => {
+      const prev = h.t();
+      const next = tl ? jumpTarget(tl, e, lead) : jumpAt(e.t, lead);
+      p.onBeforeSeek?.(prev, next);
       h.control.play(false);
-      h.control.seek(tl ? jumpTarget(tl, e, lead) : jumpAt(e.t, lead));
+      h.control.seek(next);
     });
     h.flash(e, placeOf(e, markers()));
   };
@@ -601,10 +667,31 @@ export function Player(p: {
                 {/* Two parts, so the phone shell can stack them where one line doesn't fit. */}
                 <span class="clock-now">{clockLabel(transportTime())}</span><span class="clock-of"> / {clockLabel(m().duration_s)}</span>
               </span>
-              <Show when={canEdit() && watching()}>
-                <button class="btn primary small" type="button" data-testid="match-save" onClick={saveOne}>
-                  Save scene
-                </button>
+              <Show when={!p.phone && canEdit() && watching()}>
+                <div class="pl-save-group">
+                  <Show when={p.hasPauseOverrides?.()}>
+                    <button
+                      class="btn small ghost"
+                      type="button"
+                      data-testid="match-reset"
+                      title="Reset"
+                      onClick={() => p.onResetPause?.()}
+                    >
+                      Reset
+                    </button>
+                  </Show>
+                  <button
+                    class={cx("btn primary small", p.hasPauseOverrides?.() && "dirty")}
+                    type="button"
+                    data-testid="match-save"
+                    onClick={saveOne}
+                  >
+                    <Show when={p.hasPauseOverrides?.()}>
+                      <i class="save-dirty-dot" aria-hidden="true" />
+                    </Show>
+                    {p.hasPauseOverrides?.() ? "Save as scene" : "Save scene"}
+                  </button>
+                </div>
               </Show>
               </div>
             </div>
@@ -998,6 +1085,7 @@ type Props = {
   /** `bare`: a scene was saved without its builds (they were over a transaction). */
   onSaved: (id: RecordId, bare?: boolean) => void;
   onUserPlayback: () => void;
+  onBeforeSeek?: (prevT: number, nextT: number) => void;
 };
 
 /** Player's sidebar: the roster with ult rings, the events list and the credit line. The board
@@ -1055,9 +1143,12 @@ export function PlayerSide(p: Props) {
   const jump = (e: MatchEvent, lead: number) => {
     const m = h.tl();
     user(() => {
+      const prev = h.t();
+      const next = m ? jumpTarget(m, e, lead) : jumpAt(e.t, lead);
+      if (h.mode() === "player") p.onBeforeSeek?.(prev, next);
       h.setMode("player");
       h.control.play(false);
-      h.control.seek(m ? jumpTarget(m, e, lead) : jumpAt(e.t, lead));
+      h.control.seek(next);
     });
     h.flash(e, placeOf(e, markers()));
   };

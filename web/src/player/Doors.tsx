@@ -200,7 +200,7 @@ function DoorBadge(p: {
             )}
             data-testid="doorman-door"
             data-door-id={d().id}
-            data-erase-door={!p.frame.player() ? String(d().id) : undefined}
+            data-erase-door={!p.frame.player() || !!p.frame.pausedEdit?.() ? String(d().id) : undefined}
             data-team={d().team}
             data-role={d().role}
             data-partner={d().partner != null ? String(d().partner) : undefined}
@@ -296,7 +296,7 @@ export function DoormanDoors(p: {
   const doors = createMemo(() => {
     const drag = p.dragDoor?.();
     const dragIdx = resolvedDragIndex();
-    const list = shownDoors(p.frame.ms(), p.frame.shown().vision, !p.frame.player());
+    const list = shownDoors(p.frame.ms(), p.frame.shown().vision, !p.frame.player() || !!p.frame.pausedEdit?.());
     if (!drag || dragIdx === undefined) return list;
     return list.map((d) => (d.id === dragIdx ? { ...d, at: drag.pos } : d));
   });

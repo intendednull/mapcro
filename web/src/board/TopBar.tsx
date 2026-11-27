@@ -16,10 +16,9 @@
 
 import { rosterTeamName } from "../map/model";
 import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup } from "solid-js";
-import { capture } from "../ui/capture";
 import { cx } from "../ui/cx";
 import { formatClock, parseClock } from "../core/clock";
-import { parseSouls, splitTotal, teamTotal, ultFromVector, ultStep } from "../core/souls";
+import { parseSouls, splitTotal, teamTotal } from "../core/souls";
 import { colorOf } from "../core/device";
 import type { RecordId } from "../gen/RecordId";
 import type { WorldPos } from "../gen/WorldPos";
@@ -27,7 +26,7 @@ import type { Art } from "../map/pack";
 import type { Viewpoint } from "../map/transform";
 import { InlineEdit } from "../ui/InlineEdit";
 import type { BoardState, Player, Slot } from "./state";
-import { BarClock, EyeIcon, PortraitSlot, RejuvBadge, RejuvTimer, RespawnTimer, Souls, TeamColumn, TeamScore, TopBarFrame, UltDial, portraitTitle } from "./TopBarParts";
+import { BarClock, EyeIcon, PortraitSlot, RejuvBadge, RejuvTimer, RespawnTimer, Souls, TeamColumn, TeamScore, TopBarFrame, UltRing, portraitTitle } from "./TopBarParts";
 import { aliveOps } from "./Tokens";
 import { slotPlaceholder } from "./roster";
 import { LIMITS } from "../gen/limits";
@@ -46,69 +45,6 @@ import { DOORMAN_HERO_ID } from "../player/Doors";
 import type { PlayerHost } from "../player/host";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { buildPanels } from "./buildPanels";
-
-function UltRing(p: { state: BoardState; player: Player; left: number | null; editable: boolean; label: string }) {
-  const [preview, setPreview] = createSignal<number | null | undefined>();
-  const value = () => (preview() !== undefined ? preview()! : p.left);
-  const commit = (v: number | null) => {
-    if (v !== p.player.state.ult_cooldown) p.state.edit([{ Set: { id: p.player.id, value: { PlayerUltCooldown: v } } }]);
-  };
-  let el!: HTMLDivElement;
-  let wheelTimer: ReturnType<typeof setTimeout> | undefined;
-  onCleanup(() => clearTimeout(wheelTimer));
-
-  const down = (e: PointerEvent) => {
-    if (!p.editable || e.button !== 0) return;
-    e.preventDefault();
-    capture(el, e.pointerId);
-    const r = el.getBoundingClientRect();
-    const cx = r.left + r.width / 2;
-    const cy = r.top + r.height / 2;
-    let moved = false;
-    p.state.presence({ focus: p.player.id });
-    const move = (ev: PointerEvent) => {
-      const dx = ev.clientX - cx;
-      const dy = ev.clientY - cy;
-      if (!moved && Math.hypot(ev.clientX - e.clientX, ev.clientY - e.clientY) < 3) return;
-      moved = true;
-      setPreview(ultFromVector(dx, dy));
-    };
-    const up = (ev: PointerEvent) => {
-      el.removeEventListener("pointermove", move);
-      el.removeEventListener("pointerup", up);
-      el.removeEventListener("pointercancel", up);
-      if (ev.type === "pointerup") commit(moved ? (preview() ?? 0) : 0); // a click marks it ready
-      setPreview(undefined);
-      p.state.presence({ focus: null });
-    };
-    el.addEventListener("pointermove", move);
-    el.addEventListener("pointerup", up);
-    el.addEventListener("pointercancel", up);
-  };
-
-  const wheel = (e: WheelEvent) => {
-    if (!p.editable) return;
-    e.preventDefault();
-    setPreview(ultStep(value(), e.deltaY > 0));
-    clearTimeout(wheelTimer);
-    // A burst of scroll ticks is one edit (one undo step).
-    wheelTimer = setTimeout(() => {
-      const v = preview();
-      setPreview(undefined);
-      if (v !== undefined) commit(v);
-    }, 350);
-  };
-
-  const u = () => value();
-  return (
-    <UltDial ref={(e) => (el = e)} left={u()} label={p.label} editable={p.editable} adjusting={preview() !== undefined} onPointerDown={down} onWheel={wheel}>
-      <Show when={preview() !== undefined}>
-        <i class="tb-ult-handle" style={{ transform: `translate(-50%, -50%) rotate(${(u() ?? 0) * 3.6}deg) translateY(calc(-14 * var(--u)))` }} />
-        <b class="tb-ult-pct">{u() == null ? "untracked" : u()! <= 0 ? "ready" : `${Math.round(u()!)}% left`}</b>
-      </Show>
-    </UltDial>
-  );
-}
 
 export function TopBar(p: {
   state: BoardState;
@@ -389,7 +325,15 @@ export function TopBar(p: {
               >
                 <EyeIcon off={!h.inSight()} />
               </button>
-              <UltRing state={p.state} player={player} left={h.ult()} editable={editable()} label={label()} />
+              <UltRing
+                left={h.ult()}
+                editable={editable()}
+                label={label()}
+                onFocus={(on) => p.state.presence({ focus: on ? player.id : null })}
+                onCommit={(v) => {
+                  if (v !== player.state.ult_cooldown) p.state.edit([{ Set: { id: player.id, value: { PlayerUltCooldown: v } } }]);
+                }}
+              />
               {/* As Player's bar: the hero level on the portrait while its build is open. */}
               <Show when={open() && view.level()}>
                 {(lv) => <span class="tb-level" data-testid="tb-level" title="Hero level">{lv()}</span>}

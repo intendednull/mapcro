@@ -18,6 +18,14 @@ import { MAX_RESPAWN, slotKey } from "../match/save";
 import type { Shown } from "../mapstate/frame";
 import { heroDraw, playerHero, sceneTokenHealth } from "../mapstate/shown";
 import type { MapState } from "../mapstate/state";
+import {
+  pauseKillOps,
+  pauseMoveOps,
+  pauseRespawnOps,
+  pauseReviveOps,
+  prepareLivePauseEdit,
+} from "../mapstate/paused";
+import { pauseClock } from "../player/live";
 import { colorOf } from "../core/device";
 import type { PeerPresence } from "../gen/PeerPresence";
 import type { RecordId } from "../gen/RecordId";
@@ -88,12 +96,16 @@ export const SKULL = "M0 -6a6 6 0 0 1 6 6c0 2-1 3-2 3.6V6H-4V3.6C-5 3-6 2-6 0a6 
 export interface TokenFrame {
   /** The frame: Player's state, or the open scene's (Board's `mapState()`). */
   ms: () => MapState;
-  /** Player: the frame is the match's, drawn as it plays, and the tokens aren't edited. */
+  /** Player: the frame is the match's, drawn as it plays. */
   player: () => boolean;
   /** The viewer's choices (Player's Vision, Show last seen location, names, health, movement, CC). */
   shown: () => Shown;
   /** Whether this moment continues the last in playback: Vision's fades run only then. */
   smooth: () => boolean;
+  /** Paused Player entity editing enabled for this user (spec #61). */
+  pausedEdit?: () => boolean;
+  /** Canonical paused integer second when paused in Player (`undefined` while playing or in Scenes). */
+  pauseClock?: () => number | undefined;
 }
 
 export function Tokens(p: {
@@ -135,9 +147,19 @@ export function Tokens(p: {
   const players = createMemo(() => p.state.playersIn(p.scene).filter((pl) => slots().has(pl.state.slot)));
   const bySlot = createMemo(() => new Map(players().map((pl) => [pl.state.slot, pl])));
   const slotIds = createMemo(() => players().map((pl) => pl.state.slot), undefined, { equals: (a, b) => a.length === b.length && a.every((x, i) => x === b[i]) });
+  const live = () => p.frame.player();
   const posOf = (id: RecordId) => {
     const e = p.state.records[id];
-    return e && "PlayerState" in e.record ? e.record.PlayerState.pos : undefined;
+    if (!e || !("PlayerState" in e.record)) return undefined;
+    const ps = e.record.PlayerState;
+    if (live()) {
+      const sl = slots().get(ps.slot);
+      if (sl) {
+        const h = p.frame.ms().hero(slotKey(sl.team, sl.slot));
+        return h.pos() ?? h.last() ?? (ps.placed ? ps.pos : undefined);
+      }
+    }
+    return ps.pos;
   };
   const moved = (from: WorldPos, d: { x: number; y: number }) => clampToDisc({ x: from.x + d.x, y: from.y + d.y });
 
@@ -145,8 +167,12 @@ export function Tokens(p: {
   const touching = createMemo(() => {
     const m = new Map<RecordId, { peer: PeerPresence; at: WorldPos | undefined }[]>();
     const add = (id: RecordId, peer: PeerPresence, at: WorldPos | undefined) => m.set(id, [...(m.get(id) ?? []), { peer, at }]);
+    const myClock = live() ? p.frame.pauseClock?.() : undefined;
     for (const peer of p.state.peerList()) {
       const s = peer.state!;
+      if (live()) {
+        if (myClock === undefined || !s.playback || s.playback.playing || pauseClock(s.playback.t) !== myClock) continue;
+      }
       if (s.drag) {
         add(s.drag.id, peer, s.drag.pos);
         const from = posOf(s.drag.id);
@@ -162,8 +188,8 @@ export function Tokens(p: {
     return m;
   });
 
-  const live = () => p.frame.player();
-  const editable = () => p.tool === "select" && (p.state.canEdit() && p.editing !== false) && !live();
+  const canPauseEdit = () => live() && !!p.frame.pausedEdit?.();
+  const editable = () => p.tool === "select" && (p.state.canEdit() && p.editing !== false) && (!live() || !!p.frame.pausedEdit?.());
 
   // Double-tap timestamp for minimap hero tokens (spec §2.2: pointer capture on <svg> in Scenes
   // prevents native DOM `dblclick` on <g class="tok">).
@@ -243,7 +269,7 @@ export function Tokens(p: {
   };
 
   const down = (pl: Player, e: PointerEvent) => {
-    if (live() && p.tool === "select" && e.button === 0) click(pl, e);
+    if (live() && !editable() && p.tool === "select" && e.button === 0) click(pl, e);
     if (!editable() || e.button !== 0) return;
     const svg = p.svg();
     if (!svg) return;
@@ -303,8 +329,22 @@ export function Tokens(p: {
       svg.removeEventListener("pointercancel", up);
       const dropped = ev.type === "pointerup" && d.moved;
       // The whole group lands as one transaction: one undo step.
-      if (dropped)
-        p.state.edit(d.group.map((g) => ({ Set: { id: g.id, value: { PlayerPos: moved(g.from, d.delta) } } })));
+      if (dropped) {
+        if (live()) {
+          const liveId = p.scene;
+          const clock = p.frame.pauseClock?.();
+          if (liveId && clock !== undefined) {
+            const moves = d.group.map((g) => ({ id: g.id, pos: moved(g.from, d.delta), from: g.from }));
+            if (moves.some((m) => m.pos.x !== m.from.x || m.pos.y !== m.from.y)) {
+              prepareLivePauseEdit(p.state, liveId, clock);
+              const ops = pauseMoveOps(p.state.records as never, liveId, clock, moves);
+              if (ops.length) p.state.edit(ops);
+            }
+          }
+        } else {
+          p.state.edit(d.group.map((g) => ({ Set: { id: g.id, value: { PlayerPos: moved(g.from, d.delta) } } })));
+        }
+      }
       setDrag(undefined);
       p.state.presence({ drag: null, drag_group: [], focus: null });
       if (d.moved) p.onDragHero?.(undefined, dropped ? dragKeys : undefined);
@@ -317,9 +357,23 @@ export function Tokens(p: {
     svg.addEventListener("pointercancel", up);
   };
 
-  /** Dead or alive (K on a hovered hero). */
+  /** Dead or alive (K on a hovered hero, skull, or portrait). */
   const toggleAlive = (pl: Player) => {
-    if (!(p.state.canEdit() && p.editing !== false) || live()) return;
+    if (!(p.state.canEdit() && p.editing !== false) || (live() && !canPauseEdit())) return;
+    if (live()) {
+      const liveId = p.scene;
+      const clock = p.frame.pauseClock?.();
+      const sl = slots().get(pl.state.slot);
+      if (!liveId || clock === undefined || !sl) return;
+      const h = p.frame.ms().hero(slotKey(sl.team, sl.slot));
+      const pos = h.pos() ?? h.last() ?? { x: 0, y: 0 };
+      prepareLivePauseEdit(p.state, liveId, clock);
+      const ops = h.alive()
+        ? pauseKillOps(p.state.records as never, liveId, clock, pl, pos)
+        : pauseReviveOps(p.state.records as never, liveId, clock, pl, pos);
+      if (ops.length) p.state.edit(ops);
+      return;
+    }
     p.state.edit(aliveOps(pl));
   };
   // K acts on the hero under the pointer: the hover is a hint, and is checked against what is
@@ -345,11 +399,25 @@ export function Tokens(p: {
       if (!inside) setArmed(undefined);
     };
     const key = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() !== "k" || e.ctrlKey || e.metaKey || e.altKey || e.repeat || !at || live()) return;
+      if (e.key.toLowerCase() !== "k" || e.ctrlKey || e.metaKey || e.altKey || e.repeat || !at || (live() && !canPauseEdit())) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-      const under = document.elementsFromPoint(at.x, at.y).map((el) => el.closest?.(".tok[data-player]")?.getAttribute("data-player")).find(Boolean);
-      const pl = under === hovered() ? players().find((x) => x.id === under) : undefined;
+      const els = document.elementsFromPoint(at.x, at.y);
+      const under = els.map((el) => el.closest?.(".tok[data-player]")?.getAttribute("data-player")).find(Boolean);
+      let pl = under === hovered() ? players().find((x) => x.id === under) : undefined;
+      if (!pl && live() && canPauseEdit()) {
+        // Allow K on a dead hero's skull or top-bar portrait while paused to revive/kill.
+        const rawSlot = els
+          .map((el) => el.closest?.(".pl-skull[data-slot], .tb-player[data-slot]")?.getAttribute("data-slot"))
+          .find(Boolean);
+        if (rawSlot) {
+          const norm = rawSlot.toLowerCase();
+          pl = players().find((x) => {
+            const sl = slots().get(x.state.slot);
+            return sl && slotKey(sl.team, sl.slot) === norm;
+          });
+        }
+      }
       if (!pl) return;
       e.preventDefault();
       toggleAlive(pl);
@@ -366,6 +434,18 @@ export function Tokens(p: {
     const v = parseClock(text);
     if (v === undefined) return;
     const s = v === null ? null : Math.min(MAX_RESPAWN, v);
+    if (live()) {
+      const liveId = p.scene;
+      const clock = p.frame.pauseClock?.();
+      if (!liveId || clock === undefined) return;
+      const sl = slots().get(pl.state.slot);
+      const curRespawn = sl ? (p.frame.ms().hero(slotKey(sl.team, sl.slot)).respawn() ?? null) : (pl.state.respawn ?? null);
+      if (s === curRespawn) return;
+      prepareLivePauseEdit(p.state, liveId, clock);
+      const ops = pauseRespawnOps(p.state.records as never, liveId, clock, pl, s);
+      if (ops.length) p.state.edit(ops);
+      return;
+    }
     if (s !== (pl.state.respawn ?? null)) p.state.edit([{ Set: { id: pl.id, value: { PlayerRespawn: s } } }]);
   };
 
@@ -402,8 +482,10 @@ export function Tokens(p: {
           const vf = visionFade({ value: () => (raw()?.pos ? raw() : undefined), hidden: () => !!raw()?.unseen, smooth, el });
           const leaving = vf.leaving;
           const pv = () => vf.shown() ?? raw();
-          // Player draws no dead hero; a scene's is dark, with its respawn time (D4).
-          const alive = () => live() || h().alive();
+          // Player draws no timeline-dead hero; a hero killed while paused renders as a dead
+          // token with its badge and respawn label (spec #61 §3.1 #3).
+          const killedWhilePaused = () => live() && p.frame.pauseClock?.() !== undefined && !h().alive() && !pl().state.alive && pl().state.placed;
+          const alive = () => (live() ? !killedWhilePaused() : h().alive());
           // In one team's Vision, an enemy out of its sight: a ghost where last seen (Player).
           const ghost = () => pv()?.ghost ?? null;
           // Dim: Player's ghost, or a scene's hero out of the viewer's sight (D3, D5).
@@ -421,25 +503,28 @@ export function Tokens(p: {
           const remote = () => (touching().get(pl().id) ?? []).find((t) => t.at);
           const remoteDrag = () => remote()?.peer;
           const remoteAt = smoothed(() => remote()?.at);
-          // Player: where the frame draws it. A scene: a drag's, else where its token stands
-          // (an unplaced hero's spot is the record's: where a flip glides it from).
-          const target = () => pv()?.pos ?? mine() ?? remoteAt() ?? h().last() ?? pl().state.pos;
+          // Local or remote drag wins over frame position so paused dragging previews live.
+          const target = () => mine() ?? remoteAt() ?? pv()?.pos ?? h().last() ?? pl().state.pos;
           // A scene flip: from the last scene's spot to this one's (render only).
           const flipped = smoothed(target, FLIP_MS, () => p.scene);
           const shown = () => flipped() ?? target();
           const selected = () => p.selection().has(pl().id);
           const tracked = () => p.trackedHero?.() === slotKey(slot().team, slot().slot);
           const at = () => worldToView(shown(), p.vp);
-          const home = () => worldToView(pl().state.pos, p.vp);
+          const home = () => worldToView(posOf(pl().id) ?? pl().state.pos, p.vp);
           const r = () => TOKEN_R * p.k;
-          // In Player, the match's player name under Player names (spec §6b), else the board's
-          // slot name. A scene's: its own, the board's slot name, then its source match's (D1).
-          const name = () => (live() ? pv()?.name : h().name()) || slotName(slot().name, undefined) || slotPlaceholder(slot().team, slot().slot);
+          // In Player, an explicit pause rename wins, else the match's name under Player names, else the slot name.
+          const pausedName = () => {
+            if (!live() || p.frame.pauseClock?.() === undefined) return undefined;
+            const n = pl().state.more?.name;
+            return typeof n === "string" && n ? n : undefined;
+          };
+          const name = () => (live() ? (pausedName() ?? pv()?.name) : h().name()) || slotName(slot().name, undefined) || slotPlaceholder(slot().team, slot().slot);
           const label = () => `${name()}${hero() ? `, ${hero()!.name}` : ""}${ghost() != null ? ` · Seen ${formatClock(Math.floor(ghost()!))} ago` : ""}`;
           // The map's hover label (map/HoverLabel.tsx), by roster slot, never the player's id.
           const hoverId = () => `${slot().team}-${slot().slot}`;
-          /** Drawn: Player, where the frame has it; a scene, once its token is placed. */
-          const drawn = () => (live() ? !!pv()?.pos : h().last() != null);
+          /** Drawn: Player, where the frame has it (or killed while paused); a scene, once its token is placed. */
+          const drawn = () => (live() ? (!!pv()?.pos || killedWhilePaused()) : h().last() != null);
           const shownOnMap = () => drawn() && !leaving();
           createEffect(() => {
             const off = registerHover("token", hoverId(), () => (shownOnMap() ? { x: at().x, y: at().y, gap: r() + 12 * p.k, text: label() } : undefined));

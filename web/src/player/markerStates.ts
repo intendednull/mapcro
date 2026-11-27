@@ -39,8 +39,10 @@ export function markerStates(frame: MarkerFrame, keys: () => readonly string[]) 
       if (c) return c.state === "alive" ? "Active" : "Destroyed";
       return m.health()?.stage === 2 ? "Stage2" : undefined;
     }
-    // Player shows only the match at t (spec §6b): what was down, and from a replay
-    // the rifts and powerups; never the scene's states. Without a replay, rifts are off.
+    // Player shows the match at t (spec §6b), with paused `liveScene` ObjectiveState overrides
+    // taking precedence when present (fromTimeline always returns `status() === undefined`).
+    const own = m.status();
+    if (own !== undefined) return own;
     const site = m.site();
     if (site) return site;
     if (k.startsWith("rift:") || k.startsWith("urn:")) return "Destroyed";

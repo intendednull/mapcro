@@ -5,7 +5,7 @@
 import { createEffect, on, onCleanup } from "solid-js";
 import type { BoardState } from "../board/state";
 import type { RecordId } from "../gen/RecordId";
-import { clearAnnotationsOps, ensureLiveOps } from "./live";
+import { clearAnnotationsOps, clearPauseOverridesOps, ensureLiveOps, liveEntityRecordIds } from "./live";
 import type { PlayerHost } from "./host";
 
 /** Wait this long after entering for others' presence before deciding we're alone. */
@@ -70,6 +70,17 @@ export function liveLayer(state: BoardState, h: PlayerHost, board: string, inPla
         const ops = live ? clearAnnotationsOps(stale as never, live) : [];
         for (const other of state.liveScenes().filter((x) => x.match !== m)) ops.push({ Delete: { id: other.id } });
         if (ops.length) state.editSilent(ops);
+        // Clean up abandoned pause-edit entity overrides from a previous session (spec §4.3 #4)
+        // and prune local undo/redo entries pointing at scrubbed live entities so reload cleanup
+        // never leaves dangling history steps.
+        if (live && !state.madeHere(live)) {
+          const entityTxs = clearPauseOverridesOps(state.records as never, live);
+          for (const tx of entityTxs) state.editSilent(tx);
+          if (entityTxs.length || state.canUndo() || state.canRedo()) {
+            const entityIds = liveEntityRecordIds(state.records as never, live);
+            if (entityIds.length) state.dropHistoryFor(entityIds);
+          }
+        }
       }, SETTLE_MS);
       onCleanup(() => clearTimeout(timer));
     }),

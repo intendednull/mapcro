@@ -14,7 +14,13 @@ import type { RoomKind } from "../gen/RoomKind";
 import type { Via } from "../gen/Via";
 import { BoardReplica, buildId, newClientId, newClientSecret, presenceFrameOk } from "../wasm/mapcro_wasm.js";
 import { decideStep } from "../mapstate/undo";
-import { isLiveLayerCreate } from "../player/live";
+import {
+  buildLostPauseRollbackOps,
+  fallbackRollbackInverseFromTxOps,
+  isLiveEntityCreate,
+  isLiveLayerCreate,
+  pauseEditClockTag,
+} from "../player/live";
 import { MemoryPersist, type Persist } from "./persist";
 import { pageSeat } from "./seat";
 import type { SaveStatus, Update } from "./update";
@@ -204,6 +210,10 @@ export class BoardSession {
    * comes again on every reconnect until the hello's `pending_from` passes it (authority.rs),
    * so each is kept until then (`connected`), never on first receipt. */
   private readonly ensures = new Set<number>();
+  /** Pending pause-edit transactions keyed by cseq -> intended `{ scene, clock, ops }` for lost-race rollback. */
+  private readonly pauseEditClocks = new Map<number, { scene: RecordId; clock: number; ops: Op[] }>();
+  /** Buffered server-applied inverses for lost pause-edit races, flushed LIFO once pending txs for `(scene, clock)` settle. */
+  private readonly lostPauseRollbacks = new Map<string, Array<{ inv: Op[]; txOps: Op[] }>>();
   private saveSoon: ReturnType<typeof setTimeout> | undefined;
   private dirtySince: number | undefined;
   /** Local storage couldn't be opened; this session keeps everything in memory. */
@@ -379,7 +389,24 @@ export class BoardSession {
 
   /** Apply an edit; false if it was refused locally (the server may still refuse it later). */
   edit(ops: Op[]): boolean {
-    return this.local((r) => r.edit(JSON.stringify(ops)));
+    const r = this.replica;
+    const cseq = r?.nextCseq();
+    const ok = this.local((r) => r.edit(JSON.stringify(ops)));
+    if (ok && r && cseq !== undefined && r.nextCseq() === cseq + 1) {
+      if (isLiveEntityCreate(this.o.board, this.records, { kind: "Edit", ops })) {
+        this.ensures.add(cseq);
+      }
+      const tag = pauseEditClockTag(ops);
+      if (tag) this.pauseEditClocks.set(cseq, { ...tag, ops });
+    }
+    return ok;
+  }
+
+  /** Strip local undo and redo entries touching `ids` (e.g. cleared live-scene entity overrides). */
+  dropHistoryFor(ids: RecordId[]): void {
+    if (!this.replica || this.ended || !ids.length) return;
+    this.apply(this.replica.dropHistoryFor(JSON.stringify(ids)));
+    this.saveState().catch((e) => this.problems.push(`could not save locally: ${e}`));
   }
 
   /** An edit that isn't the user's to undo (spec §6b: Player's live layer); redo is kept. */
@@ -415,13 +442,60 @@ export class BoardSession {
    * (TD-35), and forget ensures below `pending_from` (the server no longer reports them). */
   private connected(frames: WireIn[]) {
     for (const f of frames) {
-      if (f.t === "msg" && "Submit" in f.msg && isLiveLayerCreate(this.o.board, f.msg.Submit)) {
-        this.ensures.add(f.msg.Submit.cseq);
+      if (f.t === "msg" && "Submit" in f.msg) {
+        if (isLiveLayerCreate(this.o.board, f.msg.Submit) || isLiveEntityCreate(this.o.board, this.records, f.msg.Submit)) {
+          this.ensures.add(f.msg.Submit.cseq);
+        }
+        // Only user pause edits ever emit a non-null SceneClock SetIf (editSilent cleanups always
+        // clear to null), so this includes journal-restored user edits and excludes all cleanups.
+        const tag = pauseEditClockTag(f.msg.Submit.ops);
+        if (tag) {
+          this.pauseEditClocks.set(f.msg.Submit.cseq, { ...tag, ops: f.msg.Submit.ops });
+        }
       }
     }
     const hello = frames[0];
-    const from = hello?.t === "msg" && "Hello" in hello.msg ? hello.msg.Hello.pending_from : undefined;
-    if (from !== undefined) for (const c of this.ensures) if (c < from) this.ensures.delete(c);
+    if (hello?.t === "msg" && "Hello" in hello.msg) {
+      this.client = hello.msg.Hello.client;
+      for (const c of this.ensures) if (c < hello.msg.Hello.pending_from) this.ensures.delete(c);
+      for (const c of this.pauseEditClocks.keys()) if (c < hello.msg.Hello.pending_from) this.pauseEditClocks.delete(c);
+    }
+  }
+
+  private syncHistory(): void {
+    const r = this.replica;
+    if (!r) return;
+    this.canUndo = r.canUndo();
+    this.canRedo = r.canRedo();
+    this.o.onChange?.(this);
+  }
+
+  private hasPendingPauseClock(scene: RecordId, clock: number): boolean {
+    for (const t of this.pauseEditClocks.values()) {
+      if (t.scene === scene && t.clock === clock) return true;
+    }
+    return false;
+  }
+
+  private flushLostPauseRollback(key: string): boolean {
+    const items = this.lostPauseRollbacks.get(key);
+    if (!items?.length) return false;
+    this.lostPauseRollbacks.delete(key);
+    const inv: Op[] = [];
+    const txOps: Op[] = [];
+    for (let i = items.length - 1; i >= 0; i--) {
+      inv.push(...items[i]!.inv);
+    }
+    // Keep `txOps` chronological so final `WavePos`/`ObjectiveStatus` writes reflect the latest tx.
+    for (let i = 0; i < items.length; i++) {
+      txOps.push(...items[i]!.txOps);
+    }
+    const txs = buildLostPauseRollbackOps(inv, txOps, this.records);
+    let sent = false;
+    for (const tx of txs) {
+      if (this.editSilent(tx)) sent = true;
+    }
+    return sent;
   }
 
   /** Update what others see of us. Sent at most every PRESENCE_MS; the latest state always wins. */
@@ -681,8 +755,92 @@ export class BoardSession {
         const m = frame.msg;
         // Decided before the change callback runs, so the UI never sees an ensure's refusal.
         const lost = typeof m === "object" && "Rejected" in m && this.ensures.has(m.Rejected.cseq) && m.Rejected.reason === "IdTaken";
-        if (typeof m === "object" && "Rejected" in m && !lost) this.problems.push(`rejected: ${JSON.stringify(m.Rejected.reason)}`);
+        let rejectedPauseTag: { scene: RecordId; clock: number } | undefined;
+        let ownPauseTag: { scene: RecordId; clock: number } | undefined;
+        let rebasedPauseTags: Array<{ cseq: number; scene: RecordId; clock: number; ops: Op[] }> | undefined;
+        if (typeof m === "object" && "Rejected" in m) {
+          rejectedPauseTag = this.pauseEditClocks.get(m.Rejected.cseq);
+          this.pauseEditClocks.delete(m.Rejected.cseq);
+          if (!lost) {
+            this.ensures.delete(m.Rejected.cseq);
+            this.problems.push(`rejected: ${JSON.stringify(m.Rejected.reason)}`);
+          }
+        } else if (typeof m === "object" && "Entry" in m && m.Entry.tx.client === this.client) {
+          // Accepted in the log: the server will never reject this cseq again.
+          this.ensures.delete(m.Entry.tx.cseq);
+          ownPauseTag = this.pauseEditClocks.get(m.Entry.tx.cseq);
+          this.pauseEditClocks.delete(m.Entry.tx.cseq);
+        } else if (typeof m === "object" && "Rebase" in m) {
+          const decided: Array<{ cseq: number; scene: RecordId; clock: number; ops: Op[] }> = [];
+          for (const [c, tag] of this.pauseEditClocks) {
+            if (c < m.Rebase.decided_below) {
+              decided.push({ cseq: c, ...tag });
+              this.pauseEditClocks.delete(c);
+            }
+          }
+          if (decided.length) {
+            decided.sort((a, b) => a.cseq - b.cseq);
+            rebasedPauseTags = decided;
+          }
+        }
         this.apply(r.receive(JSON.stringify(frame)));
+        if (typeof m === "object" && "Entry" in m && m.Entry.tx.client === this.client) {
+          const cseq = m.Entry.tx.cseq;
+          const confirmedInv = JSON.parse(r.takeConfirmedInverse(cseq)) as Op[] | null;
+          if (ownPauseTag) {
+            const confirmedClock = r.confirmedSceneClock(ownPauseTag.scene) ?? null;
+            if (confirmedClock !== ownPauseTag.clock) {
+              const localInv = JSON.parse(r.takeUndoFor(cseq)) as Op[] | null;
+              const baseInv = confirmedInv ?? localInv ?? [];
+              const key = `${ownPauseTag.scene}:${ownPauseTag.clock}`;
+              if (baseInv.length) {
+                const list = this.lostPauseRollbacks.get(key) ?? [];
+                list.push({ inv: baseInv, txOps: m.Entry.tx.ops });
+                this.lostPauseRollbacks.set(key, list);
+              }
+              const flushed = !this.hasPendingPauseClock(ownPauseTag.scene, ownPauseTag.clock)
+                ? this.flushLostPauseRollback(key)
+                : false;
+              if (localInv !== null && !flushed) {
+                this.syncHistory();
+              }
+            }
+          }
+        } else if (rejectedPauseTag) {
+          if (!this.hasPendingPauseClock(rejectedPauseTag.scene, rejectedPauseTag.clock)) {
+            this.flushLostPauseRollback(`${rejectedPauseTag.scene}:${rejectedPauseTag.clock}`);
+          }
+        } else if (typeof m === "object" && "Rebase" in m) {
+          let droppedAnyUndo = false;
+          let flushedAny = false;
+          if (rebasedPauseTags) {
+            for (const item of rebasedPauseTags) {
+              const confirmedClock = r.confirmedSceneClock(item.scene) ?? null;
+              if (confirmedClock !== item.clock) {
+                const localInv = JSON.parse(r.takeUndoFor(item.cseq)) as Op[] | null;
+                if (localInv !== null) droppedAnyUndo = true;
+                const inv = localInv ?? fallbackRollbackInverseFromTxOps(item.ops);
+                if (inv.length) {
+                  const key = `${item.scene}:${item.clock}`;
+                  const list = this.lostPauseRollbacks.get(key) ?? [];
+                  list.push({ inv, txOps: item.ops });
+                  this.lostPauseRollbacks.set(key, list);
+                }
+              }
+            }
+          }
+          for (const key of [...this.lostPauseRollbacks.keys()]) {
+            const sep = key.lastIndexOf(":");
+            const scene = key.slice(0, sep);
+            const clock = Number(key.slice(sep + 1));
+            if (!this.hasPendingPauseClock(scene, clock)) {
+              if (this.flushLostPauseRollback(key)) flushedAny = true;
+            }
+          }
+          if (droppedAnyUndo && !flushedAny) {
+            this.syncHistory();
+          }
+        }
         this.persistSoon();
         return;
       }

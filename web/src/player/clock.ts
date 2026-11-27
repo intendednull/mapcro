@@ -45,7 +45,8 @@ export function follow(
   const there = tAt({ t: theirs.t, playing: theirs.playing, speed: theirs.speed, at: theirs.at }, now, duration);
   const here = tAt(mine, now, duration);
   const same = mine.playing === theirs.playing && mine.speed === theirs.speed;
-  if (same && Math.abs(here - there) <= slack * Math.max(1, theirs.speed)) return mine;
+  // While paused, snap within 0.01 s so presenter and follower share the exact same `pauseClock(t)`.
+  if (same && (theirs.playing ? Math.abs(here - there) <= slack * Math.max(1, theirs.speed) : Math.abs(here - there) < 0.01)) return mine;
   // At the end the presenter has stopped: so does the follower, at the end.
   const playing = theirs.playing && there < duration;
   return { t: clampT(there, duration), playing, speed: theirs.speed, at: now };

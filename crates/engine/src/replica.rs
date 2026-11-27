@@ -1,5 +1,5 @@
 use crate::protocol::{ClientMsg, Hello, ServerMsg};
-use mapcro_schema::{ClientId, Doc, Op, Reject, Tx, TxKind, apply_tx, apply_tx_with_inverse, op_target};
+use mapcro_schema::{ClientId, Doc, Op, RecordId, Reject, Tx, TxKind, apply_tx, apply_tx_with_inverse, op_target};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
@@ -68,6 +68,8 @@ pub struct Replica {
     redo: Vec<HistoryEntry>,
     rejected: Vec<(u64, Reject)>,
     connected: bool,
+    /// Server-applied inverse of the most recent own `ServerMsg::Entry` (ephemeral, not persisted).
+    last_own_entry_inverse: Option<(u64, Vec<Op>)>,
 }
 
 impl Replica {
@@ -86,6 +88,7 @@ impl Replica {
             redo: Vec::new(),
             rejected: Vec::new(),
             connected: false,
+            last_own_entry_inverse: None,
         }
     }
 
@@ -118,6 +121,7 @@ impl Replica {
             redo: s.redo,
             rejected: s.rejected,
             connected: false,
+            last_own_entry_inverse: None,
         };
         r.rebase();
         r
@@ -189,6 +193,36 @@ impl Replica {
         let msg = self.connected.then(|| ClientMsg::Submit(tx.clone()));
         self.pending.push_back(tx);
         Ok(msg)
+    }
+
+    /// Remove local undo and redo entries whose inverse touches any record in `records`
+    /// (e.g., ephemeral `liveScene` entity overrides cleared on Play, Scrub, or reload).
+    /// Purely local to this replica's history stacks; sends nothing on the wire.
+    pub fn drop_history_for(&mut self, records: &[RecordId]) {
+        if records.is_empty() {
+            return;
+        }
+        let targets: std::collections::BTreeSet<RecordId> = records.iter().copied().collect();
+        let keep = |e: &HistoryEntry| !e.inverse.iter().any(|op| targets.contains(&op_target(op)));
+        self.undo.retain(keep);
+        self.redo.retain(keep);
+    }
+
+    /// Find and remove the undo history entry for `cseq`, returning its locally-computed inverse.
+    /// Purely local; sends nothing on the wire.
+    pub fn take_undo_for(&mut self, cseq: u64) -> Option<Vec<Op>> {
+        let idx = self.undo.iter().position(|e| e.cseq == cseq)?;
+        Some(self.undo.remove(idx).inverse)
+    }
+
+    /// Take the server-applied inverse recorded when our own `ServerMsg::Entry` for `cseq`
+    /// applied to `self.confirmed` in `receive`.
+    pub fn take_confirmed_inverse(&mut self, cseq: u64) -> Option<Vec<Op>> {
+        if self.last_own_entry_inverse.as_ref().is_some_and(|(c, _)| *c == cseq) {
+            self.last_own_entry_inverse.take().map(|(_, inv)| inv)
+        } else {
+            None
+        }
     }
 
     /// Undo this client's most recent transaction that still has an undo entry.
@@ -281,7 +315,13 @@ impl Replica {
                         return Err(ProtocolError::AckMismatch { expected: front, got: tx.cseq });
                     }
                 }
-                apply_tx(&mut self.confirmed, &tx).map_err(|reason| ProtocolError::Diverged { seq, reason })?;
+                if tx.client == self.client {
+                    let (_, inv) = apply_tx_with_inverse(&mut self.confirmed, &tx)
+                        .map_err(|reason| ProtocolError::Diverged { seq, reason })?;
+                    self.last_own_entry_inverse = Some((tx.cseq, inv));
+                } else {
+                    apply_tx(&mut self.confirmed, &tx).map_err(|reason| ProtocolError::Diverged { seq, reason })?;
+                }
                 self.last_seq = seq;
                 // The view is the confirmed state with the pending work on top. Two entries
                 // leave it that without rebuilding it from a copy of the board (map-state
@@ -734,5 +774,266 @@ mod view_tests {
         assert!(r.view_is_rebuilt());
         r.pending.clear();
         assert!(!r.view_is_rebuilt());
+    }
+}
+
+#[cfg(test)]
+mod drop_history_tests {
+    use super::*;
+    use mapcro_schema::{
+        Callout, FieldValue, LaneKey, ObjectiveState, ObjectiveStatus, OrderKey, PlayerState,
+        Record, RecordId, Scene, SceneState, WorldPos, genesis,
+    };
+
+    const REAL_SCENE: RecordId = RecordId(14);
+    const LIVE_SCENE: RecordId = RecordId(500);
+    const LIVE_PLAYER: RecordId = RecordId(501);
+    const LIVE_STATE: RecordId = RecordId(502);
+    const LIVE_WAVE: RecordId = RecordId(503);
+    const LIVE_OBJ: RecordId = RecordId(504);
+    const LIVE_INK: RecordId = RecordId(505);
+    const REAL_INK: RecordId = RecordId(506);
+
+    fn replica_with_live() -> Replica {
+        let mut n = 0u128;
+        let doc = genesis(
+            || {
+                n += 1;
+                RecordId(n)
+            },
+            "t",
+        );
+        let slots: Vec<RecordId> = doc
+            .iter_live()
+            .filter_map(|(id, r)| match r {
+                Record::RosterSlot(_) => Some(id),
+                _ => None,
+            })
+            .collect();
+        let mut r = Replica::new(ClientId(7), "secret".into(), doc, 0);
+        let mut init = vec![Op::Create {
+            id: LIVE_SCENE,
+            record: Record::Scene(Scene {
+                name: "Live".into(),
+                order: OrderKey::between(Some(&OrderKey::first()), None),
+                clock: None,
+                source: None,
+                live: true,
+                parent: None,
+            }),
+        }];
+        for (i, slot) in slots.into_iter().enumerate() {
+            let pid = if i == 0 { LIVE_PLAYER } else { RecordId(600 + i as u128) };
+            init.push(Op::Create {
+                id: pid,
+                record: Record::PlayerState(PlayerState {
+                    scene: LIVE_SCENE,
+                    slot,
+                    pos: WorldPos { x: 0, y: 0 },
+                    alive: true,
+                    placed: false,
+                    souls: None,
+                    ult_cooldown: None,
+                    visible: true,
+                    respawn: None,
+                    more: Default::default(),
+                }),
+            });
+        }
+        r.edit_silent(init).expect("live layer");
+        r
+    }
+
+    fn callout(id: RecordId, scene: RecordId, text: &str) -> Op {
+        Op::Create {
+            id,
+            record: Record::Callout(Callout {
+                scene,
+                pos: WorldPos { x: 10, y: 20 },
+                text: text.into(),
+                color: None,
+                side: Default::default(),
+            }),
+        }
+    }
+
+    #[test]
+    fn drops_undo_and_redo_for_target_live_entities_while_keeping_ink_and_real_scene() {
+        let mut r = replica_with_live();
+        // 1. Real scene edit (must survive)
+        r.edit(vec![callout(REAL_INK, REAL_SCENE, "plan")]).expect("real ink");
+        // 2. Live ink edit (must survive per D1)
+        r.edit(vec![callout(LIVE_INK, LIVE_SCENE, "live note")]).expect("live ink");
+        // 3. Pause entity edits: SceneClock + PlayerState + SceneState + Wave + ObjectiveState
+        r.edit(vec![
+            Op::Set { id: LIVE_SCENE, value: FieldValue::SceneClock(Some(600)) },
+            Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerPlaced(true) },
+            Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerPos(WorldPos { x: 100, y: 200 }) },
+        ])
+        .expect("move hero");
+        r.edit(vec![Op::Create {
+            id: LIVE_STATE,
+            record: Record::SceneState(SceneState { scene: LIVE_SCENE, more: Default::default() }),
+        }])
+        .expect("scene state");
+        r.edit(vec![Op::Create {
+            id: LIVE_WAVE,
+            record: Record::Wave(mapcro_schema::Wave {
+                scene: LIVE_SCENE,
+                lane: LaneKey("lane4".into()),
+                t: 400,
+                more: Default::default(),
+            }),
+        }])
+        .expect("wave");
+        r.edit(vec![Op::Create {
+            id: LIVE_OBJ,
+            record: Record::ObjectiveState(ObjectiveState {
+                scene: LIVE_SCENE,
+                key: mapcro_schema::ObjectiveKey("walker:amber:lane4:1".into()),
+                status: ObjectiveStatus::Destroyed,
+                more: Default::default(),
+            }),
+        }])
+        .expect("obj");
+
+        // Undo the last two so both undo and redo stacks hold live entity entries.
+        r.undo().expect("undo obj");
+        r.undo().expect("undo wave");
+        assert!(r.can_undo());
+        assert!(r.can_redo());
+
+        // Silent clear + drop_history_for live entity ids (not LIVE_INK, not REAL_INK).
+        r.edit_silent(vec![
+            Op::Set { id: LIVE_SCENE, value: FieldValue::SceneClock(None) },
+            Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerPlaced(false) },
+            Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerPos(WorldPos { x: 0, y: 0 }) },
+            Op::Delete { id: LIVE_STATE },
+        ])
+        .expect("clear");
+        r.drop_history_for(&[LIVE_SCENE, LIVE_PLAYER, LIVE_STATE, LIVE_WAVE, LIVE_OBJ]);
+
+        assert!(!r.can_redo(), "live entity redo entries were stripped");
+        assert!(r.can_undo(), "ink and real-scene undo entries survive");
+
+        // First undo removes LIVE_INK, not any live entity.
+        r.undo().expect("undo live ink");
+        assert!(r.view().live(LIVE_INK).is_none());
+        assert!(r.view().live(REAL_INK).is_some());
+        assert_eq!(r.view().live(LIVE_SCENE).map(|rec| match rec { Record::Scene(s) => s.clock, _ => unreachable!() }), Some(None));
+
+        // Second undo removes REAL_INK; nothing left after.
+        r.undo().expect("undo real ink");
+        assert!(r.view().live(REAL_INK).is_none());
+        assert!(!r.can_undo());
+    }
+
+    #[test]
+    fn empty_targets_is_a_noop_and_pruned_stacks_persist_through_state_roundtrip() {
+        let mut r = replica_with_live();
+        r.edit(vec![Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerSouls(Some(5000)) }]).expect("souls");
+        r.drop_history_for(&[]);
+        assert!(r.can_undo());
+        r.drop_history_for(&[LIVE_PLAYER]);
+        assert!(!r.can_undo());
+        let restored = Replica::from_state(r.state());
+        assert!(!restored.can_undo());
+        assert!(!restored.can_redo());
+    }
+
+    #[test]
+    fn take_undo_for_removes_matching_entry_and_returns_inverse() {
+        let mut r = replica_with_live();
+        let c_silent = r.next_cseq();
+        r.edit_silent(vec![Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerSouls(Some(1000)) }]).expect("silent");
+        assert!(r.take_undo_for(c_silent).is_none(), "edit_silent never creates an undo entry");
+
+        let c0 = r.next_cseq();
+        r.edit(vec![Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerSouls(Some(5000)) }]).expect("c0");
+        let c1 = r.next_cseq();
+        r.edit(vec![Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerSouls(Some(9000)) }]).expect("c1");
+
+        // Taking the older entry returns its inverse and leaves the newer entry on the undo stack.
+        let inv0 = r.take_undo_for(c0).expect("c0 inverse");
+        assert_eq!(
+            inv0,
+            vec![Op::SetIf {
+                id: LIVE_PLAYER,
+                expect: FieldValue::PlayerSouls(Some(5000)),
+                value: FieldValue::PlayerSouls(Some(1000)),
+            }]
+        );
+        assert!(r.take_undo_for(c0).is_none(), "second take returns None");
+        assert!(r.can_undo(), "c1 still on stack");
+
+        let inv1 = r.take_undo_for(c1).expect("c1 inverse");
+        assert_eq!(
+            inv1,
+            vec![Op::SetIf {
+                id: LIVE_PLAYER,
+                expect: FieldValue::PlayerSouls(Some(9000)),
+                value: FieldValue::PlayerSouls(Some(5000)),
+            }]
+        );
+        assert!(!r.can_undo(), "undo stack now empty");
+    }
+
+    #[test]
+    fn take_confirmed_inverse_captures_exact_server_applied_diff_on_own_entry() {
+        let mut r = replica_with_live();
+        // Confirm the live layer init tx so LIVE_SCENE & LIVE_PLAYER exist in `confirmed`.
+        let init_tx = r.pending().next().expect("init pending").clone();
+        r.receive(ServerMsg::Entry { seq: 1, tx: init_tx }).expect("confirm init");
+        r.connect();
+        // Peer A (client 99) moves LIVE_PLAYER to (200, 200) and stamps clock = 20 first.
+        let peer_tx = Tx {
+            client: ClientId(99),
+            cseq: 0,
+            kind: TxKind::Edit,
+            ops: vec![
+                Op::SetIf {
+                    id: LIVE_SCENE,
+                    expect: FieldValue::SceneClock(None),
+                    value: FieldValue::SceneClock(Some(20)),
+                },
+                Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerPlaced(true) },
+                Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerPos(WorldPos { x: 200, y: 200 }) },
+            ],
+        };
+        // Local client B concurrently tries clock = 60 and moves LIVE_PLAYER to (600, 600).
+        let cseq = r.next_cseq();
+        let own_msg = r
+            .edit(vec![
+                Op::SetIf {
+                    id: LIVE_SCENE,
+                    expect: FieldValue::SceneClock(None),
+                    value: FieldValue::SceneClock(Some(60)),
+                },
+                Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerPlaced(true) },
+                Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerPos(WorldPos { x: 600, y: 600 }) },
+            ])
+            .expect("own edit")
+            .expect("submit");
+        let ClientMsg::Submit(own_tx) = own_msg else { panic!("expected Submit") };
+
+        r.receive(ServerMsg::Entry { seq: 2, tx: peer_tx }).expect("peer entry");
+        r.receive(ServerMsg::Entry { seq: 3, tx: own_tx }).expect("own entry");
+
+        // Confirmed clock is 20 (peer won). Server-applied inverse restores ONLY pos (600->200),
+        // NOT placed (already true) and NOT SceneClock (SetIf skipped).
+        assert_eq!(
+            r.confirmed().live(LIVE_SCENE).map(|rec| match rec { Record::Scene(s) => s.clock, _ => unreachable!() }),
+            Some(Some(20))
+        );
+        let confirmed_inv = r.take_confirmed_inverse(cseq).expect("confirmed inverse");
+        assert_eq!(
+            confirmed_inv,
+            vec![Op::SetIf {
+                id: LIVE_PLAYER,
+                expect: FieldValue::PlayerPos(WorldPos { x: 600, y: 600 }),
+                value: FieldValue::PlayerPos(WorldPos { x: 200, y: 200 }),
+            }]
+        );
+        assert!(r.take_confirmed_inverse(cseq).is_none());
     }
 }

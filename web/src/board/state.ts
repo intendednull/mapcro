@@ -298,15 +298,22 @@ export function createBoardState(board: string, token: string, opts: BoardStateO
       return r === "owner" || r === "edit";
     },
     edit: (ops: Op[]) => {
-      for (const op of ops) if ("Create" in op) made().add(op.Create.id);
+      for (const op of ops) {
+        if ("Create" in op) made().add(op.Create.id);
+        else if ("Set" in op) made().add(op.Set.id);
+        else if ("SetIf" in op) made().add(op.SetIf.id);
+        else if ("Restore" in op) made().add(op.Restore.id);
+      }
       const ok = session.edit(ops);
       if (ok) opts.onEdit?.();
       return ok;
     },
-    /** Whether this tab's user made the record (an `edit` this page load): never stale ink. */
+    /** Whether this tab's user touched/made the record (an `edit` this visit): never stale. */
     madeHere: (id: RecordId) => made().has(id),
     /** An edit that isn't the user's to undo: Player's live layer (spec §6b). */
     editSilent: (ops: Op[]) => session.editSilent(ops),
+    /** Strip local undo/redo entries touching `ids` (cleared live-scene entity overrides). */
+    dropHistoryFor: (ids: RecordId[]) => session.dropHistoryFor(ids),
     /** A silent edit of records anyone would make the same (the live layer): losing the race
      * to make them is not a problem (session.ts `ensure`). */
     ensure: (ops: Op[]) => session.ensure(ops),
