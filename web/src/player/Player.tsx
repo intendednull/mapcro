@@ -643,7 +643,8 @@ function dismissDisclosure(element: () => HTMLDetailsElement | null) {
     const box = element();
     if (!box?.open) return;
     if (e instanceof KeyboardEvent) {
-      if (e.key !== "Escape") return;
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      e.preventDefault();
       box.open = false;
       box.querySelector("summary")?.focus();
     } else if (!box.contains(e.target as Node)) box.open = false;

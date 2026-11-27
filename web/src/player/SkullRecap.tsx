@@ -40,6 +40,7 @@ export function SkullRecap(p: {
   onMount(() => {
     const key = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented || !p.escape) return;
+      e.preventDefault();
       p.onClose();
     };
     window.addEventListener("keydown", key);

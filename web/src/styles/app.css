@@ -154,7 +154,7 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .viewonly { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 5px; padding: 3px 7px; white-space: nowrap; }
 /* With the tier chip beside it the header is full on a phone: the role chip gives way first. */
 .p-top .viewonly { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.p-top > :not(.viewonly):not(.spacer) { flex: none; }
+.p-top > :not(.viewonly):not(.spacer):not(.games-open):not(.pl-tier-wrap):not(.p-follow) { flex: none; }
 .p-follow { margin: 10px 12px 0; min-height: 40px; display: flex; align-items: center; gap: 9px; padding: 0 6px 0 10px; border-radius: 20px;
   border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); background: color-mix(in srgb, var(--accent) 8%, var(--bg-deep)); }
 .p-follow.off { border-color: var(--line); background: var(--panel); }
@@ -729,6 +729,7 @@ svg[data-tool="select"] .pl-skull[data-recap] { pointer-events: auto; cursor: po
 /* The Windows app's replay picker (spec §6b, The Windows app): a list of compact match cards. */
 .picker-scrim { position: fixed; z-index: 70; padding: 16px; }
 .dialog.picker { width: min(560px, 100%); display: flex; flex-direction: column; max-height: calc(100dvh - 40px); }
+.dialog.picker:focus { outline: none; }
 .dialog.picker header { align-items: center; padding: 16px 20px 12px; }
 .dialog.picker h2 { font-size: 22px; }
 .picker-body { padding: 12px 16px !important; overflow: auto; flex: 1 1 auto; }
@@ -813,10 +814,11 @@ svg[data-tool="select"] .pl-skull[data-recap] { pointer-events: auto; cursor: po
 .people-group { margin: 10px 0 4px; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: none; }
 .people-group small { color: var(--faint); font-weight: 500; }
 /* The phone (§8): the header's session title opens the Games sheet. */
-.games-open { flex: 0 1 auto; display: inline-flex; align-items: center; gap: 6px; min-width: 44px; max-width: 40vw; height: 44px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--raised); color: var(--text); font: 600 13px var(--ui); }
+.games-open { flex: 0 1 auto; display: inline-flex; align-items: center; gap: 6px; min-width: 44px; max-width: 40vw; height: 44px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--raised); color: var(--text); font: 600 13px var(--ui); overflow: hidden; }
 .games-open .games-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .games-open .games-count { flex: none; padding: 0 6px; border-radius: 999px; background: var(--bg-deep); color: var(--muted); font-size: 12px; }
 .games-sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; display: flex; flex-direction: column; max-height: min(70dvh, 560px); padding: 0 12px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); border-radius: 12px 12px 0 0; background: var(--panel); box-shadow: 0 -8px 24px #0008; }
+.games-sheet:focus { outline: none; }
 .games-sheet-head { flex: none; display: flex; align-items: center; justify-content: space-between; height: 48px; }
 .games-sheet-head b { font-size: 16px; font-weight: 600; }
 .games-sheet-head .btn { border: 0; background: transparent; font-size: 20px; min-width: 44px; min-height: 44px; }

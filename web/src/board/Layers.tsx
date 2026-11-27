@@ -1325,8 +1325,15 @@ export function Layers(p: {
     const trackHover = (e: PointerEvent) => (hover = { x: e.clientX, y: e.clientY });
     const untrackHover = () => (hover = undefined);
     const del = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      if (
+        document.querySelector(
+          ".backdrop, .ctx-menu, .more-menu, .clear-pop, .scenes.drawer, .phone:not(.phone-player) .p-sheet, .phone-player .p-sheet:not([data-testid=phone-events-sheet]), [data-testid=games-sheet]",
+        )
+      )
+        return;
       // Active doorway placement handles Escape (cancel) and Enter (commit unpaired Door 1).
       const pl = p.placingDoor?.();
       if (pl && !p.frame.player() && editor()) {
