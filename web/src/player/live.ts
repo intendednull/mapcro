@@ -201,21 +201,21 @@ export function liveEntityRecordIds(records: Record<string, Entry | undefined>, 
 }
 
 /**
- * Reset all entity overrides on `liveSceneId` (`SceneClock: cur -> nextClock` via CAS `SetIf`,
+ * Reset all entity overrides on `liveSceneId` (`SceneClock: cur -> null` via CAS `SetIf`,
  * non-baseline `PlayerState` fields back to neutral baseline via `SetIf`, and scrubbing `more`
  * before `Delete` on live `SceneState` / `Wave` / `ObjectiveState` so tombstones stay clean),
  * chunked within `MAX_OPS_PER_TX`. Leaves live ink (`Stroke` / `Arrow` / `Callout`) untouched.
+ * Never stamps a non-null `SceneClock`, so ONLY user pause edits ever carry a non-null clock CAS.
  */
 export function clearPauseOverridesOps(
   records: Record<string, Entry | undefined>,
   liveSceneId: RecordId,
-  nextClock: number | null = null,
 ): Op[][] {
   const groups: Op[][] = [];
   const sc = records[liveSceneId];
-  const curClock = sc && !sc.deleted && "Scene" in sc.record ? (sc.record.Scene.clock ?? null) : undefined;
-  if (curClock !== undefined && curClock !== nextClock) {
-    groups.push([{ SetIf: { id: liveSceneId, expect: { SceneClock: curClock }, value: { SceneClock: nextClock } } }]);
+  const curClock = sc && !sc.deleted && "Scene" in sc.record ? (sc.record.Scene.clock ?? null) : null;
+  if (curClock !== null) {
+    groups.push([{ SetIf: { id: liveSceneId, expect: { SceneClock: curClock }, value: { SceneClock: null } } }]);
   }
   for (const [id, e] of Object.entries(records)) {
     if (!e || e.deleted) continue;
@@ -625,5 +625,48 @@ export function buildLostPauseRollbackOps(
   if (!all.length) return [];
   const out: Op[][] = [];
   for (let i = 0; i < all.length; i += MAX_OPS_PER_TX) out.push(all.slice(i, i + MAX_OPS_PER_TX));
+  return out;
+}
+
+/**
+ * Derive conservative baseline-revert inverse ops directly from a pause-edit transaction's `ops`
+ * when no local undo entry exists (e.g., a journal-restored pending edit after reload whose
+ * outcome arrived via `ServerMsg::Rebase`). Intended to be filtered by `buildLostPauseRollbackOps`.
+ */
+export function fallbackRollbackInverseFromTxOps(txOps: readonly Op[]): Op[] {
+  const out: Op[] = [];
+  for (let i = txOps.length - 1; i >= 0; i--) {
+    const op = txOps[i]!;
+    if ("Create" in op) {
+      out.push({ Delete: { id: op.Create.id } });
+    } else if ("Restore" in op) {
+      out.push({ Delete: { id: op.Restore.id } });
+    } else if ("Set" in op || "SetIf" in op) {
+      const id = "Set" in op ? op.Set.id : op.SetIf.id;
+      const value = "Set" in op ? op.Set.value : op.SetIf.value;
+      if ("SceneClock" in value) continue;
+      if ("PlayerPos" in value) {
+        if (value.PlayerPos.x !== 0 || value.PlayerPos.y !== 0) {
+          out.push({ SetIf: { id, expect: value, value: { PlayerPos: { x: 0, y: 0 } } } });
+        }
+      } else if ("PlayerPlaced" in value) {
+        if (value.PlayerPlaced) out.push({ SetIf: { id, expect: { PlayerPlaced: true }, value: { PlayerPlaced: false } } });
+      } else if ("PlayerAlive" in value) {
+        if (!value.PlayerAlive) out.push({ SetIf: { id, expect: { PlayerAlive: false }, value: { PlayerAlive: true } } });
+      } else if ("PlayerSouls" in value) {
+        if (value.PlayerSouls != null) out.push({ SetIf: { id, expect: value, value: { PlayerSouls: null } } });
+      } else if ("PlayerUltCooldown" in value) {
+        if (value.PlayerUltCooldown != null) out.push({ SetIf: { id, expect: value, value: { PlayerUltCooldown: null } } });
+      } else if ("PlayerRespawn" in value) {
+        if (value.PlayerRespawn != null) out.push({ SetIf: { id, expect: value, value: { PlayerRespawn: null } } });
+      } else if ("PlayerVisible" in value) {
+        if (!value.PlayerVisible) out.push({ SetIf: { id, expect: { PlayerVisible: false }, value: { PlayerVisible: true } } });
+      } else if ("More" in value) {
+        if (value.More.value != null) {
+          out.push({ SetIf: { id, expect: value, value: { More: { key: value.More.key, value: null } } } });
+        }
+      }
+    }
+  }
   return out;
 }

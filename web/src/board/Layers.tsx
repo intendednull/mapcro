@@ -45,7 +45,6 @@ import {
   liveObjUpsert,
   liveWaveUpsertOps,
   pauseClockOps,
-  pauseSwitchFallbackOps,
   prepareLivePauseEdit,
   preparePausedSceneState,
   seedObjHealthMap,
@@ -345,12 +344,12 @@ export function Layers(p: {
       const dryOps = build({ scene, state: dryState, mint: newRecordId, ...(drySeed ? { seed: drySeed } : {}) });
       if (!dryOps.length && !extraOps.length) return false;
       if (!dryOps.length) return st.edit(extraOps);
-      const switched = prepareLivePauseEdit(st, scene, clock);
+      prepareLivePauseEdit(st, scene, clock);
       const { state: ss, prefix } = preparePausedSceneState(st, p.pauseCtx.board, matchId, scene);
       const seed = captured(ss.more).doors ? undefined : p.frame.ms().scene().doors();
       const ops = build({ scene, state: ss, mint: newRecordId, ...(seed ? { seed } : {}) });
       if (!ops.length && !extraOps.length) return false;
-      const clockOps = ops.length ? [...pauseSwitchFallbackOps(scene, clock, switched), ...pauseClockOps(st.records as never, scene, clock)] : [];
+      const clockOps = ops.length ? pauseClockOps(st.records as never, scene, clock) : [];
       return st.edit([...extraOps, ...clockOps, ...(ops.length ? prefix : []), ...ops]);
     }
     const ctx = doorCtx();
@@ -480,7 +479,7 @@ export function Layers(p: {
         stage,
       );
       if (!dryOps.length) return;
-      const switched = prepareLivePauseEdit(st, scene, clock);
+      prepareLivePauseEdit(st, scene, clock);
       const { state: ss, prefix } = preparePausedSceneState(st, p.pauseCtx.board, matchId, scene);
       const seed = captured(ss.more).obj_health ? undefined : seedObjHealthMap(p.pauseCtx.tl(), clock, p.art.model.markers);
       const upsertObjective = liveObjUpsert(st.records as never, p.pauseCtx.board, matchId, scene, p.objectives());
@@ -500,7 +499,7 @@ export function Layers(p: {
         stage,
       );
       if (!ops.length) return;
-      const clockOps = [...pauseSwitchFallbackOps(scene, clock, switched), ...pauseClockOps(st.records as never, scene, clock)];
+      const clockOps = pauseClockOps(st.records as never, scene, clock);
       if (st.edit([...clockOps, ...prefix, ...ops]) && pct > 0) p.onEditObjHealth?.();
       return;
     }
@@ -526,10 +525,10 @@ export function Layers(p: {
         const dryObjectives = curClock === clock ? p.objectives() : new Map();
         const dryUpsert = liveObjUpsert(st.records as never, p.pauseCtx.board, matchId, scene, dryObjectives);
         if (!groupToggleOps(m, group, p.art.model.markers, dryObjectives, scene, newRecordId, p.markerStatus, curClock === clock ? objHealthCtx() : undefined, dryUpsert).length) return;
-        const switched = prepareLivePauseEdit(st, scene, clock);
+        prepareLivePauseEdit(st, scene, clock);
         const upsert = liveObjUpsert(st.records as never, p.pauseCtx.board, matchId, scene, p.objectives());
         const ops = groupToggleOps(m, group, p.art.model.markers, p.objectives(), scene, newRecordId, p.markerStatus, objHealthCtx(), upsert);
-        if (ops.length) st.edit([...pauseSwitchFallbackOps(scene, clock, switched), ...pauseClockOps(st.records as never, scene, clock), ...ops]);
+        if (ops.length) st.edit([...pauseClockOps(st.records as never, scene, clock), ...ops]);
         return;
       }
       const ops = groupToggleOps(m, group, p.art.model.markers, p.objectives(), scene, newRecordId, p.markerStatus, objHealthCtx());
@@ -551,10 +550,10 @@ export function Layers(p: {
       const dryObjectives = curClock === clock ? p.objectives() : new Map();
       const dryUpsert = liveObjUpsert(st.records as never, p.pauseCtx.board, matchId, scene, dryObjectives);
       if (!toggleOps(m, p.art.model.markers, dryObjectives, scene, newRecordId, p.markerStatus, curClock === clock ? objHealthCtx() : undefined, dryUpsert).length) return;
-      const switched = prepareLivePauseEdit(st, scene, clock);
+      prepareLivePauseEdit(st, scene, clock);
       const upsert = liveObjUpsert(st.records as never, p.pauseCtx.board, matchId, scene, p.objectives());
       const ops = toggleOps(m, p.art.model.markers, p.objectives(), scene, newRecordId, p.markerStatus, objHealthCtx(), upsert);
-      if (ops.length) st.edit([...pauseSwitchFallbackOps(scene, clock, switched), ...pauseClockOps(st.records as never, scene, clock), ...ops]);
+      if (ops.length) st.edit([...pauseClockOps(st.records as never, scene, clock), ...ops]);
       return;
     }
     const ops = toggleOps(m, p.art.model.markers, p.objectives(), scene, newRecordId, p.markerStatus, objHealthCtx());
@@ -610,9 +609,9 @@ export function Layers(p: {
           const clock = p.frame.pauseClock?.();
           if (!p.pauseCtx || matchId === undefined || clock === undefined) return;
           if (d.t === Math.round(p.splitOf(key))) return;
-          const switched = prepareLivePauseEdit(st, scene, clock);
+          prepareLivePauseEdit(st, scene, clock);
           const ops = liveWaveUpsertOps(st.records as never, p.pauseCtx.board, matchId, scene, clock, p.waves(), key, d.t);
-          if (ops.length) st.edit([...pauseSwitchFallbackOps(scene, clock, switched), ...ops]);
+          if (ops.length) st.edit(ops);
           return;
         }
         if (existing) {

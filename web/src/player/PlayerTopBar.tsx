@@ -31,7 +31,6 @@ import {
   pauseRenameOps,
   pauseReviveOps,
   pauseSoulsOps,
-  pauseSwitchFallbackOps,
   pauseToggleSightOps,
   pauseUltOps,
   prepareLivePauseEdit,
@@ -91,9 +90,9 @@ export function PlayerTopBar(p: {
     const liveId = p.liveScene?.();
     if (!canPauseEdit() || !liveId) return;
     const clock = pauseClock(p.host.t());
-    const switched = prepareLivePauseEdit(p.state, liveId, clock);
+    prepareLivePauseEdit(p.state, liveId, clock);
     const ops = build(liveId, clock);
-    if (ops.length) p.state.edit([...pauseSwitchFallbackOps(liveId, clock, switched), ...ops]);
+    if (ops.length) p.state.edit(ops);
   };
   const [menu, setMenu] = createSignal<{ slot: Slot; player: Player; label: string; at: { x: number; y: number }; fromToken?: boolean }>();
   const [renaming, setRenaming] = createSignal<RecordId>();

@@ -23,7 +23,6 @@ import {
   pauseMoveOps,
   pauseRespawnOps,
   pauseReviveOps,
-  pauseSwitchFallbackOps,
   prepareLivePauseEdit,
 } from "../mapstate/paused";
 import { pauseClock } from "../player/live";
@@ -337,9 +336,9 @@ export function Tokens(p: {
           if (liveId && clock !== undefined) {
             const moves = d.group.map((g) => ({ id: g.id, pos: moved(g.from, d.delta), from: g.from }));
             if (moves.some((m) => m.pos.x !== m.from.x || m.pos.y !== m.from.y)) {
-              const switched = prepareLivePauseEdit(p.state, liveId, clock);
+              prepareLivePauseEdit(p.state, liveId, clock);
               const ops = pauseMoveOps(p.state.records as never, liveId, clock, moves);
-              if (ops.length) p.state.edit([...pauseSwitchFallbackOps(liveId, clock, switched), ...ops]);
+              if (ops.length) p.state.edit(ops);
             }
           }
         } else {
@@ -368,11 +367,11 @@ export function Tokens(p: {
       if (!liveId || clock === undefined || !sl) return;
       const h = p.frame.ms().hero(slotKey(sl.team, sl.slot));
       const pos = h.pos() ?? h.last() ?? { x: 0, y: 0 };
-      const switched = prepareLivePauseEdit(p.state, liveId, clock);
+      prepareLivePauseEdit(p.state, liveId, clock);
       const ops = h.alive()
         ? pauseKillOps(p.state.records as never, liveId, clock, pl, pos)
         : pauseReviveOps(p.state.records as never, liveId, clock, pl, pos);
-      if (ops.length) p.state.edit([...pauseSwitchFallbackOps(liveId, clock, switched), ...ops]);
+      if (ops.length) p.state.edit(ops);
       return;
     }
     p.state.edit(aliveOps(pl));
@@ -442,9 +441,9 @@ export function Tokens(p: {
       const sl = slots().get(pl.state.slot);
       const curRespawn = sl ? (p.frame.ms().hero(slotKey(sl.team, sl.slot)).respawn() ?? null) : (pl.state.respawn ?? null);
       if (s === curRespawn) return;
-      const switched = prepareLivePauseEdit(p.state, liveId, clock);
+      prepareLivePauseEdit(p.state, liveId, clock);
       const ops = pauseRespawnOps(p.state.records as never, liveId, clock, pl, s);
-      if (ops.length) p.state.edit([...pauseSwitchFallbackOps(liveId, clock, switched), ...ops]);
+      if (ops.length) p.state.edit(ops);
       return;
     }
     if (s !== (pl.state.respawn ?? null)) p.state.edit([{ Set: { id: pl.id, value: { PlayerRespawn: s } } }]);

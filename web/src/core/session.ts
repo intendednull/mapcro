@@ -14,7 +14,13 @@ import type { RoomKind } from "../gen/RoomKind";
 import type { Via } from "../gen/Via";
 import { BoardReplica, buildId, newClientId, newClientSecret, presenceFrameOk } from "../wasm/mapcro_wasm.js";
 import { decideStep } from "../mapstate/undo";
-import { buildLostPauseRollbackOps, isLiveEntityCreate, isLiveLayerCreate, pauseEditClockTag } from "../player/live";
+import {
+  buildLostPauseRollbackOps,
+  fallbackRollbackInverseFromTxOps,
+  isLiveEntityCreate,
+  isLiveLayerCreate,
+  pauseEditClockTag,
+} from "../player/live";
 import { MemoryPersist, type Persist } from "./persist";
 import { pageSeat } from "./seat";
 import type { SaveStatus, Update } from "./update";
@@ -435,15 +441,15 @@ export class BoardSession {
   /** The hello just made: recognise any restored live-layer ensure still pending across a reload
    * (TD-35), and forget ensures below `pending_from` (the server no longer reports them). */
   private connected(frames: WireIn[]) {
-    const r = this.replica;
     for (const f of frames) {
       if (f.t === "msg" && "Submit" in f.msg) {
         if (isLiveLayerCreate(this.o.board, f.msg.Submit) || isLiveEntityCreate(this.o.board, this.records, f.msg.Submit)) {
           this.ensures.add(f.msg.Submit.cseq);
         }
-        // Only re-tag user pause edits (those with an undo entry), never `editSilent` cleanups.
+        // Only user pause edits ever emit a non-null SceneClock SetIf (editSilent cleanups always
+        // clear to null), so this includes journal-restored user edits and excludes all cleanups.
         const tag = pauseEditClockTag(f.msg.Submit.ops);
-        if (tag && r?.hasUndoFor(f.msg.Submit.cseq)) {
+        if (tag) {
           this.pauseEditClocks.set(f.msg.Submit.cseq, { ...tag, ops: f.msg.Submit.ops });
         }
       }
@@ -454,6 +460,14 @@ export class BoardSession {
       for (const c of this.ensures) if (c < hello.msg.Hello.pending_from) this.ensures.delete(c);
       for (const c of this.pauseEditClocks.keys()) if (c < hello.msg.Hello.pending_from) this.pauseEditClocks.delete(c);
     }
+  }
+
+  private syncHistory(): void {
+    const r = this.replica;
+    if (!r) return;
+    this.canUndo = r.canUndo();
+    this.canRedo = r.canRedo();
+    this.o.onChange?.(this);
   }
 
   private hasPendingPauseClock(scene: RecordId, clock: number): boolean {
@@ -785,7 +799,7 @@ export class BoardSession {
                 ? this.flushLostPauseRollback(key)
                 : false;
               if (localInv !== null && !flushed) {
-                this.apply(r.dropHistoryFor("[]"));
+                this.syncHistory();
               }
             }
           }
@@ -802,10 +816,11 @@ export class BoardSession {
               if (confirmedClock !== item.clock) {
                 const localInv = JSON.parse(r.takeUndoFor(item.cseq)) as Op[] | null;
                 if (localInv !== null) droppedAnyUndo = true;
-                if (localInv?.length) {
+                const inv = localInv ?? fallbackRollbackInverseFromTxOps(item.ops);
+                if (inv.length) {
                   const key = `${item.scene}:${item.clock}`;
                   const list = this.lostPauseRollbacks.get(key) ?? [];
-                  list.push({ inv: localInv, txOps: item.ops });
+                  list.push({ inv, txOps: item.ops });
                   this.lostPauseRollbacks.set(key, list);
                 }
               }
@@ -820,7 +835,7 @@ export class BoardSession {
             }
           }
           if (droppedAnyUndo && !flushedAny) {
-            this.apply(r.dropHistoryFor("[]"));
+            this.syncHistory();
           }
         }
         this.persistSoon();

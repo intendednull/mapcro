@@ -356,42 +356,29 @@ export function fromPausedPlayer(
 
 /**
  * Prepare `liveSceneId` before applying a non-empty pause-edit mutation at integer `clock`:
- * 1. If another timestamp left overrides on `liveScene` (`clock != null && clock !== target`),
- *    atomically clear them AND CAS-stamp `SceneClock: curClock -> clock` via `editSilent`
- *    (zero `clock === null` window between clear and stamp), then prune local undo/redo entries
- *    touching `liveScene` entity records so prior-timestamp edits cannot be resurrected.
+ * 1. If another timestamp left overrides on `liveScene` (`clock != null && clock !== target`) OR
+ *    raw dirty entity fields exist under `clock === null`, silently clear them to `SceneClock: null`
+ *    via `clearPauseOverridesOps` + `editSilent`, then prune local undo/redo entries touching
+ *    `liveScene` entity records so prior-timestamp edits cannot be resurrected. The immediately
+ *    following user pause edit then stamps `SetIf(SceneClock: null -> clock)` via `pauseClockOps`.
  * 2. If `liveScene.clock === null` and untouched legacy `PlayerState` records still have
  *    `placed: true, pos: {0,0}`, normalize them silently to `placed: false` via `SetIf` (spec §2.2).
- *
- * Returns `true` iff a timestamp switch was performed (callers prepend `pauseSwitchFallbackOps`
- * to their undoable `edit` so a concurrent Play clearing `curClock -> null` still lets the new
- * timestamp stamp cleanly).
  */
-export function prepareLivePauseEdit(board: MutablePausedBoard, liveSceneId: RecordId, clock: number): boolean {
+export function prepareLivePauseEdit(board: MutablePausedBoard, liveSceneId: RecordId, clock: number): void {
   const sc = board.records[liveSceneId];
-  if (!sc || sc.deleted || !("Scene" in sc.record)) return false;
+  if (!sc || sc.deleted || !("Scene" in sc.record)) return;
   const curClock = sc.record.Scene.clock ?? null;
   if ((curClock !== null && curClock !== clock) || (curClock === null && hasRawDirtyLiveEntities(board.records, liveSceneId))) {
-    for (const tx of clearPauseOverridesOps(board.records, liveSceneId, clock)) board.editSilent(tx);
+    for (const tx of clearPauseOverridesOps(board.records, liveSceneId)) board.editSilent(tx);
     const entityIds = liveEntityRecordIds(board.records, liveSceneId);
     if (entityIds.length) board.dropHistoryFor(entityIds);
-    return true;
+    return;
   }
   const after = board.records[liveSceneId];
   if (after && !after.deleted && "Scene" in after.record && after.record.Scene.clock == null) {
     const norm = normalizeLegacyLiveOps(board.records, liveSceneId);
     if (norm.length) board.editSilent(norm);
   }
-  return false;
-}
-
-/**
- * Fallback CAS op for the undoable edit immediately following a timestamp switch:
- * no-op if our silent `curClock -> clock` switch applied, and stamps `null -> clock` if a
- * concurrent Play (`curClock -> null`) beat our silent switch on the server.
- */
-export function pauseSwitchFallbackOps(liveSceneId: RecordId, clock: number, switched: boolean): Op[] {
-  return switched ? [{ SetIf: { id: liveSceneId, expect: { SceneClock: null }, value: { SceneClock: clock } } }] : [];
 }
 
 /**

@@ -212,10 +212,14 @@ impl BoardReplica {
         serde_json::to_string(&u).map_err(js_err)
     }
 
-    /// Whether the undo stack holds an entry for `cseq` (`false` for `edit_silent` / `ensure`).
-    #[wasm_bindgen(js_name = hasUndoFor)]
-    pub fn has_undo_for(&self, cseq: f64) -> bool {
-        self.inner.has_undo_for(cseq as u64)
+    #[wasm_bindgen(js_name = canUndo)]
+    pub fn can_undo(&self) -> bool {
+        self.inner.can_undo()
+    }
+
+    #[wasm_bindgen(js_name = canRedo)]
+    pub fn can_redo(&self) -> bool {
+        self.inner.can_redo()
     }
 
     /// Find and remove the undo history entry for `cseq`, returning its inverse ops as JSON

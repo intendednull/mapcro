@@ -77,7 +77,6 @@ import {
   pauseClockOps,
   pauseHeroOps,
   pauseReviveOps,
-  pauseSwitchFallbackOps,
   prepareLivePauseEdit,
   preparePausedSceneState,
 } from "../mapstate/paused";
@@ -1159,12 +1158,12 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       if (clock === undefined || matchId === undefined) return;
       // Guard no-op before clearing another timestamp's overrides.
       if (!mapState().scene().doors().some((d) => d.team === team)) return;
-      const switched = prepareLivePauseEdit(state, sc, clock);
+      prepareLivePauseEdit(state, sc, clock);
       const { state: ss, prefix } = preparePausedSceneState(state, p.board, matchId, sc);
       const seed = captured(ss.more).doors ? undefined : mapState().scene().doors();
       const ops = clearTeamDoorsOps({ scene: sc, state: ss, mint: newRecordId, ...(seed ? { seed } : {}) }, team);
       if (ops.length) {
-        state.edit([...pauseSwitchFallbackOps(sc, clock, switched), ...pauseClockOps(state.records as never, sc, clock), ...prefix, ...ops]);
+        state.edit([...pauseClockOps(state.records as never, sc, clock), ...prefix, ...ops]);
       }
       return;
     }
@@ -1483,9 +1482,9 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     if (!live || clock === undefined || !pausedEditable()) return;
     const pl = state.playersIn(live).find((x) => x.state.slot === slot.id);
     if (!pl) return;
-    const switched = prepareLivePauseEdit(state, live, clock);
+    prepareLivePauseEdit(state, live, clock);
     const ops = pauseReviveOps(state.records as never, live, clock, pl, pos);
-    if (ops.length) state.edit([...pauseSwitchFallbackOps(live, clock, switched), ...ops]);
+    if (ops.length) state.edit(ops);
   };
   createEffect(() => {
     if (!canEditEntities()) {
@@ -2607,9 +2606,9 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
             if (hero === curHero) return;
             const pl = state.playersIn(live).find((x) => x.state.slot === id);
             if (!pl) return;
-            const switched = prepareLivePauseEdit(state, live, clock);
+            prepareLivePauseEdit(state, live, clock);
             const ops = pauseHeroOps(state.records as never, live, clock, pl, hero);
-            if (ops.length) state.edit([...pauseSwitchFallbackOps(live, clock, switched), ...ops]);
+            if (ops.length) state.edit(ops);
             return;
           }
           // In a scene that holds its heroes the pick is the scene's; else the board's.

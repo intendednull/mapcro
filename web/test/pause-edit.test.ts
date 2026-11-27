@@ -39,7 +39,6 @@ import {
   pauseRespawnOps,
   pauseReviveOps,
   pauseSoulsOps,
-  pauseSwitchFallbackOps,
   pauseToggleSightOps,
   pauseUltOps,
   prepareLivePauseEdit,
@@ -874,6 +873,7 @@ async function createTwoClientHub(baseDoc: Doc) {
     online: boolean;
   };
   const peers: Record<"A" | "B", Peer | undefined> = { A: undefined, B: undefined };
+  const persists: Record<"A" | "B", MemoryPersist> = { A: new MemoryPersist(), B: new MemoryPersist() };
   const heldConnect: Record<"A" | "B", (() => void) | undefined> = { A: undefined, B: undefined };
   const holdReconnect: Record<"A" | "B", boolean> = { A: false, B: false };
   const rebaseNextHello: Record<"A" | "B", { decidedBelow: number } | undefined> = { A: undefined, B: undefined };
@@ -887,7 +887,7 @@ async function createTwoClientHub(baseDoc: Doc) {
       wsUrl: "ws://in-memory",
       board: BOARD_ID,
       token: "tok",
-      persist: new MemoryPersist(),
+      persist: persists[name],
       minDelayMs: 5,
       maxDelayMs: 10,
       openSocket: () => {
@@ -951,10 +951,12 @@ async function createTwoClientHub(baseDoc: Doc) {
     for (let i = 0; i < 8; i++) await new Promise((r) => setTimeout(r, 0));
   };
 
-  const a = makeSession("A", 1);
-  const b = makeSession("B", 2);
-  await a.start();
-  await b.start();
+  const sessions: { a: BoardSession; b: BoardSession } = {
+    a: makeSession("A", 1),
+    b: makeSession("B", 2),
+  };
+  await sessions.a.start();
+  await sessions.b.start();
   await flush();
 
   const deliverOne = (name: "A" | "B"): boolean => {
@@ -1003,29 +1005,48 @@ async function createTwoClientHub(baseDoc: Doc) {
     await flush();
   };
 
+  const reload = async (name: "A" | "B", opts?: { rebase?: { decidedBelow: number } }) => {
+    const key = name === "A" ? "a" : "b";
+    sessions[key].stop();
+    holdReconnect[name] = false;
+    heldConnect[name] = undefined;
+    if (opts?.rebase) rebaseNextHello[name] = opts.rebase;
+    const next = makeSession(name, name === "A" ? 1 : 2);
+    sessions[key] = next;
+    await next.start();
+    await flush();
+    return next;
+  };
+
   const settle = async () => {
     for (let round = 0; round < 20; round++) {
       await flush();
       let moved = false;
       while (deliverOne("A")) moved = true;
       while (deliverOne("B")) moved = true;
-      if (!moved && a.status.kind === "saved" && b.status.kind === "saved") break;
+      if (!moved && sessions.a.status.kind === "saved" && sessions.b.status.kind === "saved") break;
     }
     await flush();
   };
 
   return {
-    a,
-    b,
+    get a() {
+      return sessions.a;
+    },
+    get b() {
+      return sessions.b;
+    },
+    persists,
     flush,
     deliverOne,
     deliverAll,
     drop,
     reconnect,
+    reload,
     settle,
     stop: () => {
-      a.stop();
-      b.stop();
+      sessions.a.stop();
+      sessions.b.stop();
     },
   };
 }
@@ -1131,7 +1152,7 @@ describe("adversarial review regressions (clock CAS + lost-race rollback, tombst
       ...prep0.prefix,
       ...placeDoorwayOps({ scene: ids.scene, state: prep0.state, mint: () => hexId(8201), seed: [] }, "amber", { x: 10, y: 10 }),
     ]);
-    for (const tx of clearPauseOverridesOps(base.board.records, ids.scene, null)) base.apply(tx, true);
+    for (const tx of clearPauseOverridesOps(base.board.records, ids.scene)) base.apply(tx, true);
     const ssId = liveSceneStateId(BOARD_ID, MATCH_ID);
     expect(base.board.records[ssId]?.deleted).toBe(true);
 
@@ -1221,7 +1242,7 @@ describe("adversarial review regressions (clock CAS + lost-race rollback, tombst
             o.SetIf.value.SceneClock === 20,
         ),
       ).toBe(true);
-      const playTxs = clearPauseOverridesOps(sessionRecords(hub.b), ids.scene, null);
+      const playTxs = clearPauseOverridesOps(sessionRecords(hub.b), ids.scene);
 
       expect(hub.a.edit(aOps)).toBe(true);
       for (const tx of playTxs) expect(hub.b.editSilent(tx)).toBe(true);
@@ -1280,12 +1301,8 @@ describe("adversarial review regressions (clock CAS + lost-race rollback, tombst
       const aOps = pauseMoveOps(sessionRecords(hub.a), ids.scene, 20, [{ id: amber0, pos: { x: 250, y: 250 } }]);
       expect(hub.a.edit(aOps)).toBe(true);
 
-      const switched = prepareLivePauseEdit(boardB, ids.scene, 60);
-      expect(switched).toBe(true);
-      const bOps = [
-        ...pauseSwitchFallbackOps(ids.scene, 60, switched),
-        ...pauseMoveOps(boardB.records, ids.scene, 60, [{ id: sapph0, pos: { x: 600, y: 600 } }]),
-      ];
+      prepareLivePauseEdit(boardB, ids.scene, 60);
+      const bOps = pauseMoveOps(boardB.records, ids.scene, 60, [{ id: sapph0, pos: { x: 600, y: 600 } }]);
       expect(hub.b.edit(bOps)).toBe(true);
       await hub.flush();
 
@@ -1311,19 +1328,15 @@ describe("adversarial review regressions (clock CAS + lost-race rollback, tombst
       hub.stop();
     }
 
-    // 4b: Play (20 -> null) lands before Coach B's timestamp switch (20 -> 60) -> pauseSwitchFallbackOps (null -> 60) stamps 60 cleanly!
+    // 4b: Play (20 -> null) lands before Coach B's timestamp switch (20 -> null, then null -> 60) -> B stamps 60 cleanly!
     const hub2 = await createTwoClientHub(baseDoc);
     try {
       const boardB = sessionBoardAdapter(hub2.b, base.rosterSlots);
-      for (const tx of clearPauseOverridesOps(sessionRecords(hub2.a), ids.scene, null)) {
+      for (const tx of clearPauseOverridesOps(sessionRecords(hub2.a), ids.scene)) {
         expect(hub2.a.editSilent(tx)).toBe(true);
       }
-      const switched = prepareLivePauseEdit(boardB, ids.scene, 60);
-      expect(switched).toBe(true);
-      const bOps = [
-        ...pauseSwitchFallbackOps(ids.scene, 60, switched),
-        ...pauseMoveOps(boardB.records, ids.scene, 60, [{ id: sapph0, pos: { x: 600, y: 600 } }]),
-      ];
+      prepareLivePauseEdit(boardB, ids.scene, 60);
+      const bOps = pauseMoveOps(boardB.records, ids.scene, 60, [{ id: sapph0, pos: { x: 600, y: 600 } }]);
       expect(hub2.b.edit(bOps)).toBe(true);
       await hub2.flush();
 
@@ -1359,24 +1372,19 @@ describe("adversarial review regressions (clock CAS + lost-race rollback, tombst
       const boardA = sessionBoardAdapter(hub.a, base.rosterSlots);
       const boardB = sessionBoardAdapter(hub.b, base.rosterSlots);
 
-      // Disconnect B, then B queues an editSilent timestamp-switch cleanup (20 -> 60) while offline.
+      // Disconnect B, then B queues an editSilent timestamp-switch cleanup (20 -> null) while offline.
       await hub.drop("B");
-      const switchedB = prepareLivePauseEdit(boardB, ids.scene, 60);
-      expect(switchedB).toBe(true);
+      prepareLivePauseEdit(boardB, ids.scene, 60);
       await hub.flush();
 
-      // Meanwhile A switches 20 -> 40 and moves Sapphire-0 to (400, 400), settling on the server.
-      const switchedA = prepareLivePauseEdit(boardA, ids.scene, 40);
-      expect(switchedA).toBe(true);
-      const aOps = [
-        ...pauseSwitchFallbackOps(ids.scene, 40, switchedA),
-        ...pauseMoveOps(boardA.records, ids.scene, 40, [{ id: sapph0, pos: { x: 400, y: 400 } }]),
-      ];
+      // Meanwhile A switches 20 -> null -> 40 and moves Sapphire-0 to (400, 400), settling on the server.
+      prepareLivePauseEdit(boardA, ids.scene, 40);
+      const aOps = pauseMoveOps(boardA.records, ids.scene, 40, [{ id: sapph0, pos: { x: 400, y: 400 } }]);
       expect(hub.a.edit(aOps)).toBe(true);
       await hub.deliverAll("A");
 
-      // Reconnect B: connected() replays pending frames including B's editSilent switch (20 -> 60).
-      // Because it has no undo entry (hasUndoFor === false), connected() must NOT tag it in pauseEditClocks!
+      // Reconnect B: connected() replays pending frames including B's editSilent clear (20 -> null).
+      // Because clearPauseOverridesOps only clears to null, connected() never tags it in pauseEditClocks!
       await hub.reconnect("B");
       const tagged = (hub.b as unknown as { pauseEditClocks: Map<number, unknown> }).pauseEditClocks;
       expect(tagged.size).toBe(0);
@@ -1453,6 +1461,91 @@ describe("adversarial review regressions (clock CAS + lost-race rollback, tombst
     }
   });
 
+  it("Journal-restored pending pause edit (empty undo stack after reload) rolls back cleanly on both own-Entry and Rebase", async () => {
+    const base = makeHarness(false);
+    const ids = base.ids;
+    const amber0 = ids.players[0]![0];
+    const sapph0 = ids.players[6]![0];
+    const baseDoc = JSON.parse(base.replica.view()) as Doc;
+
+    // Part 1: Journal-restored pending pause edit delivered via own-Entry after reload.
+    const hub1 = await createTwoClientHub(baseDoc);
+    try {
+      // B submits a 60s pause edit while live -> MemoryPersist.savePending journals it while base state keeps undo: [].
+      expect(hub1.b.edit(pauseMoveOps(sessionRecords(hub1.b), ids.scene, 60, [{ id: sapph0, pos: { x: 600, y: 600 } }]))).toBe(true);
+      await hub1.flush();
+      expect((JSON.parse(hub1.persists.B.data.get(BOARD_ID)!) as { undo: unknown[] }).undo).toHaveLength(0);
+      expect(hub1.persists.B.journal.get(BOARD_ID)?.size).toBe(1);
+
+      // Drop B before the server processes B's queued submit (tab crash/reload mid-flight).
+      await hub1.drop("B");
+
+      // Coach A (20s) wins on the server while B is reloading.
+      expect(hub1.a.edit(pauseMoveOps(sessionRecords(hub1.a), ids.scene, 20, [{ id: amber0, pos: { x: 200, y: 200 } }]))).toBe(true);
+      await hub1.deliverAll("A");
+
+      // Reload B from persist (journal folds pending tx with empty undo stack -> canUndo === false!).
+      await hub1.reload("B");
+      expect(hub1.b.canUndo).toBe(false);
+      const tagged = (hub1.b as unknown as { pauseEditClocks: Map<number, unknown> }).pauseEditClocks;
+      expect(tagged.size).toBe(1);
+
+      // Deliver B's journal-restored edit + rollback.
+      await hub1.settle();
+
+      for (const s of [hub1.a, hub1.b]) {
+        const recs = sessionRecords(s);
+        expect(sceneClockOf(recs, ids.scene)).toBe(20);
+        const aRec = recs[amber0]!.record;
+        const sRec = recs[sapph0]!.record;
+        expect("PlayerState" in aRec && aRec.PlayerState.placed).toBe(true);
+        expect("PlayerState" in aRec && aRec.PlayerState.pos).toEqual({ x: 200, y: 200 });
+        expect("PlayerState" in sRec && sRec.PlayerState.placed).toBe(false);
+        expect("PlayerState" in sRec && sRec.PlayerState.pos).toEqual({ x: 0, y: 0 });
+        expect(s.problems).toEqual([]);
+      }
+    } finally {
+      hub1.stop();
+    }
+
+    // Part 2: Journal-restored pending pause edits delivered ONLY via ServerMsg::Rebase after reload.
+    const hub2 = await createTwoClientHub(baseDoc);
+    try {
+      // Both submit concurrently: A (20s) moves Amber-0; B (60s) moves Sapphire-0 and Amber-0 (journaled).
+      expect(hub2.a.edit(pauseMoveOps(sessionRecords(hub2.a), ids.scene, 20, [{ id: amber0, pos: { x: 200, y: 200 } }]))).toBe(true);
+      expect(hub2.b.edit(pauseMoveOps(sessionRecords(hub2.b), ids.scene, 60, [{ id: sapph0, pos: { x: 600, y: 600 } }]))).toBe(true);
+      expect(hub2.b.edit(pauseMoveOps(sessionRecords(hub2.b), ids.scene, 60, [{ id: amber0, pos: { x: 610, y: 610 } }]))).toBe(true);
+      await hub2.flush();
+
+      // Drop B before seeing any Entry; server commits A, then B's two submits, then A overwrites Amber-0 to (250, 250).
+      await hub2.drop("B");
+      await hub2.deliverAll("A");
+      await hub2.deliverAll("B");
+      expect(hub2.a.edit(pauseMoveOps(sessionRecords(hub2.a), ids.scene, 20, [{ id: amber0, pos: { x: 250, y: 250 } }]))).toBe(true);
+      await hub2.deliverAll("A");
+
+      // Reload B from persist (folds journal with empty undo stack!) and reconnect via ServerMsg::Rebase.
+      await hub2.reload("B", { rebase: { decidedBelow: 2 } });
+      expect(hub2.b.canUndo).toBe(false);
+      await hub2.settle();
+
+      for (const s of [hub2.a, hub2.b]) {
+        const recs = sessionRecords(s);
+        expect(sceneClockOf(recs, ids.scene)).toBe(20);
+        const aRec = recs[amber0]!.record;
+        const sRec = recs[sapph0]!.record;
+        // Winner's Amber-0 (250, 250) preserved; journal-restored leaked Sapphire-0 reverted!
+        expect("PlayerState" in aRec && aRec.PlayerState.placed).toBe(true);
+        expect("PlayerState" in aRec && aRec.PlayerState.pos).toEqual({ x: 250, y: 250 });
+        expect("PlayerState" in sRec && sRec.PlayerState.placed).toBe(false);
+        expect("PlayerState" in sRec && sRec.PlayerState.pos).toEqual({ x: 0, y: 0 });
+        expect(s.problems).toEqual([]);
+      }
+    } finally {
+      hub2.stop();
+    }
+  });
+
   it("concurrent 2-replica same-clock tombstone SceneState restore preserves both doors & obj_health and never regresses rows 42 -> 33", () => {
     createRoot((dispose) => {
       // Seed a cycle that creates SceneState with rows: 42 (doors), then clears it via clearPauseOverridesOps -> clean tombstone!
@@ -1463,7 +1556,7 @@ describe("adversarial review regressions (clock CAS + lost-race rollback, tombst
         ...prep0.prefix,
         ...placeDoorwayOps({ scene: h.ids.scene, state: prep0.state, mint: () => hexId(8001), seed: [] }, "amber", { x: 10, y: 10 }),
       ]);
-      for (const tx of clearPauseOverridesOps(h.board.records, h.ids.scene, null)) h.apply(tx, true);
+      for (const tx of clearPauseOverridesOps(h.board.records, h.ids.scene)) h.apply(tx, true);
       const ssId = liveSceneStateId(BOARD_ID, MATCH_ID);
       expect(h.board.records[ssId]?.deleted).toBe(true);
 
@@ -1569,13 +1662,9 @@ describe("adversarial review regressions (clock CAS + lost-race rollback, tombst
       const { replica, ids, board, apply, pl } = makeHarness(false);
       // Edit at 20s (pushes onto undo stack).
       apply(pauseMoveOps(board.records, ids.scene, 20, [{ id: pl(0).id, pos: { x: 200, y: 200 } }]));
-      // Switch to 60s via prepareLivePauseEdit -> clears 20s, stamps 60, and prunes 20s undo entries!
-      const switched = prepareLivePauseEdit(board, ids.scene, 60);
-      expect(switched).toBe(true);
-      const edit60 = [
-        ...pauseSwitchFallbackOps(ids.scene, 60, switched),
-        ...pauseMoveOps(board.records, ids.scene, 60, [{ id: pl(1).id, pos: { x: 600, y: 600 } }]),
-      ];
+      // Switch to 60s via prepareLivePauseEdit -> clears 20s to null and prunes 20s undo entries!
+      prepareLivePauseEdit(board, ids.scene, 60);
+      const edit60 = pauseMoveOps(board.records, ids.scene, 60, [{ id: pl(1).id, pos: { x: 600, y: 600 } }]);
       apply(edit60);
 
       // Undo once -> undoes ONLY the 60s edit, leaves canUndo === false (never resurrects 20s!).
