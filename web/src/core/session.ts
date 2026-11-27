@@ -204,8 +204,8 @@ export class BoardSession {
    * comes again on every reconnect until the hello's `pending_from` passes it (authority.rs),
    * so each is kept until then (`connected`), never on first receipt. */
   private readonly ensures = new Set<number>();
-  /** Pending pause-edit transactions keyed by cseq -> intended `{ scene, clock }` for lost-race rollback. */
-  private readonly pauseEditClocks = new Map<number, { scene: RecordId; clock: number }>();
+  /** Pending pause-edit transactions keyed by cseq -> intended `{ scene, clock, ops }` for lost-race rollback. */
+  private readonly pauseEditClocks = new Map<number, { scene: RecordId; clock: number; ops: Op[] }>();
   /** Buffered server-applied inverses for lost pause-edit races, flushed LIFO once pending txs for `(scene, clock)` settle. */
   private readonly lostPauseRollbacks = new Map<string, Array<{ inv: Op[]; txOps: Op[] }>>();
   private saveSoon: ReturnType<typeof setTimeout> | undefined;
@@ -391,7 +391,7 @@ export class BoardSession {
         this.ensures.add(cseq);
       }
       const tag = pauseEditClockTag(ops);
-      if (tag) this.pauseEditClocks.set(cseq, tag);
+      if (tag) this.pauseEditClocks.set(cseq, { ...tag, ops });
     }
     return ok;
   }
@@ -435,13 +435,17 @@ export class BoardSession {
   /** The hello just made: recognise any restored live-layer ensure still pending across a reload
    * (TD-35), and forget ensures below `pending_from` (the server no longer reports them). */
   private connected(frames: WireIn[]) {
+    const r = this.replica;
     for (const f of frames) {
       if (f.t === "msg" && "Submit" in f.msg) {
         if (isLiveLayerCreate(this.o.board, f.msg.Submit) || isLiveEntityCreate(this.o.board, this.records, f.msg.Submit)) {
           this.ensures.add(f.msg.Submit.cseq);
         }
+        // Only re-tag user pause edits (those with an undo entry), never `editSilent` cleanups.
         const tag = pauseEditClockTag(f.msg.Submit.ops);
-        if (tag) this.pauseEditClocks.set(f.msg.Submit.cseq, tag);
+        if (tag && r?.hasUndoFor(f.msg.Submit.cseq)) {
+          this.pauseEditClocks.set(f.msg.Submit.cseq, { ...tag, ops: f.msg.Submit.ops });
+        }
       }
     }
     const hello = frames[0];
@@ -736,6 +740,7 @@ export class BoardSession {
         const lost = typeof m === "object" && "Rejected" in m && this.ensures.has(m.Rejected.cseq) && m.Rejected.reason === "IdTaken";
         let rejectedPauseTag: { scene: RecordId; clock: number } | undefined;
         let ownPauseTag: { scene: RecordId; clock: number } | undefined;
+        let rebasedPauseTags: Array<{ cseq: number; scene: RecordId; clock: number; ops: Op[] }> | undefined;
         if (typeof m === "object" && "Rejected" in m) {
           rejectedPauseTag = this.pauseEditClocks.get(m.Rejected.cseq);
           this.pauseEditClocks.delete(m.Rejected.cseq);
@@ -749,8 +754,16 @@ export class BoardSession {
           ownPauseTag = this.pauseEditClocks.get(m.Entry.tx.cseq);
           this.pauseEditClocks.delete(m.Entry.tx.cseq);
         } else if (typeof m === "object" && "Rebase" in m) {
-          for (const c of this.pauseEditClocks.keys()) {
-            if (c < m.Rebase.decided_below) this.pauseEditClocks.delete(c);
+          const decided: Array<{ cseq: number; scene: RecordId; clock: number; ops: Op[] }> = [];
+          for (const [c, tag] of this.pauseEditClocks) {
+            if (c < m.Rebase.decided_below) {
+              decided.push({ cseq: c, ...tag });
+              this.pauseEditClocks.delete(c);
+            }
+          }
+          if (decided.length) {
+            decided.sort((a, b) => a.cseq - b.cseq);
+            rebasedPauseTags = decided;
           }
         }
         this.apply(r.receive(JSON.stringify(frame)));
@@ -781,11 +794,33 @@ export class BoardSession {
             this.flushLostPauseRollback(`${rejectedPauseTag.scene}:${rejectedPauseTag.clock}`);
           }
         } else if (typeof m === "object" && "Rebase" in m) {
+          let droppedAnyUndo = false;
+          let flushedAny = false;
+          if (rebasedPauseTags) {
+            for (const item of rebasedPauseTags) {
+              const confirmedClock = r.confirmedSceneClock(item.scene) ?? null;
+              if (confirmedClock !== item.clock) {
+                const localInv = JSON.parse(r.takeUndoFor(item.cseq)) as Op[] | null;
+                if (localInv !== null) droppedAnyUndo = true;
+                if (localInv?.length) {
+                  const key = `${item.scene}:${item.clock}`;
+                  const list = this.lostPauseRollbacks.get(key) ?? [];
+                  list.push({ inv: localInv, txOps: item.ops });
+                  this.lostPauseRollbacks.set(key, list);
+                }
+              }
+            }
+          }
           for (const key of [...this.lostPauseRollbacks.keys()]) {
             const sep = key.lastIndexOf(":");
             const scene = key.slice(0, sep);
             const clock = Number(key.slice(sep + 1));
-            if (!this.hasPendingPauseClock(scene, clock)) this.flushLostPauseRollback(key);
+            if (!this.hasPendingPauseClock(scene, clock)) {
+              if (this.flushLostPauseRollback(key)) flushedAny = true;
+            }
+          }
+          if (droppedAnyUndo && !flushedAny) {
+            this.apply(r.dropHistoryFor("[]"));
           }
         }
         this.persistSoon();

@@ -865,15 +865,22 @@ async function createTwoClientHub(baseDoc: Doc) {
   const auth = new BoardReplica(newClientId(), newClientSecret(), JSON.stringify({ seq: 0, doc: baseDoc }));
   let seq = 0;
   const log: Array<{ seq: number; tx: Tx }> = [];
+  const decided = new Set<string>();
   type Peer = {
     name: "A" | "B";
     peerId: number;
     socket: SocketLike;
     queue: Tx[];
+    online: boolean;
   };
   const peers: Record<"A" | "B", Peer | undefined> = { A: undefined, B: undefined };
+  const heldConnect: Record<"A" | "B", (() => void) | undefined> = { A: undefined, B: undefined };
+  const holdReconnect: Record<"A" | "B", boolean> = { A: false, B: false };
+  const rebaseNextHello: Record<"A" | "B", { decidedBelow: number } | undefined> = { A: undefined, B: undefined };
 
-  const sendOut = (p: Peer, frame: WireOut) => p.socket.onmessage?.({ data: JSON.stringify(frame) });
+  const sendOut = (p: Peer, frame: WireOut) => {
+    if (p.online) p.socket.onmessage?.({ data: JSON.stringify(frame) });
+  };
 
   const makeSession = (name: "A" | "B", peerId: number): BoardSession =>
     new BoardSession({
@@ -881,6 +888,8 @@ async function createTwoClientHub(baseDoc: Doc) {
       board: BOARD_ID,
       token: "tok",
       persist: new MemoryPersist(),
+      minDelayMs: 5,
+      maxDelayMs: 10,
       openSocket: () => {
         const sock: SocketLike = {
           onopen: null,
@@ -900,19 +909,40 @@ async function createTwoClientHub(baseDoc: Doc) {
                 kind: "board",
               });
             } else if (frame.t === "msg" && "Hello" in frame.msg) {
-              for (const entry of log) {
-                if (entry.seq > frame.msg.Hello.last_seq) {
-                  sendOut(peer, { t: "msg", msg: { Entry: entry } });
+              const rb = rebaseNextHello[name];
+              if (rb) {
+                rebaseNextHello[name] = undefined;
+                sendOut(peer, {
+                  t: "msg",
+                  msg: { Rebase: { doc: JSON.parse(auth.view()) as Doc, seq, decided_below: rb.decidedBelow } },
+                });
+              } else {
+                for (const entry of log) {
+                  if (entry.seq > frame.msg.Hello.last_seq) {
+                    sendOut(peer, { t: "msg", msg: { Entry: entry } });
+                  }
                 }
               }
             } else if (frame.t === "msg" && "Submit" in frame.msg) {
               peer.queue.push(frame.msg.Submit);
             }
           },
-          close: () => {},
+          close: () => {
+            if (peers[name]?.socket === sock) peers[name]!.online = false;
+          },
         };
-        peers[name] = { name, peerId, socket: sock, queue: [] };
-        queueMicrotask(() => sock.onopen?.({}));
+        const prevQueue = peers[name]?.queue ?? [];
+        const openNow = () => {
+          peers[name] = { name, peerId, socket: sock, queue: prevQueue, online: true };
+          sock.onopen?.({});
+        };
+        if (holdReconnect[name]) {
+          peers[name] = { name, peerId, socket: sock, queue: prevQueue, online: false };
+          heldConnect[name] = openNow;
+        } else {
+          peers[name] = { name, peerId, socket: sock, queue: prevQueue, online: true };
+          queueMicrotask(() => sock.onopen?.({}));
+        }
         return sock;
       },
     });
@@ -931,6 +961,10 @@ async function createTwoClientHub(baseDoc: Doc) {
     const peer = peers[name]!;
     const tx = peer.queue.shift();
     if (!tx) return false;
+    const key = `${tx.client}:${tx.cseq}`;
+    // Match real server authority.rs: ignore resent Submits already decided on a prior connection.
+    if (decided.has(key)) return true;
+    decided.add(key);
     const res = JSON.parse(auth.edit_silent(JSON.stringify(tx.ops))) as { refused: string | null };
     if (res.refused) {
       sendOut(peer, { t: "msg", msg: { Rejected: { cseq: tx.cseq, reason: res.refused as never } } });
@@ -939,13 +973,34 @@ async function createTwoClientHub(baseDoc: Doc) {
     seq += 1;
     const entry = { seq, tx };
     log.push(entry);
-    for (const p of Object.values(peers)) if (p) sendOut(p, { t: "msg", msg: { Entry: entry } });
+    for (const p of Object.values(peers)) if (p && p.online) sendOut(p, { t: "msg", msg: { Entry: entry } });
     return true;
   };
 
   const deliverAll = async (name: "A" | "B") => {
     await flush();
     while (deliverOne(name)) await flush();
+  };
+
+  const drop = async (name: "A" | "B") => {
+    holdReconnect[name] = true;
+    const peer = peers[name]!;
+    peer.online = false;
+    peer.socket.onclose?.({});
+    await flush();
+  };
+
+  const reconnect = async (name: "A" | "B", opts?: { rebase?: { decidedBelow: number } }) => {
+    if (opts?.rebase) rebaseNextHello[name] = opts.rebase;
+    holdReconnect[name] = false;
+    // Wait until BoardSession's retry timer invokes openSocket if it hasn't yet.
+    for (let i = 0; i < 20 && !heldConnect[name]; i++) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    const fn = heldConnect[name];
+    heldConnect[name] = undefined;
+    fn?.();
+    await flush();
   };
 
   const settle = async () => {
@@ -965,6 +1020,8 @@ async function createTwoClientHub(baseDoc: Doc) {
     flush,
     deliverOne,
     deliverAll,
+    drop,
+    reconnect,
     settle,
     stop: () => {
       a.stop();
@@ -1285,6 +1342,114 @@ describe("adversarial review regressions (clock CAS + lost-race rollback, tombst
       expect(hub2.b.canUndo).toBe(true);
     } finally {
       hub2.stop();
+    }
+  });
+
+  it("Reconnect silent-cleanup (Major A): pending editSilent timestamp-switch tx across connected() is NOT re-tagged or rolled back on lost CAS", async () => {
+    const base = makeHarness(false);
+    const ids = base.ids;
+    const amber0 = ids.players[0]![0];
+    const sapph0 = ids.players[6]![0];
+    // Start at clock = 20 with Amber-0 moved to (200, 200).
+    base.apply(pauseMoveOps(base.board.records, ids.scene, 20, [{ id: amber0, pos: { x: 200, y: 200 } }]));
+    const baseDoc = JSON.parse(base.replica.view()) as Doc;
+
+    const hub = await createTwoClientHub(baseDoc);
+    try {
+      const boardA = sessionBoardAdapter(hub.a, base.rosterSlots);
+      const boardB = sessionBoardAdapter(hub.b, base.rosterSlots);
+
+      // Disconnect B, then B queues an editSilent timestamp-switch cleanup (20 -> 60) while offline.
+      await hub.drop("B");
+      const switchedB = prepareLivePauseEdit(boardB, ids.scene, 60);
+      expect(switchedB).toBe(true);
+      await hub.flush();
+
+      // Meanwhile A switches 20 -> 40 and moves Sapphire-0 to (400, 400), settling on the server.
+      const switchedA = prepareLivePauseEdit(boardA, ids.scene, 40);
+      expect(switchedA).toBe(true);
+      const aOps = [
+        ...pauseSwitchFallbackOps(ids.scene, 40, switchedA),
+        ...pauseMoveOps(boardA.records, ids.scene, 40, [{ id: sapph0, pos: { x: 400, y: 400 } }]),
+      ];
+      expect(hub.a.edit(aOps)).toBe(true);
+      await hub.deliverAll("A");
+
+      // Reconnect B: connected() replays pending frames including B's editSilent switch (20 -> 60).
+      // Because it has no undo entry (hasUndoFor === false), connected() must NOT tag it in pauseEditClocks!
+      await hub.reconnect("B");
+      const tagged = (hub.b as unknown as { pauseEditClocks: Map<number, unknown> }).pauseEditClocks;
+      expect(tagged.size).toBe(0);
+
+      await hub.settle();
+
+      for (const s of [hub.a, hub.b]) {
+        const recs = sessionRecords(s);
+        expect(sceneClockOf(recs, ids.scene)).toBe(40);
+        const aRec = recs[amber0]!.record;
+        const sRec = recs[sapph0]!.record;
+        // Stale 20s Amber-0 override must NOT be resurrected!
+        expect("PlayerState" in aRec && aRec.PlayerState.placed).toBe(false);
+        expect("PlayerState" in aRec && aRec.PlayerState.pos).toEqual({ x: 0, y: 0 });
+        expect("PlayerState" in sRec && sRec.PlayerState.placed).toBe(true);
+        expect("PlayerState" in sRec && sRec.PlayerState.pos).toEqual({ x: 400, y: 400 });
+        expect(s.problems).toEqual([]);
+      }
+      expect(hub.b.canUndo).toBe(false);
+    } finally {
+      hub.stop();
+    }
+  });
+
+  it("Rebase-only delivery (Major B): losing pause edits below decided_below are reverted without clobbering winner and dead undo entries are dropped", async () => {
+    const base = makeHarness(false);
+    const ids = base.ids;
+    const amber0 = ids.players[0]![0];
+    const sapph0 = ids.players[6]![0];
+    const baseDoc = JSON.parse(base.replica.view()) as Doc;
+
+    const hub = await createTwoClientHub(baseDoc);
+    try {
+      // Both clients submit concurrently from clock = null:
+      // - Coach A (20s): moves Amber-0 to (200, 200)
+      // - Coach B (60s): cseq 0 moves Sapphire-0 to (600, 600), cseq 1 moves Amber-0 to (610, 610)
+      expect(hub.a.edit(pauseMoveOps(sessionRecords(hub.a), ids.scene, 20, [{ id: amber0, pos: { x: 200, y: 200 } }]))).toBe(true);
+      expect(hub.b.edit(pauseMoveOps(sessionRecords(hub.b), ids.scene, 60, [{ id: sapph0, pos: { x: 600, y: 600 } }]))).toBe(true);
+      expect(hub.b.edit(pauseMoveOps(sessionRecords(hub.b), ids.scene, 60, [{ id: amber0, pos: { x: 610, y: 610 } }]))).toBe(true);
+      await hub.flush();
+
+      // Drop B before B receives ANY Entry (its two submits are already queued at the server).
+      await hub.drop("B");
+
+      // Server accepts A (20s -> Amber-0 at 200,200), then B's two submits (leaking Sapphire-0 at 600,600
+      // and Amber-0 at 610,610 onto clock = 20), then A moves Amber-0 to (250, 250) overwriting B's 610,610.
+      await hub.deliverAll("A");
+      await hub.deliverAll("B");
+      expect(hub.a.edit(pauseMoveOps(sessionRecords(hub.a), ids.scene, 20, [{ id: amber0, pos: { x: 250, y: 250 } }]))).toBe(true);
+      await hub.deliverAll("A");
+
+      // Reconnect B via ServerMsg::Rebase (compaction floor past B's cseq 0 and 1 -> decided_below = 2).
+      await hub.reconnect("B", { rebase: { decidedBelow: 2 } });
+      await hub.settle();
+
+      for (const s of [hub.a, hub.b]) {
+        const recs = sessionRecords(s);
+        expect(sceneClockOf(recs, ids.scene)).toBe(20);
+        const aRec = recs[amber0]!.record;
+        const sRec = recs[sapph0]!.record;
+        // Coach A's winning Amber-0 position (250, 250) is 100% preserved (never unplaced or overwritten!).
+        expect("PlayerState" in aRec && aRec.PlayerState.placed).toBe(true);
+        expect("PlayerState" in aRec && aRec.PlayerState.pos).toEqual({ x: 250, y: 250 });
+        // Coach B's leaked Sapphire-0 override is 100% reverted back to baseline!
+        expect("PlayerState" in sRec && sRec.PlayerState.placed).toBe(false);
+        expect("PlayerState" in sRec && sRec.PlayerState.pos).toEqual({ x: 0, y: 0 });
+        expect(s.problems).toEqual([]);
+      }
+      // Both of Coach B's dead undo entries were removed on Rebase!
+      expect(hub.b.canUndo).toBe(false);
+      expect(hub.a.canUndo).toBe(true);
+    } finally {
+      hub.stop();
     }
   });
 

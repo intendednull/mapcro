@@ -208,6 +208,11 @@ impl Replica {
         self.redo.retain(keep);
     }
 
+    /// Whether the undo stack holds an entry for `cseq` (`false` for `edit_silent` / `ensure`).
+    pub fn has_undo_for(&self, cseq: u64) -> bool {
+        self.undo.iter().any(|e| e.cseq == cseq)
+    }
+
     /// Find and remove the undo history entry for `cseq`, returning its locally-computed inverse.
     /// Purely local; sends nothing on the wire.
     pub fn take_undo_for(&mut self, cseq: u64) -> Option<Vec<Op>> {
@@ -944,19 +949,26 @@ mod drop_history_tests {
     #[test]
     fn take_undo_for_removes_matching_entry_and_returns_inverse() {
         let mut r = replica_with_live();
+        let c_silent = r.next_cseq();
+        r.edit_silent(vec![Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerSouls(Some(1000)) }]).expect("silent");
+        assert!(!r.has_undo_for(c_silent), "edit_silent never creates an undo entry");
+
         let c0 = r.next_cseq();
         r.edit(vec![Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerSouls(Some(5000)) }]).expect("c0");
         let c1 = r.next_cseq();
         r.edit(vec![Op::Set { id: LIVE_PLAYER, value: FieldValue::PlayerSouls(Some(9000)) }]).expect("c1");
+        assert!(r.has_undo_for(c0));
+        assert!(r.has_undo_for(c1));
 
         // Taking the older entry returns its inverse and leaves the newer entry on the undo stack.
         let inv0 = r.take_undo_for(c0).expect("c0 inverse");
+        assert!(!r.has_undo_for(c0));
         assert_eq!(
             inv0,
             vec![Op::SetIf {
                 id: LIVE_PLAYER,
                 expect: FieldValue::PlayerSouls(Some(5000)),
-                value: FieldValue::PlayerSouls(None),
+                value: FieldValue::PlayerSouls(Some(1000)),
             }]
         );
         assert!(r.take_undo_for(c0).is_none(), "second take returns None");

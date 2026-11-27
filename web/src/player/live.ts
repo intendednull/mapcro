@@ -7,6 +7,7 @@
 // are presence, never stored. Pure.
 
 import type { Entry } from "../gen/Entry";
+import type { FieldValue } from "../gen/FieldValue";
 import type { More } from "../gen/More";
 import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { Op } from "../gen/Op";
@@ -451,17 +452,87 @@ function moreOf(rec: Entry["record"]): More | undefined {
   return undefined;
 }
 
+function cloneRecord(rec: Entry["record"]): Entry["record"] {
+  if ("PlayerState" in rec) {
+    return { PlayerState: { ...rec.PlayerState, pos: { ...rec.PlayerState.pos }, more: { ...(rec.PlayerState.more ?? {}) } } };
+  }
+  if ("SceneState" in rec) return { SceneState: { ...rec.SceneState, more: { ...(rec.SceneState.more ?? {}) } } };
+  if ("Wave" in rec) return { Wave: { ...rec.Wave, more: { ...(rec.Wave.more ?? {}) } } };
+  if ("ObjectiveState" in rec) return { ObjectiveState: { ...rec.ObjectiveState, more: { ...(rec.ObjectiveState.more ?? {}) } } };
+  return rec;
+}
+
+function matchesField(rec: Entry["record"], expect: FieldValue): boolean {
+  if ("More" in expect) {
+    const m = moreOf(rec);
+    if (!m) return false;
+    return JSON.stringify(m[expect.More.key] ?? null) === JSON.stringify(expect.More.value ?? null);
+  }
+  if ("PlayerState" in rec) {
+    const ps = rec.PlayerState;
+    if ("PlayerPos" in expect) return ps.pos.x === expect.PlayerPos.x && ps.pos.y === expect.PlayerPos.y;
+    if ("PlayerAlive" in expect) return ps.alive === expect.PlayerAlive;
+    if ("PlayerPlaced" in expect) return ps.placed === expect.PlayerPlaced;
+    if ("PlayerSouls" in expect) return (ps.souls ?? null) === expect.PlayerSouls;
+    if ("PlayerUltCooldown" in expect) return (ps.ult_cooldown ?? null) === expect.PlayerUltCooldown;
+    if ("PlayerVisible" in expect) return ps.visible === expect.PlayerVisible;
+    if ("PlayerRespawn" in expect) return (ps.respawn ?? null) === expect.PlayerRespawn;
+    return false;
+  }
+  if ("Wave" in rec && "WavePos" in expect) return rec.Wave.t === expect.WavePos;
+  if ("ObjectiveState" in rec && "ObjectiveStatus" in expect) return rec.ObjectiveState.status === expect.ObjectiveStatus;
+  return false;
+}
+
+function applySimField(rec: Entry["record"], value: FieldValue): void {
+  if ("More" in value) {
+    const m = moreOf(rec);
+    if (!m) return;
+    if (value.More.value == null) delete m[value.More.key];
+    else m[value.More.key] = value.More.value;
+    return;
+  }
+  if ("PlayerState" in rec) {
+    const ps = rec.PlayerState;
+    if ("PlayerPos" in value) ps.pos = { ...value.PlayerPos };
+    else if ("PlayerAlive" in value) ps.alive = value.PlayerAlive;
+    else if ("PlayerPlaced" in value) ps.placed = value.PlayerPlaced;
+    else if ("PlayerSouls" in value) ps.souls = value.PlayerSouls;
+    else if ("PlayerUltCooldown" in value) ps.ult_cooldown = value.PlayerUltCooldown;
+    else if ("PlayerVisible" in value) ps.visible = value.PlayerVisible;
+    else if ("PlayerRespawn" in value) ps.respawn = value.PlayerRespawn;
+    return;
+  }
+  if ("Wave" in rec && "WavePos" in value) rec.Wave.t = value.WavePos;
+  else if ("ObjectiveState" in rec && "ObjectiveStatus" in value) rec.ObjectiveState.status = value.ObjectiveStatus;
+}
+
+function isPlayerOtherFieldsBaseline(ps: PlayerState): boolean {
+  return (
+    ps.pos.x === 0 &&
+    ps.pos.y === 0 &&
+    ps.alive &&
+    ps.souls == null &&
+    ps.ult_cooldown == null &&
+    ps.visible &&
+    ps.respawn == null &&
+    !hasMoreKeys(ps.more)
+  );
+}
+
 /**
  * Build safe rollback transactions when one or more pause-edit transactions lose a concurrent
- * `SceneClock` race (Blocker #2):
+ * `SceneClock` race (live own-`Entry` OR `Rebase`):
  * - Drops `SceneClock` ops (never touches the winner's clock) and `Restore` ops (never resurrects
  *   a record the winner deleted).
- * - Keeps `SetIf` field reverts in LIFO order (safe by construction: skips if a peer wrote a
- *   different value).
+ * - Simulates each `SetIf` in LIFO order against live `records`, skipping any `SetIf` whose
+ *   `expect` does not match (so rejected or peer-overwritten rebased txs emit zero unnecessary ops).
+ * - Defers `SetIf(PlayerPlaced: true -> false)` until after other field reverts on that hero and
+ *   emits it ONLY when no field on that hero mismatched and all other fields are back to baseline
+ *   (so a rebased local inverse never unplaces a winner's hero).
  * - For `Delete { id }` (inverse of our `Create` or `Restore` on `SceneState`/`Wave`/`ObjectiveState`),
- *   scrubs any `Create` `more` keys via `SetIf` first and emits `Delete { id }` ONLY when simulating
- *   our `SetIf` chain against the live record matches every field and leaves `more` empty (never
- *   deleting a shared record a peer wrote to).
+ *   scrubs any `Create` `more` keys via `SetIf` first and emits `Delete { id }` ONLY when every
+ *   field matched and `more` is empty (never deleting a shared record a peer wrote to).
  */
 export function buildLostPauseRollbackOps(
   inv: readonly Op[],
@@ -473,14 +544,19 @@ export function buildLostPauseRollbackOps(
     if ("Create" in op) createdById.set(op.Create.id, op.Create.record);
   }
 
-  const reverts: Op[] = [];
+  const candidateSetIfs: Array<Extract<Op, { SetIf: unknown }>> = [];
+  const deferredUnplace: Array<Extract<Op, { SetIf: unknown }>> = [];
   const deleteIds: RecordId[] = [];
   const seenDelete = new Set<RecordId>();
 
   for (const op of inv) {
     if ("SetIf" in op) {
       if ("SceneClock" in op.SetIf.value) continue;
-      reverts.push(op);
+      if ("PlayerPlaced" in op.SetIf.expect && op.SetIf.expect.PlayerPlaced === true && "PlayerPlaced" in op.SetIf.value && op.SetIf.value.PlayerPlaced === false) {
+        deferredUnplace.push(op);
+      } else {
+        candidateSetIfs.push(op);
+      }
     } else if ("Delete" in op) {
       const id = op.Delete.id;
       if (!seenDelete.has(id)) {
@@ -489,7 +565,7 @@ export function buildLostPauseRollbackOps(
         if (created) {
           for (const [key, value] of Object.entries(moreOf(created) ?? {})) {
             if (value !== undefined) {
-              reverts.push({ SetIf: { id, expect: { More: { key, value } }, value: { More: { key, value: null } } } });
+              candidateSetIfs.push({ SetIf: { id, expect: { More: { key, value } }, value: { More: { key, value: null } } } });
             }
           }
         }
@@ -499,57 +575,48 @@ export function buildLostPauseRollbackOps(
     // `Restore` (and any non-inverse op) intentionally dropped.
   }
 
+  const sim = new Map<RecordId, Entry["record"]>();
+  const getSim = (id: RecordId): Entry["record"] | undefined => {
+    if (sim.has(id)) return sim.get(id);
+    const cur = records.get(id);
+    if (!cur || cur.deleted) return undefined;
+    const cloned = cloneRecord(cur.record);
+    sim.set(id, cloned);
+    return cloned;
+  };
+
+  const reverts: Op[] = [];
+  const skippedIds = new Set<RecordId>();
+
+  for (const op of candidateSetIfs) {
+    const rec = getSim(op.SetIf.id);
+    if (!rec || !matchesField(rec, op.SetIf.expect)) {
+      skippedIds.add(op.SetIf.id);
+      continue;
+    }
+    applySimField(rec, op.SetIf.value);
+    reverts.push(op);
+  }
+
+  for (const op of deferredUnplace) {
+    const rec = getSim(op.SetIf.id);
+    if (!rec || !("PlayerState" in rec) || skippedIds.has(op.SetIf.id)) continue;
+    if (!matchesField(rec, op.SetIf.expect) || !isPlayerOtherFieldsBaseline(rec.PlayerState)) continue;
+    applySimField(rec, op.SetIf.value);
+    reverts.push(op);
+  }
+
   const deletes: Op[] = [];
   for (const id of deleteIds) {
-    const cur = records.get(id);
-    if (!cur || cur.deleted) continue;
-    const rec = cur.record;
-    if (!("SceneState" in rec || "Wave" in rec || "ObjectiveState" in rec)) continue;
-
-    const simMore: Record<string, unknown> = { ...(moreOf(rec) ?? {}) };
-    let waveT = "Wave" in rec ? rec.Wave.t : undefined;
-    let objStatus = "ObjectiveState" in rec ? rec.ObjectiveState.status : undefined;
-    let safe = true;
-
-    for (const op of reverts) {
-      if (!("SetIf" in op) || op.SetIf.id !== id) continue;
-      const { expect, value } = op.SetIf;
-      if ("More" in expect && "More" in value) {
-        const curVal = simMore[expect.More.key] ?? null;
-        const expVal = expect.More.value ?? null;
-        if (JSON.stringify(curVal) !== JSON.stringify(expVal)) {
-          safe = false;
-          break;
-        }
-        if (value.More.value == null) delete simMore[value.More.key];
-        else simMore[value.More.key] = value.More.value;
-      } else if ("WavePos" in expect && "WavePos" in value) {
-        if (waveT !== expect.WavePos) {
-          safe = false;
-          break;
-        }
-        waveT = value.WavePos;
-      } else if ("ObjectiveStatus" in expect && "ObjectiveStatus" in value) {
-        if (objStatus !== expect.ObjectiveStatus) {
-          safe = false;
-          break;
-        }
-        objStatus = value.ObjectiveStatus;
-      } else {
-        safe = false;
-        break;
-      }
+    if (skippedIds.has(id)) continue;
+    const rec = getSim(id);
+    if (!rec || !("SceneState" in rec || "Wave" in rec || "ObjectiveState" in rec)) continue;
+    const created = createdById.get(id);
+    if (created) {
+      if ("Wave" in created && "Wave" in rec && rec.Wave.t !== created.Wave.t) continue;
+      if ("ObjectiveState" in created && "ObjectiveState" in rec && rec.ObjectiveState.status !== created.ObjectiveState.status) continue;
     }
-
-    if (safe) {
-      const created = createdById.get(id);
-      if (created) {
-        if ("Wave" in created && waveT !== created.Wave.t) safe = false;
-        if ("ObjectiveState" in created && objStatus !== created.ObjectiveState.status) safe = false;
-      }
-    }
-
-    if (safe && !hasMoreKeys(simMore as More)) {
+    if (!hasMoreKeys(moreOf(rec))) {
       deletes.push({ Delete: { id } });
     }
   }
